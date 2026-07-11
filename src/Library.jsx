@@ -1,4 +1,5 @@
 import { useState, useRef } from "react";
+import { FiPlus } from "react-icons/fi";
 import { readMetadata } from "./MetadataReader";
 import MusicPlayer from "./MusicPlayer";
 
@@ -134,15 +135,15 @@ export default function MusicLibrary() {
     <div style={styles.container}>
             {/* 注入全局样式 */}
       <style>{`
-        .upload-btn {
+                .upload-btn {
           transition: transform 0.2s, box-shadow 0.2s;
         }
         .upload-btn:hover {
-          transform: scale(1.05);
+          transform: scale(1.1);
           box-shadow: 0 6px 25px rgba(233,69,96,0.5);
         }
         .upload-btn:active {
-          transform: scale(0.97);
+          transform: scale(0.92);
         }
         .album-card {
           transition: transform 0.25s ease, box-shadow 0.25s ease;
@@ -224,12 +225,13 @@ export default function MusicLibrary() {
 
         {/* 右侧：导入按钮 */}
         <button
-          className="upload-btn"
-          style={styles.importBtn}
-          onClick={() => fileInputRef.current?.click()}
-        >
-          📂 导入音乐
-        </button>
+    className="upload-btn"
+    style={styles.importBtn}
+    onClick={() => fileInputRef.current?.click()}
+    title="导入音乐"
+  >
+    <FiPlus size={18} />
+  </button>
         <input
           ref={fileInputRef}
           type="file"
@@ -384,12 +386,15 @@ const styles = {
     fontSize: "14px", cursor: "pointer", opacity: 0.5,
     padding: "2px", transition: "opacity 0.2s",
   },
-  importBtn: {
-    display: "inline-flex", alignItems: "center", gap: "6px",
-    padding: "8px 20px", borderRadius: "24px", border: "none",
+    importBtn: {
+    display: "flex", alignItems: "center", justifyContent: "center",
+    width: "40px", height: "40px", padding: 0,
+    borderRadius: "50%", border: "none",
     background: "linear-gradient(135deg, #e94560, #c73e52)",
-    color: "#fff", fontSize: "13px", fontWeight: 600,
+    color: "#fff", fontSize: "18px",
     cursor: "pointer", boxShadow: "0 4px 15px rgba(233,69,96,0.3)", flexShrink: 0,
+    marginLeft: "auto",
+    transition: "transform 0.2s, box-shadow 0.2s",
   },
   stats: { fontSize: "12px", color: "#6b7280", whiteSpace: "nowrap", flexShrink: 0 },
 

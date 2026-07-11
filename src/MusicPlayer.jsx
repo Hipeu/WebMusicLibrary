@@ -1,4 +1,7 @@
 import { useState, useRef, useEffect } from "react";
+import { FaChevronDown } from "react-icons/fa";
+import Lyrics from "./Lyrics";
+import { parseLRC } from "./LyricsParser";
 
 /* ================================================================
    🎵 MusicPlayer — 播放控制器
@@ -21,7 +24,9 @@ export default function MusicPlayer({
   setVolume,
   audioRef,
 }) {
-  const [showDetail, setShowDetail] = useState(false);
+    const [showDetail, setShowDetail] = useState(false);
+  const [lyricsData, setLyricsData] = useState(null); // { type: 'timed'|'plain', lines: [...] }
+  const lrcInputRef = useRef(null);
 
   // 当前专辑 & 当前歌曲
   const currentAlbum = albums.find((a) => a.id === currentAlbumId) || null;
@@ -36,6 +41,23 @@ export default function MusicPlayer({
     return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
   }
 
+    // ---------- 导入 LRC 歌词 ----------
+  function handleImportLRC(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const text = evt.target?.result;
+      if (typeof text === "string") {
+        const parsed = parseLRC(text);
+        setLyricsData(parsed);
+      }
+    };
+    reader.readAsText(file, "utf-8");
+    // 重置 input 以便重复选择同文件
+    e.target.value = "";
+  }
+
   // ---------- 播放控制 ----------
   function togglePlay() {
     if (!audioRef.current || !currentSong) return;
@@ -47,12 +69,13 @@ export default function MusicPlayer({
     setIsPlaying(!isPlaying);
   }
 
-  function prevTrack() {
+    function prevTrack() {
     if (!currentAlbum || currentAlbum.songs.length === 0) return;
     const newIndex =
       (currentSongIndex - 1 + currentAlbum.songs.length) %
       currentAlbum.songs.length;
     setCurrentSongIndex(newIndex);
+    setLyricsData(null); // 切歌清空歌词
     setIsPlaying(true);
   }
 
@@ -60,6 +83,7 @@ export default function MusicPlayer({
     if (!currentAlbum || currentAlbum.songs.length === 0) return;
     const newIndex = (currentSongIndex + 1) % currentAlbum.songs.length;
     setCurrentSongIndex(newIndex);
+    setLyricsData(null); // 切歌清空歌词
     setIsPlaying(true);
   }
 
@@ -101,8 +125,9 @@ export default function MusicPlayer({
     }
   }
 
-  // 切换歌曲时重置 audio
+    // 切换歌曲时重置 audio 并清空歌词
   useEffect(() => {
+    setLyricsData(null);
     if (audioRef.current && currentSong) {
       audioRef.current.load();
       if (isPlaying) {
@@ -205,8 +230,8 @@ export default function MusicPlayer({
       {/* ================================================================ */}
       {showDetail && currentAlbum && currentSong && (
         <div style={styles.detailOverlay}>
-          <button className="detail-back-btn" style={styles.detailBackBtn} onClick={() => setShowDetail(false)}>
-            ← 返回资料库
+                    <button className="detail-back-btn" style={styles.detailBackBtn} onClick={() => setShowDetail(false)}>
+            <FaChevronDown />
           </button>
 
           <div style={styles.detailContent}>
@@ -248,24 +273,47 @@ export default function MusicPlayer({
               </div>
             </div>
 
-            {/* 右侧：歌词区域 */}
+                        {/* 右侧：歌词区域 */}
             <div style={styles.detailLyricsArea}>
               <div style={styles.detailLyricsHeader}>
                 <span style={styles.detailLyricsTitle}>歌词</span>
                 <span style={styles.detailNowPlayingName}>{currentSong.title}</span>
               </div>
-              <div style={styles.detailLyricsContent}>
-                <p style={styles.lyricsLine}>🎤 当前播放：{currentSong.title}</p>
-                <p style={styles.lyricsLine}>歌手：{currentSong.artist}</p>
-                <p style={styles.lyricsLine}>专辑：{currentSong.album}</p>
-                <br />
-                <p style={styles.lyricsPlaceholder}>✨ 歌词功能即将上线</p>
-                <p style={styles.lyricsPlaceholder}>敬请期待...</p>
-                <br />
-                {[...Array(8)].map((_, i) => (
-                  <p key={i} style={styles.lyricsLine}>La la la... 🎶</p>
-                ))}
+
+              {/* 导入歌词按钮 */}
+              <div style={styles.lyricsToolbar}>
+                <button
+                  style={styles.importLrcBtn}
+                  onClick={() => lrcInputRef.current?.click()}
+                >
+                  📄 导入歌词
+                </button>
+                {lyricsData?.type === "timed" && (
+                  <span style={styles.lyricsBadge}>⏱ 时间轴</span>
+                )}
+                {lyricsData?.type === "plain" && (
+                  <span style={styles.lyricsBadge}>📝 纯文本</span>
+                )}
+                <input
+                  ref={lrcInputRef}
+                  type="file"
+                  accept=".lrc,.txt"
+                  style={{ display: "none" }}
+                  onChange={handleImportLRC}
+                />
               </div>
+
+                            {/* 歌词内容 */}
+              <Lyrics
+                lyricsData={lyricsData}
+                currentTime={currentTime}
+                onSeek={(time) => {
+                  if (audioRef.current) {
+                    audioRef.current.currentTime = time;
+                    setCurrentTime(time);
+                  }
+                }}
+              />
             </div>
           </div>
         </div>
@@ -366,12 +414,14 @@ const styles = {
     paddingBottom: 0, overflow: "hidden",
     animation: "fadeIn 0.3s ease",
   },
-  detailBackBtn: {
+    detailBackBtn: {
     position: "absolute", top: "20px", left: "28px",
     background: "rgba(255,255,255,0.06)",
     border: "1px solid rgba(255,255,255,0.1)",
-    color: "#e0e0e0", fontSize: "14px", fontWeight: 500,
-    padding: "8px 20px", borderRadius: "24px", cursor: "pointer",
+    color: "#e0e0e0", fontSize: "18px",
+    width: "40px", height: "40px",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    padding: 0, borderRadius: "50%", cursor: "pointer",
     zIndex: 210, transition: "background 0.2s, transform 0.15s",
     backdropFilter: "blur(8px)",
   },
@@ -452,11 +502,39 @@ const styles = {
   detailLyricsContent: {
     flex: 1, overflowY: "auto", paddingRight: "8px", lineHeight: 2,
   },
-  lyricsLine: {
+      lyricsLine: {
     fontSize: "15px", color: "#9ca3af", margin: 0, lineHeight: 1.8,
   },
   lyricsPlaceholder: {
     fontSize: "13px", color: "#6b7280", fontStyle: "italic",
     margin: 0, lineHeight: 2,
+  },
+  lyricsToolbar: {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    marginBottom: "16px",
+  },
+  importLrcBtn: {
+    background: "rgba(233,69,96,0.15)",
+    border: "1px solid rgba(233,69,96,0.3)",
+    color: "#e94560",
+    fontSize: "13px",
+    fontWeight: 500,
+    padding: "6px 16px",
+    borderRadius: "20px",
+    cursor: "pointer",
+    transition: "background 0.2s",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "6px",
+  },
+  lyricsBadge: {
+    fontSize: "11px",
+    color: "#6b7280",
+    background: "rgba(255,255,255,0.05)",
+    padding: "3px 10px",
+    borderRadius: "12px",
+    border: "1px solid rgba(255,255,255,0.08)",
   },
 };
