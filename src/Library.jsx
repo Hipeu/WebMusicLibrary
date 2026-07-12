@@ -2,6 +2,8 @@ import { useState, useRef } from "react";
 import { FiPlus } from "react-icons/fi";
 import { readMetadata } from "./MetadataReader";
 import MusicPlayer from "./MusicPlayer";
+import AlbumDetail from "./AlbumDetail";
+import CoverPlayButton from "./CoverPlayButton";
 
 /* ======================================================
    🎵 MusicLibrary — 音乐资料库主应用
@@ -27,6 +29,9 @@ export default function MusicLibrary() {
   const currentAlbum = albums.find((a) => a.id === currentAlbumId) || null;
   const currentSong = currentAlbum?.songs?.[currentSongIndex] || null;
 
+  // ---------- 专辑详情页状态 ----------
+  const [detailAlbumId, setDetailAlbumId] = useState(null);
+
   // ---------- 导入音频文件 ----------
   async function handleImportFiles(e) {
     const selectedFiles = Array.from(e.target.files);
@@ -49,12 +54,13 @@ export default function MusicLibrary() {
       const key = entry.album || "未知专辑";
       if (!albumMap.has(key)) {
         albumMap.set(key, {
-          id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
-          title: key,
-          artist: entry.artist || "未知艺术家",
-          coverURL: entry.coverURL,
-          songs: [],
-        });
+            id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
+            title: key,
+            artist: entry.artist || "未知艺术家",
+            year: entry.year || null,
+            coverURL: entry.coverURL,
+            songs: [],
+          });
       }
       const album = albumMap.get(key);
       album.songs.push({
@@ -71,10 +77,12 @@ export default function MusicLibrary() {
 
     const newAlbums = Array.from(albumMap.values());
 
-    setAlbums((prev) => {
+        setAlbums((prev) => {
       // 合并到已有专辑中（按专辑名匹配）
       const merged = new Map();
-      for (const a of prev) merged.set(a.title, a);
+      for (const a of prev) {
+        merged.set(a.title, { ...a, songs: [...a.songs] });
+      }
       for (const a of newAlbums) {
         if (merged.has(a.title)) {
           const existing = merged.get(a.title);
@@ -85,28 +93,71 @@ export default function MusicLibrary() {
               existing.songs.push(s);
             }
           }
+          // 补全封面：已有专辑没有封面时用新专辑的
+          if (!existing.coverURL && a.coverURL) {
+            existing.coverURL = a.coverURL;
+          }
+          // 补全年份：已有专辑没有年份时用新专辑的
+          if (!existing.year && a.year) {
+            existing.year = a.year;
+          }
+          // 补全艺人：已有专辑是未知时用新专辑的
+          if ((existing.artist === "未知艺术家" || !existing.artist) && a.artist && a.artist !== "未知艺术家") {
+            existing.artist = a.artist;
+          }
         } else {
-          merged.set(a.title, a);
+          merged.set(a.title, { ...a, songs: [...a.songs] });
         }
       }
       return Array.from(merged.values());
     });
   }
 
-  // ---------- 点击专辑卡片播放 ----------
-  function handlePlayAlbum(albumId) {
-    const album = albums.find((a) => a.id === albumId);
+    // ---------- 点击专辑卡片 — 打开专辑详情页 ----------
+    function handleOpenAlbumDetail(albumId) {
+      setDetailAlbumId(albumId);
+    }
+
+    // ---------- 从卡片播放按钮播放/暂停 ----------
+    function handleQuickPlay(albumId) {
+      const album = albums.find((a) => a.id === albumId);
+      if (!album || album.songs.length === 0) return;
+
+      if (currentAlbumId === albumId) {
+        // 同一专辑：切换播放/暂停
+        togglePlay();
+      } else {
+        setCurrentAlbumId(albumId);
+        setCurrentSongIndex(0);
+        setIsPlaying(true);
+      }
+    }
+
+  // ---------- 从详情页播放整个专辑 ----------
+  function handlePlayAlbumFromDetail() {
+    const album = albums.find((a) => a.id === detailAlbumId);
     if (!album || album.songs.length === 0) return;
 
-    if (currentAlbumId === albumId) {
+    if (currentAlbumId === detailAlbumId) {
       // 同一专辑：切换播放/暂停
       togglePlay();
     } else {
-      // 切换专辑
-      setCurrentAlbumId(albumId);
-            setCurrentSongIndex(0);
+      setCurrentAlbumId(detailAlbumId);
+      setCurrentSongIndex(0);
       setIsPlaying(true);
     }
+  }
+
+  // ---------- 从详情页选择歌曲播放 ----------
+  function handlePlaySongFromDetail(songIndex) {
+    setCurrentAlbumId(detailAlbumId);
+    setCurrentSongIndex(songIndex);
+    setIsPlaying(true);
+  }
+
+  // ---------- 关闭详情页 ----------
+  function handleCloseDetail() {
+    setDetailAlbumId(null);
   }
 
   // 简单播放/暂停（给专辑卡片复用）
@@ -156,12 +207,12 @@ export default function MusicLibrary() {
         .album-card:active {
           transform: translateY(-2px);
         }
-        .ctrl-btn {
-          background: rgba(255,255,255,0.06);
+                .ctrl-btn {
+          background: #f3f4f6;
           transition: background 0.2s, transform 0.1s;
         }
         .ctrl-btn:hover {
-          background: rgba(255,255,255,0.12) !important;
+          background: #e5e7eb !important;
         }
         .ctrl-btn:active {
           transform: scale(0.92) !important;
@@ -172,8 +223,8 @@ export default function MusicLibrary() {
         }
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb {
-          background: rgba(255,255,255,0.1);
+                ::-webkit-scrollbar-thumb {
+          background: #d1d5db;
           border-radius: 3px;
         }
         @keyframes fadeIn {
@@ -184,12 +235,23 @@ export default function MusicLibrary() {
           transform: scale(1.08);
           box-shadow: 0 4px 16px rgba(233,69,96,0.4);
         }
-        .detail-back-btn:hover {
-          background: rgba(255,255,255,0.12) !important;
+                .detail-back-btn:hover {
+          background: #e5e7eb !important;
           transform: scale(1.03);
         }
-        .detail-song-item:hover {
-          background: rgba(255,255,255,0.06) !important;
+                .detail-song-item:hover {
+          background: #f3f4f6 !important;
+        }
+        .album-card:hover .cover-play-btn {
+          opacity: 1 !important;
+          transform: scale(1) !important;
+        }
+        .cover-play-btn:hover .cover-play-btn-inner {
+          transform: scale(1.1);
+          box-shadow: 0 6px 24px rgba(233,69,96,0.7);
+        }
+        .cover-play-btn:active .cover-play-btn-inner {
+          transform: scale(0.92);
         }
       `}</style>
 
@@ -247,78 +309,101 @@ export default function MusicLibrary() {
         </span>
       </header>
 
+            {/* ================================================================ */}
+      {/* ② 中间内容区 — 专辑网格 或 专辑详情页                           */}
       {/* ================================================================ */}
-      {/* ② 中间内容区 — 专辑网格                                          */}
-      {/* ================================================================ */}
-      <main style={styles.mainArea}>
-        {filteredAlbums.length === 0 ? (
-          <div style={styles.emptyState}>
-            {albums.length === 0 ? (
-              <>
-                <span style={styles.emptyIcon}>📀</span>
-                <p style={styles.emptyText}>还没有导入任何专辑</p>
-                <p style={styles.emptyHint}>
-                  点击右上角「导入音乐」按钮添加你的音乐文件
-                </p>
-              </>
-            ) : (
-              <>
-                <span style={styles.emptyIcon}>🔍</span>
-                <p style={styles.emptyText}>没有匹配的专辑</p>
-                <p style={styles.emptyHint}>请尝试其他搜索词</p>
-              </>
-            )}
-          </div>
-        ) : (
-          <div style={styles.albumGrid}>
-            {filteredAlbums.map((album) => {
-              const isActive = album.id === currentAlbumId;
-              return (
-                <div
-                  key={album.id}
-                  className="album-card"
-                  style={{
-                    ...styles.albumCard,
-                    ...(isActive ? styles.albumCardActive : {}),
-                  }}
-                  onClick={() => handlePlayAlbum(album.id)}
-                >
-                  {/* 专辑封面 */}
-                  <div style={styles.coverWrapper}>
-                    {album.coverURL ? (
-                      <img
-                        src={album.coverURL}
-                        alt={album.title}
-                        style={styles.coverImage}
+      {detailAlbumId ? (
+        /* ----- 专辑详情页 ----- */
+        <div style={styles.detailPageArea}>
+          <AlbumDetail
+            album={albums.find((a) => a.id === detailAlbumId)}
+            currentSongIndex={
+              detailAlbumId === currentAlbumId ? currentSongIndex : -1
+            }
+            isPlaying={detailAlbumId === currentAlbumId && isPlaying}
+            onPlayAlbum={handlePlayAlbumFromDetail}
+            onPlaySong={handlePlaySongFromDetail}
+            onBack={handleCloseDetail}
+          />
+        </div>
+      ) : (
+        /* ----- 专辑网格 ----- */
+        <main style={styles.mainArea}>
+          {filteredAlbums.length === 0 ? (
+            <div style={styles.emptyState}>
+              {albums.length === 0 ? (
+                <>
+                  <span style={styles.emptyIcon}>📀</span>
+                  <p style={styles.emptyText}>还没有导入任何专辑</p>
+                  <p style={styles.emptyHint}>
+                    点击右上角「导入音乐」按钮添加你的音乐文件
+                  </p>
+                </>
+              ) : (
+                <>
+                  <span style={styles.emptyIcon}>🔍</span>
+                  <p style={styles.emptyText}>没有匹配的专辑</p>
+                  <p style={styles.emptyHint}>请尝试其他搜索词</p>
+                </>
+              )}
+            </div>
+          ) : (
+            <div style={styles.albumGrid}>
+              {filteredAlbums.map((album) => {
+                const isActive = album.id === currentAlbumId;
+                return (
+                  <div
+                    key={album.id}
+                    className="album-card"
+                    style={{
+                      ...styles.albumCard,
+                      ...(isActive ? styles.albumCardActive : {}),
+                    }}
+                    onClick={() => handleOpenAlbumDetail(album.id)}
+                  >
+                                        {/* 专辑封面 */}
+                    <div style={styles.coverWrapper}>
+                      {album.coverURL ? (
+                        <img
+                          src={album.coverURL}
+                          alt={album.title}
+                          style={styles.coverImage}
+                        />
+                      ) : (
+                        <div style={styles.coverPlaceholder}>
+                          <span style={styles.coverPlaceholderIcon}>🎶</span>
+                        </div>
+                      )}
+                                            {/* 播放/暂停控制按钮（悬停显示） */}
+                      <CoverPlayButton
+                        isActive={album.id === currentAlbumId}
+                        isPlaying={isPlaying}
+                        onTogglePlay={() => handleQuickPlay(album.id)}
                       />
-                    ) : (
-                      <div style={styles.coverPlaceholder}>
-                        <span style={styles.coverPlaceholderIcon}>🎶</span>
+                      {/* 正在播放标签（当前播放专辑左上角） */}
+                      {album.id === currentAlbumId && (
+                        <div style={styles.playingBadge}>
+                          ▶ 正在播放
+                        </div>
+                      )}
+                      {/* 歌曲数量 */}
+                      <div style={styles.songCount}>
+                        {album.songs.length} 首
                       </div>
-                    )}
-                    {/* 播放指示器 */}
-                    {isActive && (
-                      <div style={styles.playingBadge}>
-                        {isPlaying ? "▶ 播放中" : "⏸ 已暂停"}
-                      </div>
-                    )}
-                    {/* 歌曲数量 */}
-                    <div style={styles.songCount}>
-                      {album.songs.length} 首
                     </div>
+
+                    {/* 专辑名称 */}
+                    <p style={styles.albumTitle}>{album.title}</p>
+
+                    {/* 艺人 */}
+                    <p style={styles.albumArtist}>{album.artist}</p>
                   </div>
-
-                  {/* 专辑名称 */}
-                  <p style={styles.albumTitle}>{album.title}</p>
-
-                  {/* 艺人 */}
-                  <p style={styles.albumArtist}>{album.artist}</p>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </main>
+                );
+              })}
+            </div>
+          )}
+        </main>
+      )}
 
             {/* ============================================================ */}
       {/* ③ 播放控制器（底部播放条 + 播放详情页）                     */}
@@ -349,8 +434,8 @@ export default function MusicLibrary() {
 const styles = {
   container: {
     width: "100%", height: "100vh", display: "flex", flexDirection: "column",
-    background: "radial-gradient(ellipse at center, #1a1a2e 0%, #0f0c1e 70%, #08060d 100%)",
-    color: "#e0e0e0", overflow: "hidden",
+        background: "#ffffff",
+    color: "#1f2937", overflow: "hidden",
     fontFamily: "'Segoe UI', system-ui, -apple-system, sans-serif",
   },
 
@@ -358,29 +443,26 @@ const styles = {
   topBar: {
     display: "flex", alignItems: "center", gap: "16px",
     padding: "12px 28px",
-    background: "rgba(12, 10, 22, 0.85)",
-    backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
-    borderBottom: "1px solid rgba(255,255,255,0.05)",
+        background: "#f9fafb",
+    borderBottom: "1px solid #e5e7eb",
     flexShrink: 0, zIndex: 10, flexWrap: "wrap",
   },
   logoArea: { display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 },
   logoIcon: { fontSize: "24px" },
   logoTitle: {
-    fontSize: "18px", fontWeight: 700, color: "#f3f4f6",
+        fontSize: "18px", fontWeight: 700, color: "#1f2937",
     letterSpacing: "0.5px", margin: 0,
-    background: "linear-gradient(135deg, #e94560, #f472b6)",
-    WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
   },
   searchArea: {
     display: "flex", alignItems: "center",
-    background: "rgba(255,255,255,0.06)", borderRadius: "24px",
+        background: "#f3f4f6", borderRadius: "24px",
     padding: "6px 14px", flex: "1 1 280px", maxWidth: "400px",
-    border: "1px solid rgba(255,255,255,0.08)", transition: "border-color 0.2s",
+    border: "1px solid #e5e7eb", transition: "border-color 0.2s",
   },
   searchIcon: { fontSize: "14px", marginRight: "8px", opacity: 0.5 },
   searchInput: {
-    flex: 1, background: "transparent", border: "none",
-    outline: "none", color: "#f3f4f6", fontSize: "14px", fontFamily: "inherit",
+        flex: 1, background: "transparent", border: "none",
+    outline: "none", color: "#1f2937", fontSize: "14px", fontFamily: "inherit",
   },
   clearBtn: {
     fontSize: "14px", cursor: "pointer", opacity: 0.5,
@@ -398,8 +480,10 @@ const styles = {
   },
   stats: { fontSize: "12px", color: "#6b7280", whiteSpace: "nowrap", flexShrink: 0 },
 
-  // 中间内容区
+    // 中间内容区
   mainArea: { flex: 1, overflowY: "auto", padding: "28px 28px 160px" },
+  // 专辑详情页容器
+  detailPageArea: { flex: 1, overflow: "hidden", padding: "0 0 120px" },
 
   // 空状态
   emptyState: {
@@ -407,8 +491,8 @@ const styles = {
     justifyContent: "center", height: "100%", minHeight: "300px", gap: "12px",
   },
   emptyIcon: { fontSize: "56px", opacity: 0.3 },
-  emptyText: { fontSize: "18px", color: "#6b7280", fontWeight: 500, margin: 0 },
-  emptyHint: { fontSize: "14px", color: "#4b5563", margin: 0 },
+  emptyText: { fontSize: "18px", color: "#374151", fontWeight: 500, margin: 0 },
+  emptyHint: { fontSize: "14px", color: "#6b7280", margin: 0 },
 
   // 专辑网格
   albumGrid: {
@@ -417,9 +501,9 @@ const styles = {
     gap: "24px",
   },
   albumCard: {
-    borderRadius: "12px", overflow: "hidden",
-    background: "rgba(255,255,255,0.04)",
-    border: "1px solid rgba(255,255,255,0.06)",
+        borderRadius: "12px", overflow: "hidden",
+    background: "#ffffff",
+    border: "1px solid #e5e7eb",
   },
   albumCardActive: {
     border: "2px solid #e94560", boxShadow: "0 0 20px rgba(233,69,96,0.2)",
@@ -428,33 +512,33 @@ const styles = {
   // 封面
   coverWrapper: {
     position: "relative", width: "100%", aspectRatio: "1 / 1",
-    overflow: "hidden", background: "#1a1a2e",
+    overflow: "hidden", background: "#f3f4f6",
   },
   coverImage: { width: "100%", height: "100%", objectFit: "cover", display: "block" },
   coverPlaceholder: {
     width: "100%", height: "100%", display: "flex",
     alignItems: "center", justifyContent: "center",
-    background: "linear-gradient(135deg, #1e1e3a, #2a1a3a)",
+    background: "#e5e7eb",
   },
   coverPlaceholderIcon: { fontSize: "40px", opacity: 0.4 },
   playingBadge: {
     position: "absolute", top: "8px", left: "8px", padding: "3px 10px",
-    borderRadius: "12px", background: "rgba(233,69,96,0.9)", color: "#fff",
+    borderRadius: "12px",     background: "#e94560", color: "#fff",
     fontSize: "11px", fontWeight: 600, letterSpacing: "0.3px",
     backdropFilter: "blur(4px)",
   },
   songCount: {
     position: "absolute", bottom: "8px", right: "8px", padding: "2px 10px",
-    borderRadius: "10px", background: "rgba(0,0,0,0.6)", color: "#d1d5db",
+    borderRadius: "10px",     background: "rgba(0,0,0,0.7)", color: "#fff",
     fontSize: "11px", fontWeight: 500, backdropFilter: "blur(4px)",
   },
   albumTitle: {
-    fontSize: "14px", fontWeight: 600, color: "#f3f4f6",
+    fontSize: "14px", fontWeight: 600, color: "#1f2937",
     margin: "10px 12px 2px", overflow: "hidden",
     textOverflow: "ellipsis", whiteSpace: "nowrap",
   },
   albumArtist: {
-    fontSize: "12px", color: "#9ca3af",
+    fontSize: "12px", color: "#6b7280",
     margin: "0 12px 12px", overflow: "hidden",
     textOverflow: "ellipsis", whiteSpace: "nowrap",
   },

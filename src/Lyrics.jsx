@@ -94,8 +94,8 @@ const styles = {
     lineHeight: 2,
   },
   line: {
-    fontSize: "15px",
-    color: "#9ca3af",
+        fontSize: "15px",
+    color: "#4b5563",
     margin: "0 0 4px 0",
     lineHeight: 1.8,
     transition: "color 0.3s ease, transform 0.2s ease",
@@ -110,12 +110,12 @@ const styles = {
     background: "rgba(233,69,96,0.08)",
   },
   pastLine: {
-    color: "#6b7280",
+    color: "#9ca3af",
     fontSize: "14px",
   },
   plainLine: {
     fontSize: "15px",
-    color: "#d1d5db",
+    color: "#374151",
     margin: "0 0 4px 0",
     lineHeight: 1.8,
     padding: "2px 12px",

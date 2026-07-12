@@ -165,7 +165,7 @@ export default function MusicPlayer({
             onChange={handleSeek}
             style={{
               ...styles.progressBar,
-              background: `linear-gradient(to right, #e94560 ${progress}%, #3a3b45 ${progress}%)`,
+              background: `linear-gradient(to right, #e94560 ${progress}%, #d1d5db ${progress}%)`,
             }}
           />
         </div>
@@ -332,10 +332,10 @@ const styles = {
     bottom: 0,
     left: 0,
     right: 0,
-    background: "rgba(12, 10, 22, 0.96)",
+        background: "#ffffff",
     backdropFilter: "blur(24px)",
     WebkitBackdropFilter: "blur(24px)",
-    borderTop: "1px solid rgba(255,255,255,0.05)",
+    borderTop: "1px solid #e5e7eb",
     padding: "6px 24px 12px",
     display: "flex",
     flexDirection: "column",
@@ -357,7 +357,7 @@ const styles = {
   },
   nowPlayingInfo: { flex: 1, overflow: "hidden", minWidth: 0 },
   nowPlayingTitle: {
-    fontSize: "13px", fontWeight: 600, color: "#f3f4f6",
+    fontSize: "13px", fontWeight: 600, color: "#1f2937",
     margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
   },
   nowPlayingArtist: {
@@ -374,21 +374,23 @@ const styles = {
   miniCover: { width: "100%", height: "100%", objectFit: "cover", display: "block" },
   miniCoverPlaceholder: {
     width: "100%", height: "100%",
-    background: "linear-gradient(135deg, #1e1e3a, #2a1a3a)",
+        background: "#e5e7eb",
     display: "flex", alignItems: "center", justifyContent: "center",
   },
   miniCoverIcon: { fontSize: "18px", opacity: 0.4 },
   controls: { display: "flex", alignItems: "center", gap: "12px" },
-  controlBtn: {
+    controlBtn: {
     width: "34px", height: "34px", borderRadius: "50%",
-    border: "none", background: "rgba(255,255,255,0.06)",
-    color: "#e0e0e0", fontSize: "14px", cursor: "pointer",
+    border: "1px solid #d1d5db",
+    background: "#ffffff",
+    color: "#374151", fontSize: "14px", cursor: "pointer",
     display: "flex", alignItems: "center", justifyContent: "center",
   },
   playBtn: {
     width: "42px", height: "42px", fontSize: "18px",
     background: "linear-gradient(135deg, #e94560, #c73e52)",
     boxShadow: "0 4px 15px rgba(233,69,96,0.3)",
+    border: "none", color: "#fff",
   },
   time: {
     fontSize: "11px", color: "#6b7280",
@@ -402,28 +404,27 @@ const styles = {
   volumeSlider: {
     width: "80px", height: "4px", appearance: "none",
     outline: "none", borderRadius: "2px",
-    background: "#3a3b45", cursor: "pointer",
+    background: "#d1d5db", cursor: "pointer",
   },
 
   // ===== 播放详情页样式 =====
   detailOverlay: {
     position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
     zIndex: 200,
-    background: "radial-gradient(ellipse at center, #1a1a2e 0%, #0f0c1e 70%, #08060d 100%)",
+        background: "#ffffff",
     display: "flex", flexDirection: "column",
     paddingBottom: 0, overflow: "hidden",
     animation: "fadeIn 0.3s ease",
   },
     detailBackBtn: {
     position: "absolute", top: "20px", left: "28px",
-    background: "rgba(255,255,255,0.06)",
-    border: "1px solid rgba(255,255,255,0.1)",
-    color: "#e0e0e0", fontSize: "18px",
+        background: "#f3f4f6",
+    border: "1px solid #e5e7eb",
+    color: "#374151", fontSize: "18px",
     width: "40px", height: "40px",
     display: "flex", alignItems: "center", justifyContent: "center",
     padding: 0, borderRadius: "50%", cursor: "pointer",
     zIndex: 210, transition: "background 0.2s, transform 0.15s",
-    backdropFilter: "blur(8px)",
   },
   detailContent: {
     flex: 1, display: "flex", alignItems: "center",
@@ -442,16 +443,16 @@ const styles = {
   detailCoverPlaceholder: {
     width: "380px", height: "380px", borderRadius: "16px",
     display: "flex", alignItems: "center", justifyContent: "center",
-    background: "linear-gradient(135deg, #1e1e3a, #2a1a3a)",
+        background: "#f3f4f6",
     boxShadow: "0 20px 60px rgba(0,0,0,0.5)",
   },
   detailCoverPlaceholderIcon: { fontSize: "80px", opacity: 0.3 },
   detailAlbumTitle: {
-    fontSize: "22px", fontWeight: 700, color: "#f3f4f6",
+        fontSize: "22px", fontWeight: 700, color: "#1f2937",
     margin: 0, textAlign: "center",
   },
   detailAlbumArtist: {
-    fontSize: "15px", color: "#9ca3af", margin: 0, textAlign: "center",
+    fontSize: "15px", color: "#6b7280", margin: 0, textAlign: "center",
   },
   detailSongList: {
     width: "100%", marginTop: "12px",
@@ -477,7 +478,7 @@ const styles = {
     minWidth: "24px", textAlign: "right",
   },
   detailSongName: {
-    fontSize: "13px", fontWeight: 500, color: "#e0e0e0",
+    fontSize: "13px", fontWeight: 500, color: "#1f2937",
     margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
   },
   detailSongArtist: {
@@ -491,14 +492,14 @@ const styles = {
   },
   detailLyricsHeader: {
     marginBottom: "20px", paddingBottom: "16px",
-    borderBottom: "1px solid rgba(255,255,255,0.06)",
+    borderBottom: "1px solid #e5e7eb",
   },
   detailLyricsTitle: {
     fontSize: "12px", color: "#6b7280",
     letterSpacing: "3px", textTransform: "uppercase",
     display: "block", marginBottom: "6px",
   },
-  detailNowPlayingName: { fontSize: "20px", fontWeight: 600, color: "#f3f4f6" },
+  detailNowPlayingName: { fontSize: "20px", fontWeight: 600, color: "#1f2937" },
   detailLyricsContent: {
     flex: 1, overflowY: "auto", paddingRight: "8px", lineHeight: 2,
   },
@@ -532,9 +533,9 @@ const styles = {
   lyricsBadge: {
     fontSize: "11px",
     color: "#6b7280",
-    background: "rgba(255,255,255,0.05)",
+        background: "#f3f4f6",
     padding: "3px 10px",
     borderRadius: "12px",
-    border: "1px solid rgba(255,255,255,0.08)",
+    border: "1px solid #e5e7eb",
   },
 };
