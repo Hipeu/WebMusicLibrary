@@ -132,14 +132,13 @@ const styles = {
     transition: "background 0.2s, transform 0.15s",
   },
 
-    topSection: {
+        topSection: {
     flex: "0 0 40%",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    padding: "80px 60px 20px",
+    padding: "60px 60px 20px",
     minHeight: 0,
-    marginLeft: "-450px"
   },
   infoRow: {
     display: "flex",
@@ -191,9 +190,9 @@ const styles = {
     transition: "transform 0.2s, box-shadow 0.2s", width: "fit-content",
   },
 
-    bottomSection: {
-    flex: "0 0 60%", padding: "50px 250px 100px",
-    display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden", marginTop:"50px"
+        bottomSection: {
+    flex: "0 0 60%", padding: "30px 250px 100px",
+    display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden",
   },
     songListHeader: {
         display: "flex",

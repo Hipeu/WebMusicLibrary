@@ -1,0 +1,70 @@
+.upload-btn {
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+.upload-btn:hover {
+  transform: scale(1.1);
+  box-shadow: 0 6px 25px rgba(233,69,96,0.5);
+}
+.upload-btn:active {
+  transform: scale(0.92);
+}
+.album-card {
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+  cursor: pointer;
+}
+.album-card:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 16px 48px rgba(0,0,0,0.5);
+}
+.album-card:active {
+  transform: translateY(-2px);
+}
+.ctrl-btn {
+  background: #f3f4f6;
+  transition: background 0.2s, transform 0.1s;
+}
+.ctrl-btn:hover {
+  background: #e5e7eb !important;
+}
+.ctrl-btn:active {
+  transform: scale(0.92) !important;
+}
+.ctrl-btn:disabled {
+  opacity: 0.3 !important;
+  cursor: not-allowed !important;
+}
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 3px;
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: scale(0.97); }
+  to { opacity: 1; transform: scale(1); }
+}
+.mini-cover-hover:hover {
+  transform: scale(1.08);
+  box-shadow: 0 4px 16px rgba(233,69,96,0.4);
+}
+.detail-back-btn:hover {
+  background: #e5e7eb !important;
+  transform: scale(1.03);
+}
+.detail-song-item:hover {
+  background: #f3f4f6 !important;
+}
+.album-card:hover .cover-play-btn {
+  opacity: 1 !important;
+  transform: scale(1) !important;
+}
+.cover-play-btn:hover .cover-play-btn-inner {
+  transform: scale(1.1);
+  box-shadow: 0 6px 24px rgba(233,69,96,0.7);
+}
+.cover-play-btn:active .cover-play-btn-inner {
+  transform: scale(0.92);
+}
+.sidebar-item:hover .sidebar-delete-btn {
+  opacity: 1 !important;
+}
