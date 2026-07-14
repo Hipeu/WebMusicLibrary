@@ -1,4 +1,4 @@
-import { FaPlay, FaPause, FaArrowLeft } from "react-icons/fa";
+import { FaPlay, FaPause, FaArrowLeft, FaEdit } from "react-icons/fa";
 import PlayingAnimation from "./PlayingAnimation";
 
 /* ================================================================
@@ -16,7 +16,8 @@ export default function AlbumDetail({
 }) {
   if (!album) return null;
 
-  const yearText = album.year ? `${album.year}` : "未知年份";
+    const yearText = album.year ? `${album.year}` : "未知年份";
+  const genreText = album.genre || null;
 
   return (
     <div style={styles.container}>
@@ -24,9 +25,10 @@ export default function AlbumDetail({
         <FaArrowLeft size={18} />
       </button>
 
-      {/* 上半部分：专辑信息 */}
+            {/* 上半部分：左=封面 | 右=信息 */}
       <div style={styles.topSection}>
-        <div style={styles.infoRow}>
+        {/* 左：封面图（独立，不受右侧影响） */}
+        <div style={styles.coverColumn}>
           <div style={styles.coverWrapper}>
             {album.coverURL ? (
               <img src={album.coverURL} alt={album.title} style={styles.cover} />
@@ -36,19 +38,28 @@ export default function AlbumDetail({
               </div>
             )}
           </div>
+        </div>
 
-          <div style={styles.infoGroup}>
-            <h1 style={styles.albumTitle}>{album.title}</h1>
-            <p style={styles.albumArtist}>{album.artist}</p>
-            <p style={styles.albumYear}>{yearText}年</p>
-            <button style={styles.playButton} onClick={onPlayAlbum}>
-              {isPlaying ? (
-                <><FaPause size={16} /> 暂停</>
-              ) : (
-                <><FaPlay size={16} /> 播放全部</>
-              )}
-            </button>
-          </div>
+        {/* 右：信息区（独立，可自由增删内容） */}
+        <div style={styles.infoColumn}>
+          <h1 style={styles.albumTitle}>{album.title}</h1>
+          <p style={styles.albumArtist}>{album.artist}</p>
+                    <p style={styles.albumYear}>
+            {yearText}年
+            {genreText && <><span style={styles.yearGenreSep}>·</span><span style={styles.albumGenre}>{genreText}</span></>}
+          </p>
+                    <div style={styles.actionRow}>
+                      <button style={styles.playButton} onClick={onPlayAlbum}>
+                        {isPlaying ? (
+                          <FaPause size={16} /> 
+                        ) : (
+                          <FaPlay size={16} />
+                        )}
+                      </button>
+                      <button style={styles.editButton} title="编辑专辑信息">
+                        <FaEdit size={16} /> 编辑
+                      </button>
+                    </div>
         </div>
       </div>
 
@@ -89,8 +100,9 @@ export default function AlbumDetail({
             );
           })}
         <div style={styles.songListHeader}>
+          <div style={styles.dividerLine} />
           <span style={styles.songCount}>{album.songs.length} 首</span>
-         </div>
+        </div>
         </div>
       </div>
     </div>
@@ -101,17 +113,17 @@ export default function AlbumDetail({
    🎨 样式
    ================================================================ */
 const styles = {
-  container: {
-    width: "100%",
-    height: "100%",
-    display: "flex",
-    flexDirection: "column",
-        background: "#ffffff",
-    color: "#1f2937",
-    fontFamily: "'Segoe UI', system-ui, -apple-system, sans-serif",
-    position: "relative",
-    overflow: "hidden",
-  },
+        container: {
+      width: "100%",
+      height: "100%",
+      display: "flex",
+      flexDirection: "column",
+          background: "#ffffff",
+      color: "#1f2937",
+      fontFamily: "'Segoe UI', system-ui, -apple-system, sans-serif",
+      position: "relative",
+      overflowY: "auto",
+    },
 
   backBtn: {
     position: "absolute",
@@ -132,31 +144,28 @@ const styles = {
     transition: "background 0.2s, transform 0.15s",
   },
 
-        topSection: {
+    topSection: {
     flex: "0 0 40%",
     display: "flex",
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    padding: "60px 60px 20px",
+    gap: "65px",
+    padding: "80px 60px 20px 210px",
     minHeight: 0,
   },
-  infoRow: {
-    display: "flex",
-    alignItems: "center",
-    gap: "64px",
-    maxWidth: "800px",
-    width: "100%",
-    justifyContent: "center",
-  },
 
-  coverWrapper: {
-    flex: "0 0 260px",
-    width: "260px",
-    height: "260px",
-    borderRadius: "12px",
-    overflow: "hidden",
-    boxShadow: "0 16px 48px rgba(0,0,0,0.5), 0 0 30px rgba(233,69,96,0.08)",
-  },
+    // 左列：封面（固定宽高，不受右侧影响）
+    coverColumn: {
+      flex: "0 0 260px",
+      alignSelf: "flex-start",
+    },
+    coverWrapper: {
+      width: "260px",
+      height: "260px",
+      borderRadius: "12px",
+      overflow: "hidden",
+      boxShadow: "0 16px 48px rgba(0,0,0,0.5), 0 0 30px rgba(233,69,96,0.08)",
+    },
   cover: {
     width: "100%", height: "100%", objectFit: "cover", display: "block",
   },
@@ -167,8 +176,14 @@ const styles = {
   },
   coverPlaceholderIcon: { fontSize: "64px", opacity: 0.3 },
 
-  infoGroup: {
-    display: "flex", flexDirection: "column", gap: "10px", maxWidth: "400px",
+    // 右列：信息区（纵向排列，后续新增内容直接往里加）
+  infoColumn: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "15px",
+    minWidth: 0,
+    alignSelf: "center",
+    marginTop:"85px"
   },
   albumTitle: {
         fontSize: "32px", fontWeight: 700, color: "#1f2937",
@@ -177,28 +192,73 @@ const styles = {
   albumArtist: {
     fontSize: "18px", color: "#6b7280", margin: 0, fontWeight: 400,
   },
-  albumYear: {
+        albumYear: {
     fontSize: "14px", color: "#6b7280", margin: 0,
+    display: "flex", alignItems: "center", gap: "6px",
+  },
+  yearGenreSep: {
+    color: "#d1d5db",
+  },
+    albumGenre: {
+    fontSize: "13px", color: "#6b7280",
+    padding: "1px 10px",
+    borderRadius: "10px",
+    background: "#f3f4f6",
+    border: "1px solid #e5e7eb",
   },
 
-  playButton: {
-    display: "inline-flex", alignItems: "center", gap: "10px",
-    marginTop: "8px", padding: "12px 32px", borderRadius: "28px",
-    border: "none", background: "linear-gradient(135deg, #e94560, #c73e52)",
-    color: "#fff", fontSize: "16px", fontWeight: 600,
-    cursor: "pointer", boxShadow: "0 6px 20px rgba(233,69,96,0.35)",
-    transition: "transform 0.2s, box-shadow 0.2s", width: "fit-content",
+  actionRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: "12px",
+    marginTop: "8px",
   },
 
-        bottomSection: {
-    flex: "0 0 60%", padding: "30px 250px 100px",
-    display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden",
+                playButton: {
+    width: "48px",
+    height: "48px",
+    borderRadius: "50%",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    background: "linear-gradient(135deg, #e94560, #c73e52)",
+    border: "none",
+    cursor: "pointer",
+    boxShadow: "0 6px 20px rgba(233,69,96,0.35)",
+    flexShrink: 0,
+    color: "#fff",
+    fontSize: "16px",
+  },
+
+  editButton: {
+    display: "inline-flex", alignItems: "center", gap: "8px",
+    padding: "12px 24px", borderRadius: "28px",
+    border: "1px solid #d1d5db",
+    background: "#ffffff",
+    color: "#374151", fontSize: "14px", fontWeight: 500,
+    cursor: "pointer",
+    transition: "background 0.2s, border-color 0.2s",
+    width: "fit-content",
+  },
+
+    bottomSection: {
+    flex: 1, padding: "150px 170px 120px",
+    display: "flex", flexDirection: "column", minHeight: 0, overflow: "visible",
   },
     songListHeader: {
         display: "flex",
-        alignItems: "center",
-        justifyContent: "flex-end",   
-        marginTop: "10px",             
+        flexDirection: "column",
+        alignItems: "flex-start",
+        gap: "6px",
+        marginTop: "10px",
+        paddingTop: "10px",
+        flexShrink: 0,
+    },
+    dividerLine: {
+        width: "250px",
+        height: "2px",
+        borderRadius: "2px",
+        background: "#d1d5db",
         flexShrink: 0,
     },
 
@@ -208,8 +268,8 @@ const styles = {
   },
   songCount: { fontSize: "13px", color: "#6b7280" },
 
-  songList: {
-    flex: 1, overflowY: "auto", display: "flex", flexDirection: "column",
+    songList: {
+    flex: 1, display: "flex", flexDirection: "column",
     gap: "2px", paddingRight: "4px",
   },
   songItem: {

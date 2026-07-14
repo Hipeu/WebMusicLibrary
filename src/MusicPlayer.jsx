@@ -11,7 +11,9 @@ import PlayerControls from "./PlayerControls";
    ================================================================ */
 export default function MusicPlayer({
   albums,
+  playlists,
   currentAlbumId,
+  currentPlaylistId,
   setCurrentAlbumId,
   currentSongIndex,
   setCurrentSongIndex,
@@ -29,9 +31,18 @@ export default function MusicPlayer({
   const [lyricsData, setLyricsData] = useState(null); // { type: 'timed'|'plain', lines: [...] }
   const lrcInputRef = useRef(null);
 
-  // 当前专辑 & 当前歌曲
+    // 当前专辑 & 当前歌曲（支持专辑和播放列表两种来源）
   const currentAlbum = albums.find((a) => a.id === currentAlbumId) || null;
-  const currentSong = currentAlbum?.songs?.[currentSongIndex] || null;
+  const currentPlaylist = currentPlaylistId ? playlists.find((p) => p.id === currentPlaylistId) : null;
+  const currentSong = currentAlbum?.songs?.[currentSongIndex]
+    || currentPlaylist?.songs?.[currentSongIndex]
+    || null;
+  // 用于展示的专辑/播放列表信息（播放详情页使用）
+  const displayAlbum = currentAlbum || (currentPlaylist ? {
+    ...currentPlaylist,
+    title: currentPlaylist.name,
+    artist: "播放列表",
+  } : null);
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
 
   // ---------- 格式化时间 ----------
@@ -70,21 +81,21 @@ export default function MusicPlayer({
     setIsPlaying(!isPlaying);
   }
 
-    function prevTrack() {
-    if (!currentAlbum || currentAlbum.songs.length === 0) return;
-    const newIndex =
-      (currentSongIndex - 1 + currentAlbum.songs.length) %
-      currentAlbum.songs.length;
+        function prevTrack() {
+    const songs = currentAlbum?.songs || currentPlaylist?.songs || [];
+    if (songs.length === 0) return;
+    const newIndex = (currentSongIndex - 1 + songs.length) % songs.length;
     setCurrentSongIndex(newIndex);
-    setLyricsData(null); // 切歌清空歌词
+    setLyricsData(null);
     setIsPlaying(true);
   }
 
   function nextTrack() {
-    if (!currentAlbum || currentAlbum.songs.length === 0) return;
-    const newIndex = (currentSongIndex + 1) % currentAlbum.songs.length;
+    const songs = currentAlbum?.songs || currentPlaylist?.songs || [];
+    if (songs.length === 0) return;
+    const newIndex = (currentSongIndex + 1) % songs.length;
     setCurrentSongIndex(newIndex);
-    setLyricsData(null); // 切歌清空歌词
+    setLyricsData(null);
     setIsPlaying(true);
   }
 
@@ -117,8 +128,9 @@ export default function MusicPlayer({
     }
   }
 
-  function handleEnded() {
-    if (currentAlbum && currentAlbum.songs.length > 1) {
+    function handleEnded() {
+    const songs = currentAlbum?.songs || currentPlaylist?.songs || [];
+    if (songs.length > 1) {
       nextTrack();
     } else {
       setIsPlaying(false);
@@ -127,7 +139,7 @@ export default function MusicPlayer({
   }
 
     // 切换歌曲时重置 audio 并清空歌词
-  useEffect(() => {
+    useEffect(() => {
     setLyricsData(null);
     if (audioRef.current && currentSong) {
       audioRef.current.load();
@@ -135,7 +147,7 @@ export default function MusicPlayer({
         audioRef.current.play().catch(() => setIsPlaying(false));
       }
     }
-  }, [currentAlbumId, currentSongIndex]);
+  }, [currentAlbumId, currentPlaylistId, currentSongIndex]);
 
   return (
     <>
@@ -154,9 +166,9 @@ export default function MusicPlayer({
             {/* ================================================================ */}
       {/* 底部播放控制条（已独立到 PlayerControls 组件）                    */}
       {/* ================================================================ */}
-      <PlayerControls
+            <PlayerControls
         currentSong={currentSong}
-        currentAlbum={currentAlbum}
+        currentAlbum={displayAlbum}
         currentTime={currentTime}
         duration={duration}
         volume={volume}
@@ -175,7 +187,7 @@ export default function MusicPlayer({
       {/* ================================================================ */}
       {/* 播放详情页 — 全屏弹窗                                           */}
       {/* ================================================================ */}
-      {showDetail && currentAlbum && currentSong && (
+            {showDetail && displayAlbum && currentSong && (
         <div style={styles.detailOverlay}>
                     <button className="detail-back-btn" style={styles.detailBackBtn} onClick={() => setShowDetail(false)}>
             <FaChevronDown />
@@ -184,20 +196,20 @@ export default function MusicPlayer({
           <div style={styles.detailContent}>
             {/* 左侧：大方形封面 */}
             <div style={styles.detailCoverWrapper}>
-              {currentAlbum.coverURL ? (
-                <img src={currentAlbum.coverURL} alt={currentAlbum.title} style={styles.detailCover} />
+              {displayAlbum.coverURL ? (
+                <img src={displayAlbum.coverURL} alt={displayAlbum.title} style={styles.detailCover} />
               ) : (
                 <div style={styles.detailCoverPlaceholder}>
                   <span style={styles.detailCoverPlaceholderIcon}>🎵</span>
                 </div>
               )}
-              <p style={styles.detailAlbumTitle}>{currentAlbum.title}</p>
-              <p style={styles.detailAlbumArtist}>{currentAlbum.artist}</p>
+              <p style={styles.detailAlbumTitle}>{displayAlbum.title}</p>
+              <p style={styles.detailAlbumArtist}>{displayAlbum.artist}</p>
 
-              {/* 专辑歌曲列表 */}
+              {/* 专辑/播放列表 歌曲列表 */}
               <div style={styles.detailSongList}>
                 <p style={styles.detailSongListLabel}>歌曲列表</p>
-                {currentAlbum.songs.map((song, idx) => (
+                {(currentAlbum?.songs || currentPlaylist?.songs || []).map((song, idx) => (
                   <div
                     key={idx}
                     className="detail-song-item"

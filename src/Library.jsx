@@ -3,6 +3,7 @@ import { FiPlus } from "react-icons/fi";
 import { readMetadata } from "./MetadataReader";
 import MusicPlayer from "./MusicPlayer";
 import AlbumDetail from "./AlbumDetail";
+import PlaylistDetail from "./PlaylistDetail";
 import CoverPlayButton from "./CoverPlayButton";
 import Sidebar from "./LibrarySidebar";
 import "./music-library.css";
@@ -28,27 +29,33 @@ export default function MusicLibrary() {
   const audioRef = useRef(null);
   const fileInputRef = useRef(null);
 
-  // 当前专辑 & 当前歌曲
-  const currentAlbum = albums.find((a) => a.id === currentAlbumId) || null;
-  const currentSong = currentAlbum?.songs?.[currentSongIndex] || null;
-
-    // ---------- 专辑详情页状态 ----------
+        // ---------- 专辑详情页状态 ----------
   const [detailAlbumId, setDetailAlbumId] = useState(null);
 
+        // ---------- 播放列表详情页状态 ----------
+  const [detailPlaylistId, setDetailPlaylistId] = useState(null);
+  const [currentPlaylistId, setCurrentPlaylistId] = useState(null);
+
     // ---------- 侧边栏导航 ----------
-  const [activeNav, setActiveNav] = useState("library");
+    const [activeNav, setActiveNav] = useState("library");
 
     // ---------- 播放列表（与侧边栏共享） ----------
-  const [playlists, setPlaylists] = useState([
-    { id: "liked", name: "我喜欢的音乐" },
-    { id: "recent", name: "最近播放" },
+    const [playlists, setPlaylists] = useState([
+    { id: "liked", name: "我喜欢的音乐", songs: [], description: "" },
+    { id: "recent", name: "最近播放", songs: [], description: "最近播放的歌曲" },
   ]);
 
+    // 当前专辑 & 当前歌曲
+  const currentAlbum = albums.find((a) => a.id === currentAlbumId) || null;
+  const currentSong = currentAlbum?.songs?.[currentSongIndex]
+    || playlists.find((p) => p.id === currentPlaylistId)?.songs?.[currentSongIndex]
+    || null;
+
   // ---------- 播放列表操作 ----------
-  function handleCreatePlaylist(newId) {
+    function handleCreatePlaylist(newId) {
     setPlaylists((prev) => [
       ...prev,
-      { id: newId, name: "新建播放列表" },
+      { id: newId, name: "新建播放列表", songs: [], description: "" },
     ]);
   }
 
@@ -56,9 +63,16 @@ export default function MusicLibrary() {
     setPlaylists((prev) => prev.filter((p) => p.id !== id));
   }
 
-  function handleRenamePlaylist(id, name) {
+    function handleRenamePlaylist(id, name) {
     setPlaylists((prev) =>
       prev.map((p) => (p.id === id ? { ...p, name } : p))
+    );
+  }
+
+  // ---------- 更新播放列表（编辑封面/标题/描述） ----------
+  function handleUpdatePlaylist(id, updated) {
+    setPlaylists((prev) =>
+      prev.map((p) => (p.id === id ? updated : p))
     );
   }
 
@@ -84,10 +98,11 @@ export default function MusicLibrary() {
       const key = entry.album || "未知专辑";
       if (!albumMap.has(key)) {
         albumMap.set(key, {
-            id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
+                        id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
             title: key,
             artist: entry.artist || "未知艺术家",
             year: entry.year || null,
+            genre: entry.genre || null,
             coverURL: entry.coverURL,
             songs: [],
           });
@@ -97,11 +112,16 @@ export default function MusicLibrary() {
         title: entry.title,
         artist: entry.artist,
         album: entry.album,
+        genre: entry.genre,
         url: entry.url,
       });
       // 如果封面还没设置，用第一首歌的封面
       if (!album.coverURL && entry.coverURL) {
         album.coverURL = entry.coverURL;
+      }
+      // 如果流派还没设置，用第一首歌的流派
+      if (!album.genre && entry.genre) {
+        album.genre = entry.genre;
       }
     }
 
@@ -131,9 +151,13 @@ export default function MusicLibrary() {
           if (!existing.year && a.year) {
             existing.year = a.year;
           }
-          // 补全艺人：已有专辑是未知时用新专辑的
+                    // 补全艺人：已有专辑是未知时用新专辑的
           if ((existing.artist === "未知艺术家" || !existing.artist) && a.artist && a.artist !== "未知艺术家") {
             existing.artist = a.artist;
+          }
+          // 补全流派：已有专辑没有流派时用新专辑的
+          if (!existing.genre && a.genre) {
+            existing.genre = a.genre;
           }
         } else {
           merged.set(a.title, { ...a, songs: [...a.songs] });
@@ -148,7 +172,7 @@ export default function MusicLibrary() {
       setDetailAlbumId(albumId);
     }
 
-    // ---------- 从卡片播放按钮播放/暂停 ----------
+        // ---------- 从卡片播放按钮播放/暂停 ----------
     function handleQuickPlay(albumId) {
       const album = albums.find((a) => a.id === albumId);
       if (!album || album.songs.length === 0) return;
@@ -157,13 +181,14 @@ export default function MusicLibrary() {
         // 同一专辑：切换播放/暂停
         togglePlay();
       } else {
+        setCurrentPlaylistId(null); // 切换到专辑播放，清除播放列表来源
         setCurrentAlbumId(albumId);
         setCurrentSongIndex(0);
         setIsPlaying(true);
       }
     }
 
-  // ---------- 从详情页播放整个专辑 ----------
+    // ---------- 从详情页播放整个专辑 ----------
   function handlePlayAlbumFromDetail() {
     const album = albums.find((a) => a.id === detailAlbumId);
     if (!album || album.songs.length === 0) return;
@@ -172,6 +197,7 @@ export default function MusicLibrary() {
       // 同一专辑：切换播放/暂停
       togglePlay();
     } else {
+      setCurrentPlaylistId(null); // 切换到专辑播放，清除播放列表来源
       setCurrentAlbumId(detailAlbumId);
       setCurrentSongIndex(0);
       setIsPlaying(true);
@@ -180,14 +206,63 @@ export default function MusicLibrary() {
 
   // ---------- 从详情页选择歌曲播放 ----------
   function handlePlaySongFromDetail(songIndex) {
+    setCurrentPlaylistId(null); // 切换到专辑播放，清除播放列表来源
     setCurrentAlbumId(detailAlbumId);
     setCurrentSongIndex(songIndex);
     setIsPlaying(true);
   }
 
-  // ---------- 关闭详情页 ----------
+    // ---------- 关闭详情页 ----------
   function handleCloseDetail() {
     setDetailAlbumId(null);
+  }
+
+  // ---------- 打开播放列表详情 ----------
+  function handleOpenPlaylistDetail(playlistId) {
+    setDetailPlaylistId(playlistId);
+  }
+
+    // ---------- 关闭播放列表详情 ----------
+  function handleClosePlaylistDetail() {
+    setDetailPlaylistId(null);
+  }
+
+        // ---------- 导航切换 ----------
+  function handleNavChange(val) {
+        const isPlaylist = playlists.some((p) => p.id === val);
+    if (isPlaylist) {
+      // 点击播放列表 → 关闭专辑详情（如果有），打开播放列表详情
+      setDetailAlbumId(null);
+      handleOpenPlaylistDetail(val);
+    } else {
+      // 点击其他导航项 → 关闭播放列表详情（如果开着）和专辑详情
+      setDetailPlaylistId(null);
+      setDetailAlbumId(null);
+    }
+    setActiveNav(val);
+  }
+
+    // ---------- 从播放列表详情播放全部 ----------
+  function handlePlayAllFromPlaylist() {
+    const pl = playlists.find((p) => p.id === detailPlaylistId);
+    if (!pl || !pl.songs || pl.songs.length === 0) return;
+
+    if (currentPlaylistId === detailPlaylistId) {
+      togglePlay();
+    } else {
+      setCurrentAlbumId(null); // 切换到播放列表播放，清除专辑来源
+      setCurrentPlaylistId(detailPlaylistId);
+      setCurrentSongIndex(0);
+      setIsPlaying(true);
+    }
+  }
+
+  // ---------- 从播放列表详情选择歌曲播放 ----------
+  function handlePlaySongFromPlaylist(songIndex) {
+    setCurrentAlbumId(null); // 切换到播放列表播放，清除专辑来源
+    setCurrentPlaylistId(detailPlaylistId);
+    setCurrentSongIndex(songIndex);
+    setIsPlaying(true);
   }
 
   // 简单播放/暂停（给专辑卡片复用）
@@ -205,9 +280,10 @@ export default function MusicLibrary() {
   const filteredAlbums = albums.filter((a) => {
     if (!filterText) return true;
     const t = filterText.toLowerCase();
-    return (
+        return (
       a.title.toLowerCase().includes(t) ||
-      a.artist.toLowerCase().includes(t)
+      a.artist.toLowerCase().includes(t) ||
+      (a.genre && a.genre.toLowerCase().includes(t))
     );
   });
 
@@ -262,15 +338,30 @@ export default function MusicLibrary() {
     }
   });
 
-  // ---------- 专辑视图排序 ----------
-  const [sortMode, setSortMode] = useState("recent"); // "recent" | "alphabetical"
+    // ---------- 歌曲视图排序 ----------
+    const [songSortMode, setSongSortMode] = useState("album"); // "album" | "time" | "artist"
+
+    // ---------- 艺人视图排序 ----------
+    const [artistSortMode, setArtistSortMode] = useState("a-z"); // "a-z" | "z-a"
+
+    // ---------- 专辑视图排序 ----------
+    const [sortMode, setSortMode] = useState("recent_add"); // "recent_add" | "new_to_old" | "old_to_new"
 
   // 按分类对过滤后的专辑排序
   const sortedAlbums = [...filteredAlbums].sort((a, b) => {
-    if (sortMode === "alphabetical") {
-      return a.title.localeCompare(b.title, "zh-CN");
+    if (sortMode === "new_to_old") {
+      // 从新到旧：按年份降序，无年份排最后
+      const yearA = a.year || 0;
+      const yearB = b.year || 0;
+      return yearB - yearA;
     }
-    // "recent" — 按 id（含时间戳）降序，最新的在前
+    if (sortMode === "old_to_new") {
+      // 从旧到新：按年份升序，无年份排最后
+      const yearA = a.year || 9999;
+      const yearB = b.year || 9999;
+      return yearA - yearB;
+    }
+    // "recent_add" — 按 id（含时间戳）降序，最新的在前
     return b.id.localeCompare(a.id);
   });
 
@@ -284,14 +375,14 @@ export default function MusicLibrary() {
             {/* ============================================================ */}
             <div style={styles.bodyLayout}>
                                                         {/* 侧边栏 */}
-              <Sidebar
-                activeNav={activeNav}
-                onNavChange={setActiveNav}
-                playlists={playlists}
-                onCreatePlaylist={handleCreatePlaylist}
-                onDeletePlaylist={handleDeletePlaylist}
-                onRenamePlaylist={handleRenamePlaylist}
-              />
+                            <Sidebar
+                              activeNav={activeNav}
+                              onNavChange={handleNavChange}
+                              playlists={playlists}
+                              onCreatePlaylist={handleCreatePlaylist}
+                              onDeletePlaylist={handleDeletePlaylist}
+                              onRenamePlaylist={handleRenamePlaylist}
+                            />
 
               {/* 右侧主区域 */}
               <div style={styles.rightArea}>
@@ -350,7 +441,7 @@ export default function MusicLibrary() {
                                 {/* ============================================================ */}
                 {/* ② 中间内容区 — 按导航切换视图                            */}
                 {/* ============================================================ */}
-                {detailAlbumId ? (
+                                {detailAlbumId ? (
                   /* ----- 专辑详情页（从专辑网格点进去） ----- */
                   <div style={styles.detailPageArea}>
                     <AlbumDetail
@@ -364,30 +455,55 @@ export default function MusicLibrary() {
                       onBack={handleCloseDetail}
                     />
                   </div>
+                ) : detailPlaylistId ? (
+                  /* ----- 播放列表详情页（从侧边栏/资料库卡片点进去） ----- */
+                  <div style={styles.detailPageArea}>
+                    <PlaylistDetail
+                      playlist={playlists.find((p) => p.id === detailPlaylistId)}
+                      playlists={playlists}
+                      onUpdatePlaylist={handleUpdatePlaylist}
+                      currentSongIndex={
+                        detailPlaylistId === currentPlaylistId ? currentSongIndex : -1
+                      }
+                      isPlaying={detailPlaylistId === currentPlaylistId && isPlaying}
+                      onPlayAll={handlePlayAllFromPlaylist}
+                      onPlaySong={handlePlaySongFromPlaylist}
+                      onBack={handleClosePlaylistDetail}
+                    />
+                  </div>
                 ) : activeNav === "albums" ? (
                   /* ================================================================ */
                   /* 专辑视图                                                         */
                   /* ================================================================ */
-                  <main style={styles.mainArea}>
+                                    <main style={styles.mainArea}>
                     <div style={styles.sortBar}>
                       <span style={styles.sortLabel}>分类：</span>
                       <button
                         style={{
                           ...styles.sortBtn,
-                          ...(sortMode === "recent" ? styles.sortBtnActive : {}),
+                          ...(sortMode === "recent_add" ? styles.sortBtnActive : {}),
                         }}
-                        onClick={() => setSortMode("recent")}
+                        onClick={() => setSortMode("recent_add")}
                       >
                         最近添加
                       </button>
                       <button
                         style={{
                           ...styles.sortBtn,
-                          ...(sortMode === "alphabetical" ? styles.sortBtnActive : {}),
+                          ...(sortMode === "new_to_old" ? styles.sortBtnActive : {}),
                         }}
-                        onClick={() => setSortMode("alphabetical")}
+                        onClick={() => setSortMode("new_to_old")}
                       >
-                        按字母排序
+                        从新到旧
+                      </button>
+                      <button
+                        style={{
+                          ...styles.sortBtn,
+                          ...(sortMode === "old_to_new" ? styles.sortBtnActive : {}),
+                        }}
+                        onClick={() => setSortMode("old_to_new")}
+                      >
+                        从旧到新
                       </button>
                     </div>
 
@@ -440,8 +556,18 @@ export default function MusicLibrary() {
                   /* ================================================================ */
                   /* 艺人视图                                                         */
                   /* ================================================================ */
-                  <main style={styles.mainArea}>
-                    <h2 style={styles.pageTitle}>艺人</h2>
+                                    <main style={styles.mainArea}>
+                    <div style={styles.sortBar}>
+                      <span style={styles.sortLabel}>排序：</span>
+                      <select
+                        style={styles.sortSelect}
+                        value={artistSortMode}
+                        onChange={(e) => setArtistSortMode(e.target.value)}
+                      >
+                        <option value="a-z">A-Z</option>
+                        <option value="z-a">Z-A</option>
+                      </select>
+                    </div>
                     {albums.length === 0 ? (
                       <div style={styles.emptyState}>
                         <span style={styles.emptyIcon}>🎤</span>
@@ -449,30 +575,67 @@ export default function MusicLibrary() {
                       </div>
                     ) : (
                       <div style={styles.artistGrid}>
-                        {Array.from(new Set(albums.map((a) => a.artist))).map((artist) => {
-                          const artistAlbums = albums.filter((a) => a.artist === artist);
-                          return (
-                            <div key={artist} style={styles.artistCard}>
-                              <div style={styles.artistAvatar}>
-                                <span style={styles.artistAvatarIcon}>👤</span>
+                        {(() => {
+                          const uniqueArtists = Array.from(new Set(albums.map((a) => a.artist)));
+                          return [...uniqueArtists].sort((a, b) => {
+                            if (artistSortMode === "z-a") {
+                              return b.localeCompare(a, "zh-CN");
+                            }
+                            return a.localeCompare(b, "zh-CN");
+                          }).map((artist) => {
+                            const artistAlbums = albums.filter((a) => a.artist === artist);
+                            return (
+                              <div key={artist} style={styles.artistCard}>
+                                <div style={styles.artistAvatar}>
+                                  <span style={styles.artistAvatarIcon}>👤</span>
+                                </div>
+                                <p style={styles.artistName}>{artist}</p>
+                                <p style={styles.artistAlbumCount}>{artistAlbums.length} 个专辑</p>
                               </div>
-                              <p style={styles.artistName}>{artist}</p>
-                              <p style={styles.artistAlbumCount}>{artistAlbums.length} 个专辑</p>
-                            </div>
-                          );
-                        })}
+                            );
+                          });
+                        })()}
                       </div>
                     )}
                   </main>
-                ) : activeNav === "songs" ? (
+                                ) : activeNav === "songs" ? (
                   /* ================================================================ */
                   /* 歌曲视图（平坦列表，显示所有专辑的所有歌曲）                   */
                   /* ================================================================ */
                   <main style={styles.mainArea}>
-                    <h2 style={styles.pageTitle}>歌曲</h2>
+                    <div style={styles.sortBar}>
+                      <span style={styles.sortLabel}>分类：</span>
+                      <button
+                        style={{
+                          ...styles.sortBtn,
+                          ...(songSortMode === "album" ? styles.sortBtnActive : {}),
+                        }}
+                        onClick={() => setSongSortMode("album")}
+                      >
+                        专辑
+                      </button>
+                      <button
+                        style={{
+                          ...styles.sortBtn,
+                          ...(songSortMode === "time" ? styles.sortBtnActive : {}),
+                        }}
+                        onClick={() => setSongSortMode("time")}
+                      >
+                        时间
+                      </button>
+                      <button
+                        style={{
+                          ...styles.sortBtn,
+                          ...(songSortMode === "artist" ? styles.sortBtnActive : {}),
+                        }}
+                        onClick={() => setSongSortMode("artist")}
+                      >
+                        艺人
+                      </button>
+                    </div>
                     {(() => {
                       const allSongs = albums.flatMap((album) =>
-                        album.songs.map((song) => ({ ...song, albumTitle: album.title, albumId: album.id }))
+                        album.songs.map((song) => ({ ...song, albumTitle: album.title, albumId: album.id, albumYear: album.year }))
                       );
                       if (allSongs.length === 0) {
                         return (
@@ -482,10 +645,25 @@ export default function MusicLibrary() {
                           </div>
                         );
                       }
+                      // 排序
+                      const sortedSongs = [...allSongs].sort((a, b) => {
+                        if (songSortMode === "time") {
+                          // 按专辑年份降序，无年份排最后
+                          const yearA = a.albumYear || 0;
+                          const yearB = b.albumYear || 0;
+                          return yearB - yearA;
+                        }
+                        if (songSortMode === "artist") {
+                          // 按艺人名称排序
+                          return (a.artist || "").localeCompare(b.artist || "", "zh-CN");
+                        }
+                        // "album" — 按专辑名排序
+                        return (a.albumTitle || "").localeCompare(b.albumTitle || "", "zh-CN");
+                      });
                       return (
                         <div style={styles.songList}>
-                          {allSongs.map((song, idx) => {
-                            const isActive = currentAlbumId === song.albumId && currentSongIndex === idx;
+                          {sortedSongs.map((song, idx) => {
+                            const isActive = currentAlbumId === song.albumId && currentSongIndex === albums.find((a) => a.id === song.albumId)?.songs.findIndex((s) => s.title === song.title && s.url === song.url);
                             return (
                               <div
                                 key={`${song.albumId}-${idx}`}
@@ -493,9 +671,10 @@ export default function MusicLibrary() {
                                   ...styles.songListItem,
                                   ...(isActive ? styles.songListItemActive : {}),
                                 }}
-                                onClick={() => {
+                                                                onClick={() => {
+                                  setCurrentPlaylistId(null); // 切换到专辑播放，清除播放列表来源
                                   setCurrentAlbumId(song.albumId);
-                                  setCurrentSongIndex(albums.find((a) => a.id === song.albumId)?.songs.findIndex((s) => s.title === song.title) || 0);
+                                  setCurrentSongIndex(albums.find((a) => a.id === song.albumId)?.songs.findIndex((s) => s.title === song.title && s.url === song.url) || 0);
                                   setIsPlaying(true);
                                 }}
                               >
@@ -603,16 +782,20 @@ export default function MusicLibrary() {
                         })}
 
                                                 {/* 播放列表卡片 */}
-                        {playlists.map((pl) => (
+                                                {playlists.map((pl) => (
                           <div
                             key={pl.id}
                             style={styles.libraryCard}
-                            onClick={() => setActiveNav(pl.id)}
+                            onClick={() => handleOpenPlaylistDetail(pl.id)}
                           >
                             <div style={styles.coverWrapper}>
-                              <div style={styles.playlistCoverPlaceholder}>
-                                {pl.id === "liked" ? "❤️" : pl.id === "recent" ? "🎧" : "📋"}
-                              </div>
+                              {pl.coverURL ? (
+                                <img src={pl.coverURL} alt={pl.name} style={styles.coverImage} />
+                              ) : (
+                                <div style={styles.playlistCoverPlaceholder}>
+                                  {pl.id === "liked" ? "❤️" : pl.id === "recent" ? "🎧" : "📋"}
+                                </div>
+                              )}
                             </div>
                             <p style={styles.albumTitle}>{pl.name}</p>
                             <p style={styles.albumArtist}>播放列表</p>
@@ -628,9 +811,11 @@ export default function MusicLibrary() {
       {/* ============================================================ */}
       {/* ③ 播放控制器（底部播放条 + 播放详情页）                     */}
       {/* ============================================================ */}
-      <MusicPlayer
+            <MusicPlayer
         albums={albums}
+        playlists={playlists}
         currentAlbumId={currentAlbumId}
+        currentPlaylistId={currentPlaylistId}
         setCurrentAlbumId={setCurrentAlbumId}
         currentSongIndex={currentSongIndex}
         setCurrentSongIndex={setCurrentSongIndex}
