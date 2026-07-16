@@ -3,6 +3,7 @@ import { FiPlus } from "react-icons/fi";
 import { readMetadata } from "./MetadataReader";
 import MusicPlayer from "./MusicPlayer";
 import AlbumDetail from "./AlbumDetail";
+import ArtistsDetail from "./ArtistsDetail";
 import PlaylistDetail from "./PlaylistDetail";
 import CoverPlayButton from "./CoverPlayButton";
 import Sidebar from "./LibrarySidebar";
@@ -33,8 +34,11 @@ export default function MusicLibrary() {
   const [detailAlbumId, setDetailAlbumId] = useState(null);
 
         // ---------- 播放列表详情页状态 ----------
-  const [detailPlaylistId, setDetailPlaylistId] = useState(null);
-  const [currentPlaylistId, setCurrentPlaylistId] = useState(null);
+        const [detailPlaylistId, setDetailPlaylistId] = useState(null);
+        const [currentPlaylistId, setCurrentPlaylistId] = useState(null);
+
+        // ---------- 艺人详情页状态 ----------
+        const [detailArtistName, setDetailArtistName] = useState(null);
 
     // ---------- 侧边栏导航 ----------
     const [activeNav, setActiveNav] = useState("library");
@@ -45,10 +49,16 @@ export default function MusicLibrary() {
     { id: "recent", name: "最近播放", songs: [], description: "最近播放的歌曲" },
   ]);
 
-    // 当前专辑 & 当前歌曲
+                // ---------- 播放队列（插播/稍后播放） ----------
+        const [playQueue, setPlayQueue] = useState([]); // 额外播放队列，插播插入到下一首，稍后播放追加到末尾
+
+        // 当前专辑 & 当前歌曲
   const currentAlbum = albums.find((a) => a.id === currentAlbumId) || null;
+  const currentPlaylistFound = playlists.find((p) => p.id === currentPlaylistId) || null;
+  const sourceSongsCount = currentAlbum?.songs?.length || currentPlaylistFound?.songs?.length || 0;
   const currentSong = currentAlbum?.songs?.[currentSongIndex]
-    || playlists.find((p) => p.id === currentPlaylistId)?.songs?.[currentSongIndex]
+    || currentPlaylistFound?.songs?.[currentSongIndex]
+    || playQueue[currentSongIndex - sourceSongsCount]
     || null;
 
   // ---------- 播放列表操作 ----------
@@ -107,12 +117,13 @@ export default function MusicLibrary() {
             songs: [],
           });
       }
-      const album = albumMap.get(key);
+            const album = albumMap.get(key);
       album.songs.push({
         title: entry.title,
         artist: entry.artist,
         album: entry.album,
         genre: entry.genre,
+        duration: entry.duration,
         url: entry.url,
       });
       // 如果封面还没设置，用第一首歌的封面
@@ -167,9 +178,10 @@ export default function MusicLibrary() {
     });
   }
 
-    // ---------- 点击专辑卡片 — 打开专辑详情页 ----------
+        // ---------- 点击专辑卡片 — 打开专辑详情页 ----------
     function handleOpenAlbumDetail(albumId) {
       setDetailAlbumId(albumId);
+      setDetailArtistName(null);
     }
 
         // ---------- 从卡片播放按钮播放/暂停 ----------
@@ -223,23 +235,72 @@ export default function MusicLibrary() {
   }
 
     // ---------- 关闭播放列表详情 ----------
-  function handleClosePlaylistDetail() {
-    setDetailPlaylistId(null);
-  }
+    function handleClosePlaylistDetail() {
+      setDetailPlaylistId(null);
+    }
 
-        // ---------- 导航切换 ----------
+        // ---------- 点击艺人卡片 / 专辑详情页艺人链接 — 打开艺人详情页 ----------
+    function handleOpenArtistDetail(artistName) {
+      setDetailAlbumId(null); // 关闭专辑详情页（如果是从专辑详情页跳转来的）
+      setDetailPlaylistId(null); // 关闭播放列表详情页
+      setDetailArtistName(artistName);
+      setActiveNav("artists");
+    }
+
+        // ---------- 关闭艺人详情页 ----------
+    function handleCloseArtistDetail() {
+      setDetailArtistName(null);
+    }
+
+    // ---------- 从艺人详情页点击专辑卡片 — 打开专辑详情页 ----------
+    function handleOpenAlbumFromArtist(albumId) {
+      setDetailAlbumId(albumId);
+      // 关闭艺人详情页，进入专辑详情页
+      setDetailArtistName(null);
+    }
+
+    // ---------- 从艺人详情页播放专辑 ----------
+    function handlePlayAlbumFromArtist(albumId) {
+      const album = albums.find((a) => a.id === albumId);
+      if (!album || album.songs.length === 0) return;
+
+      if (currentAlbumId === albumId) {
+        togglePlay();
+      } else {
+        setCurrentPlaylistId(null);
+        setCurrentAlbumId(albumId);
+        setCurrentSongIndex(0);
+        setIsPlaying(true);
+      }
+    }
+
+    // ---------- 从艺人详情页选择歌曲播放 ----------
+    function handlePlaySongFromArtist(albumId, songIndex) {
+      setCurrentPlaylistId(null);
+      setCurrentAlbumId(albumId);
+      setCurrentSongIndex(songIndex);
+      setIsPlaying(true);
+    }
+
+                    // ---------- 导航切换 ----------
   function handleNavChange(val) {
-        const isPlaylist = playlists.some((p) => p.id === val);
+          const isPlaylist = playlists.some((p) => p.id === val);
     if (isPlaylist) {
       // 点击播放列表 → 关闭专辑详情（如果有），打开播放列表详情
       setDetailAlbumId(null);
+      setDetailArtistName(null);
       handleOpenPlaylistDetail(val);
     } else {
-      // 点击其他导航项 → 关闭播放列表详情（如果开着）和专辑详情
+      // 点击其他导航项 → 关闭播放列表详情（如果开着）和专辑详情/艺人详情
       setDetailPlaylistId(null);
       setDetailAlbumId(null);
+      setDetailArtistName(null);
     }
     setActiveNav(val);
+        // 切换导航时退出多选模式
+    handleCancelSelect();
+    // 切换导航时关闭单曲菜单
+    setContextMenu(null);
   }
 
     // ---------- 从播放列表详情播放全部 ----------
@@ -265,7 +326,7 @@ export default function MusicLibrary() {
     setIsPlaying(true);
   }
 
-  // 简单播放/暂停（给专辑卡片复用）
+    // 简单播放/暂停（给专辑卡片复用）
   function togglePlay() {
     if (!audioRef.current || !currentSong) return;
     if (isPlaying) {
@@ -276,7 +337,248 @@ export default function MusicLibrary() {
     setIsPlaying(!isPlaying);
   }
 
-    // ---------- 过滤专辑 ----------
+    // ---------- 歌曲多选操作 ----------
+  function getSongKey(song, idx) {
+    return `${song.albumId}-${idx}`;
+  }
+
+        function handleCheckboxChange(songKey, e) {
+      // 阻止事件冒泡，避免触发行点击播放
+      if (e) e.stopPropagation();
+      const nextSelected = new Set(selectedSongs);
+      if (nextSelected.has(songKey)) {
+        nextSelected.delete(songKey);
+      } else {
+        nextSelected.add(songKey);
+      }
+      setSelectedSongs(nextSelected);
+      // 首次选中时进入多选模式
+      if (nextSelected.size > 0 && !isSelecting) {
+        setIsSelecting(true);
+      }
+      // 注意：即使全部取消选中，也不自动退出多选模式，让用户点"取消"才退出
+    }
+
+  function handleCancelSelect() {
+    setIsSelecting(false);
+    setSelectedSongs(new Set());
+    setShowDeleteConfirm(false);
+  }
+
+    function handleRequestDelete() {
+    setShowDeleteConfirm(true);
+  }
+
+  // ---------- 添加到播放列表 ----------
+  function handleAddToPlaylist() {
+    // 获取选中的所有歌曲
+    const selectedSongList = [];
+    albums.forEach((album) => {
+      album.songs.forEach((song, idx) => {
+        const key = `${album.id}-${idx}`;
+        if (selectedSongs.has(key)) {
+          selectedSongList.push(song);
+        }
+      });
+    });
+    if (selectedSongList.length === 0) return;
+
+    // 添加到"我喜欢的音乐"播放列表
+    setPlaylists((prev) =>
+      prev.map((pl) => {
+        if (pl.id === "liked") {
+          const existingUrls = new Set(pl.songs.map((s) => s.url));
+          const newSongs = selectedSongList.filter((s) => !existingUrls.has(s.url));
+          return { ...pl, songs: [...pl.songs, ...newSongs] };
+        }
+        return pl;
+      })
+    );
+    handleCancelSelect();
+  }
+
+  // ---------- 下一首播放 ----------
+  function handlePlayNext() {
+    // 获取选中的所有歌曲
+    const selectedSongList = [];
+    albums.forEach((album) => {
+      album.songs.forEach((song, idx) => {
+        const key = `${album.id}-${idx}`;
+        if (selectedSongs.has(key)) {
+          selectedSongList.push({ ...song, albumId: album.id });
+        }
+      });
+    });
+    if (selectedSongList.length === 0) return;
+
+    // 直接播第一首选中的歌曲，后续歌曲插入当前播放队列之后（这里简化：直接播放第一首选中的）
+    const firstSong = selectedSongList[0];
+    if (firstSong) {
+      setCurrentPlaylistId(null);
+      setCurrentAlbumId(firstSong.albumId);
+      const album = albums.find((a) => a.id === firstSong.albumId);
+      if (album) {
+        const songIdx = album.songs.findIndex(
+          (s) => s.title === firstSong.title && s.url === firstSong.url
+        );
+        setCurrentSongIndex(songIdx >= 0 ? songIdx : 0);
+      }
+      setIsPlaying(true);
+    }
+    handleCancelSelect();
+  }
+
+  // ---------- 添加到播单 ----------
+  function handleAddToQueue() {
+    const selectedSongList = [];
+    albums.forEach((album) => {
+      album.songs.forEach((song, idx) => {
+        const key = `${album.id}-${idx}`;
+        if (selectedSongs.has(key)) {
+          selectedSongList.push({ ...song, albumId: album.id });
+        }
+      });
+    });
+    if (selectedSongList.length === 0) return;
+
+    // 将选中的歌曲追加到"最近播放"播放列表
+    setPlaylists((prev) =>
+      prev.map((pl) => {
+        if (pl.id === "recent") {
+          const existingUrls = new Set(pl.songs.map((s) => s.url));
+          const newSongs = selectedSongList.filter((s) => !existingUrls.has(s.url));
+          return { ...pl, songs: [...pl.songs, ...newSongs] };
+        }
+        return pl;
+      })
+    );
+    handleCancelSelect();
+  }
+
+    function handleConfirmDelete() {
+    // 先记录一下当前播放的歌曲是否在选中列表中
+    let currentDeleted = false;
+    if (currentAlbumId) {
+      const currentKey = `${currentAlbumId}-${currentSongIndex}`;
+      currentDeleted = selectedSongs.has(currentKey);
+    }
+
+    // 删除选中的歌曲
+    setAlbums((prev) => {
+      return prev.map((album) => {
+        const updatedSongs = album.songs.filter((song, idx) => {
+          const key = `${album.id}-${idx}`;
+          return !selectedSongs.has(key);
+        });
+        return { ...album, songs: updatedSongs };
+      });
+    });
+
+        // 如果当前播放的歌曲被删除了，停止播放
+    if (currentDeleted) {
+      setIsPlaying(false);
+    }
+    handleCancelSelect();
+  }
+
+    // ---------- 格式化时长（秒 → mm:ss） ----------
+  function formatDuration(seconds) {
+    if (!seconds || isNaN(seconds)) return "--:--";
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  }
+
+  // ---------- 单曲菜单操作 ----------
+  function handleOpenContextMenu(e, song) {
+  e.stopPropagation();
+  e.preventDefault();
+  // 计算菜单位置，避免超出视口边界
+  const menuWidth = 190; // 菜单预计宽度
+  const menuHeight = 220; // 菜单预计高度
+  let x = e.clientX;
+  let y = e.clientY;
+    
+  // 如果右侧空间不足，菜单向左弹出
+  if (x + menuWidth > window.innerWidth) {
+    x = window.innerWidth - menuWidth - 8;
+  }
+  // 如果底部空间不足，菜单向上弹出
+  if (y + menuHeight > window.innerHeight) {
+    y = window.innerHeight - menuHeight - 8;
+  }
+    
+  setContextMenu({ x, y, song });
+  }
+
+  function handleCloseContextMenu() {
+    setContextMenu(null);
+  }
+
+    function handleContextMenuAction(action, song) {
+    handleCloseContextMenu();
+    if (!song) return;
+
+    if (action === "album") {
+      // 打开专辑详情
+      setDetailAlbumId(song.albumId);
+      setDetailArtistName(null);
+    } else if (action === "artist") {
+      // 打开艺人详情
+      handleOpenArtistDetail(song.artist || "未知艺术家");
+    } else if (action === "addToPlaylist") {
+      // 添加到"我喜欢的音乐"
+      setPlaylists((prev) =>
+        prev.map((pl) => {
+          if (pl.id === "liked") {
+            const existingUrls = new Set(pl.songs.map((s) => s.url));
+            if (!existingUrls.has(song.url)) {
+              return { ...pl, songs: [...pl.songs, song] };
+            }
+          }
+          return pl;
+        })
+      );
+            } else if (action === "playNext") {
+      // 插播：在当前正在播放的歌曲之后，插入要播的歌曲
+      if (currentSong && !currentAlbumId && !currentPlaylistId && playQueue.length > 0) {
+        // 当前正在播放 playQueue 中的歌曲：在 currentSongIndex 之后插入
+        const insertAt = currentSongIndex + 1;
+        setPlayQueue((prev) => {
+          const newQueue = [...prev];
+          newQueue.splice(insertAt, 0, song);
+          // 如果插入位置在当前播放位置之前，需要调整 currentSongIndex
+          return newQueue;
+        });
+        // 如果插入位置在当前播放位置之前或同一位置，当前索引需 +1
+        // 由于 insertAt > currentSongIndex，索引不需要调整
+      } else {
+        // 普通模式：插入到队列最前面
+        setPlayQueue((prev) => [song, ...prev]);
+      }
+      // 如果当前没有在播放，直接播放这首歌
+      if (!currentSong) {
+        setCurrentPlaylistId(null);
+        setCurrentAlbumId(null);
+        setPlayQueue([song]);
+        setCurrentSongIndex(0);
+        setIsPlaying(true);
+      }
+    } else if (action === "playLater") {
+      // 稍后播放：追加到播放队列末尾
+      setPlayQueue((prev) => [...prev, song]);
+      // 如果当前没有在播放，直接播放这首歌
+      if (!currentSong) {
+        setCurrentPlaylistId(null);
+        setCurrentAlbumId(null);
+        setPlayQueue([song]);
+        setCurrentSongIndex(0);
+        setIsPlaying(true);
+      }
+    }
+  }
+
+  // ---------- 过滤专辑 ----------
   const filteredAlbums = albums.filter((a) => {
     if (!filterText) return true;
     const t = filterText.toLowerCase();
@@ -338,8 +640,16 @@ export default function MusicLibrary() {
     }
   });
 
-    // ---------- 歌曲视图排序 ----------
+        // ---------- 歌曲视图排序 ----------
     const [songSortMode, setSongSortMode] = useState("album"); // "album" | "time" | "artist"
+
+        // ---------- 歌曲多选状态 ----------
+        const [selectedSongs, setSelectedSongs] = useState(new Set()); // 存储选中的歌曲key（"albumId-index"）
+        const [isSelecting, setIsSelecting] = useState(false); // 是否处于多选模式
+        const [showDeleteConfirm, setShowDeleteConfirm] = useState(false); // 是否显示删除确认浮窗
+
+        // ---------- 单曲菜单状态 ----------
+    const [contextMenu, setContextMenu] = useState(null); // { x, y, song } 或 null
 
     // ---------- 艺人视图排序 ----------
     const [artistSortMode, setArtistSortMode] = useState("a-z"); // "a-z" | "z-a"
@@ -444,7 +754,7 @@ export default function MusicLibrary() {
                                 {detailAlbumId ? (
                   /* ----- 专辑详情页（从专辑网格点进去） ----- */
                   <div style={styles.detailPageArea}>
-                    <AlbumDetail
+                                        <AlbumDetail
                       album={albums.find((a) => a.id === detailAlbumId)}
                       currentSongIndex={
                         detailAlbumId === currentAlbumId ? currentSongIndex : -1
@@ -453,6 +763,7 @@ export default function MusicLibrary() {
                       onPlayAlbum={handlePlayAlbumFromDetail}
                       onPlaySong={handlePlaySongFromDetail}
                       onBack={handleCloseDetail}
+                      onOpenArtist={handleOpenArtistDetail}
                     />
                   </div>
                 ) : detailPlaylistId ? (
@@ -552,9 +863,9 @@ export default function MusicLibrary() {
                       </div>
                     )}
                   </main>
-                ) : activeNav === "artists" ? (
+                                ) : activeNav === "artists" && !detailArtistName ? (
                   /* ================================================================ */
-                  /* 艺人视图                                                         */
+                  /* 艺人视图（列表页）                                               */
                   /* ================================================================ */
                                     <main style={styles.mainArea}>
                     <div style={styles.sortBar}>
@@ -585,7 +896,7 @@ export default function MusicLibrary() {
                           }).map((artist) => {
                             const artistAlbums = albums.filter((a) => a.artist === artist);
                             return (
-                              <div key={artist} style={styles.artistCard}>
+                              <div key={artist} style={styles.artistCard} onClick={() => handleOpenArtistDetail(artist)}>
                                 <div style={styles.artistAvatar}>
                                   <span style={styles.artistAvatarIcon}>👤</span>
                                 </div>
@@ -597,42 +908,101 @@ export default function MusicLibrary() {
                         })()}
                       </div>
                     )}
-                  </main>
+                                    </main>
+                ) : activeNav === "artists" && detailArtistName ? (
+                  /* ----- 艺人详情页（从艺人卡片点进去） ----- */
+                  <div style={styles.detailPageArea}>
+                                        <ArtistsDetail
+                      artist={detailArtistName}
+                      albums={albums.filter((a) => a.artist === detailArtistName)}
+                      currentAlbumId={currentAlbumId}
+                      currentSongIndex={currentSongIndex}
+                      isPlaying={isPlaying}
+                      onPlayAlbum={handlePlayAlbumFromArtist}
+                      onPlaySong={handlePlaySongFromArtist}
+                      onBack={handleCloseArtistDetail}
+                      onOpenAlbum={handleOpenAlbumFromArtist}
+                    />
+                  </div>
                                 ) : activeNav === "songs" ? (
-                  /* ================================================================ */
-                  /* 歌曲视图（平坦列表，显示所有专辑的所有歌曲）                   */
-                  /* ================================================================ */
-                  <main style={styles.mainArea}>
-                    <div style={styles.sortBar}>
-                      <span style={styles.sortLabel}>分类：</span>
-                      <button
-                        style={{
-                          ...styles.sortBtn,
-                          ...(songSortMode === "album" ? styles.sortBtnActive : {}),
-                        }}
-                        onClick={() => setSongSortMode("album")}
-                      >
-                        专辑
-                      </button>
-                      <button
-                        style={{
-                          ...styles.sortBtn,
-                          ...(songSortMode === "time" ? styles.sortBtnActive : {}),
-                        }}
-                        onClick={() => setSongSortMode("time")}
-                      >
-                        时间
-                      </button>
-                      <button
-                        style={{
-                          ...styles.sortBtn,
-                          ...(songSortMode === "artist" ? styles.sortBtnActive : {}),
-                        }}
-                        onClick={() => setSongSortMode("artist")}
-                      >
-                        艺人
-                      </button>
-                    </div>
+                                  /* ================================================================ */
+                                  /* 歌曲视图（平坦列表，显示所有专辑的所有歌曲）                   */
+                                  /* ================================================================ */
+                                                                                                                                        <main style={styles.mainArea} className={isSelecting ? "multi-select-active" : ""}>
+                                    {isSelecting ? (
+                                      /* ----- 多选模式：固定在页面顶部，不随滚动移动 ----- */
+                                      <div style={styles.multiSelectBarSticky}>
+                                        <div style={styles.multiSelectLeft}>
+                                          <span style={styles.multiSelectInfo}>
+                                            已选择 {selectedSongs.size} 个
+                                          </span>
+                                          <button
+                                            style={styles.actionBtn}
+                                            onClick={handleAddToPlaylist}
+                                          >
+                                            添加到播放列表
+                                          </button>
+                                          <button
+                                            style={styles.actionBtn}
+                                            onClick={handlePlayNext}
+                                          >
+                                            下一个播放
+                                          </button>
+                                          <button
+                                            style={styles.actionBtn}
+                                            onClick={handleAddToQueue}
+                                          >
+                                            添加到播单
+                                          </button>
+                                        </div>
+                                        <div style={styles.multiSelectRight}>
+                                          <button
+                                            style={styles.deleteBtn}
+                                            onClick={handleRequestDelete}
+                                          >
+                                            删除
+                                          </button>
+                                          <button
+                                            style={styles.cancelSelectBtn}
+                                            onClick={handleCancelSelect}
+                                          >
+                                            取消
+                                          </button>
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      /* ----- 正常模式：分类按钮 ----- */
+                                      <div style={styles.sortBar}>
+                                        <span style={styles.sortLabel}>分类：</span>
+                                        <button
+                                          style={{
+                                            ...styles.sortBtn,
+                                            ...(songSortMode === "album" ? styles.sortBtnActive : {}),
+                                          }}
+                                          onClick={() => setSongSortMode("album")}
+                                        >
+                                          专辑
+                                        </button>
+                                        <button
+                                          style={{
+                                            ...styles.sortBtn,
+                                            ...(songSortMode === "time" ? styles.sortBtnActive : {}),
+                                          }}
+                                          onClick={() => setSongSortMode("time")}
+                                        >
+                                          时间
+                                        </button>
+                                        <button
+                                          style={{
+                                            ...styles.sortBtn,
+                                            ...(songSortMode === "artist" ? styles.sortBtnActive : {}),
+                                          }}
+                                          onClick={() => setSongSortMode("artist")}
+                                        >
+                                          艺人
+                                        </button>
+                                      </div>
+                                    )}
                     {(() => {
                       const allSongs = albums.flatMap((album) =>
                         album.songs.map((song) => ({ ...song, albumTitle: album.title, albumId: album.id, albumYear: album.year }))
@@ -660,36 +1030,162 @@ export default function MusicLibrary() {
                         // "album" — 按专辑名排序
                         return (a.albumTitle || "").localeCompare(b.albumTitle || "", "zh-CN");
                       });
-                      return (
-                        <div style={styles.songList}>
+                                            return (
+                        <div style={styles.songTable}>
+                          {/* 表头 */}
+                                                    <div style={styles.songTableHeader}>
+                            <div style={styles.songColCheck}></div>
+                            <div style={styles.songColTitle}>名称</div>
+                            <div style={styles.songColArtist}>艺人</div>
+                            <div style={styles.songColYear}>年份</div>
+                            <div style={styles.songColAlbum}>专辑名</div>
+                            <div style={styles.songColDuration}>时长</div>
+                            <div style={styles.songColMenu}></div>
+                          </div>
+                                                    {/* 歌曲行 */}
                           {sortedSongs.map((song, idx) => {
                             const isActive = currentAlbumId === song.albumId && currentSongIndex === albums.find((a) => a.id === song.albumId)?.songs.findIndex((s) => s.title === song.title && s.url === song.url);
+                            const songKey = getSongKey(song, idx);
+                            const isChecked = selectedSongs.has(songKey);
                             return (
-                              <div
+                                                            <div
                                 key={`${song.albumId}-${idx}`}
+                                className={`song-table-row${isActive ? " song-row-active" : ""}${isChecked ? " is-checked" : ""}`}
                                 style={{
-                                  ...styles.songListItem,
-                                  ...(isActive ? styles.songListItemActive : {}),
+                                  ...styles.songTableRow,
+                                  ...(isActive ? styles.songTableRowActive : {}),
+                                  ...(isChecked ? styles.songTableRowChecked : {}),
                                 }}
-                                                                onClick={() => {
-                                  setCurrentPlaylistId(null); // 切换到专辑播放，清除播放列表来源
-                                  setCurrentAlbumId(song.albumId);
-                                  setCurrentSongIndex(albums.find((a) => a.id === song.albumId)?.songs.findIndex((s) => s.title === song.title && s.url === song.url) || 0);
-                                  setIsPlaying(true);
+                                                                onClick={(e) => {
+                                                                    if (isSelecting) {
+                                                                      // 多选模式下，点击行切换复选框
+                                                                      handleCheckboxChange(songKey, e);
+                                                                    } else {
+                                                                      // 歌曲视图：只播放当前这一首，不自动切歌
+                                                                      setCurrentAlbumId(null);
+                                                                      setCurrentPlaylistId(null);
+                                                                      setPlayQueue([song]);
+                                                                      setCurrentSongIndex(0);
+                                                                      setIsPlaying(true);
+                                                                    }
                                 }}
                               >
-                                <span style={styles.songListIdx}>{String(idx + 1).padStart(2, "0")}</span>
-                                <div style={styles.songListInfo}>
-                                  <span style={styles.songListTitle}>{song.title}</span>
-                                  <span style={styles.songListMeta}>{song.artist} · {song.albumTitle}</span>
+                                                                <div style={styles.songColCheck}>
+                                  <input
+                                    type="checkbox"
+                                    className="song-checkbox"
+                                    style={styles.songCheckbox}
+                                    checked={isChecked}
+                                    onChange={(e) => handleCheckboxChange(songKey, e)}
+                                    onClick={(e) => e.stopPropagation()}
+                                  />
                                 </div>
-                                {isActive && <span style={styles.songListPlaying}>▶</span>}
+                                                                <div style={styles.songColTitle}>
+                                                                  <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
+                                                                    <div style={styles.songCoverThumb}>
+                                                                      {(() => {
+                                                                        const album = albums.find((a) => a.id === song.albumId);
+                                                                        return album?.coverURL ? (
+                                                                          <img src={album.coverURL} alt="" style={styles.songCoverThumbImg} />
+                                                                        ) : (
+                                                                          <span style={styles.songCoverThumbPlaceholder}>🎶</span>
+                                                                        );
+                                                                      })()}
+                                                                    </div>
+                                                                    <span style={{
+                                                                      ...styles.songCellTitle,
+                                                                      ...(isActive ? styles.songCellTitleActive : {}),
+                                                                      minWidth: 0,
+                                                                    }}>
+                                                                      {song.title}
+                                                                    </span>
+                                                                  </div>
+                                                                </div>
+                                <div style={styles.songColArtist}>
+                                  <span style={styles.songCellText}>{song.artist || "未知"}</span>
+                                </div>
+                                <div style={styles.songColYear}>
+                                  <span style={styles.songCellText}>{song.albumYear ? `${song.albumYear}年` : "—"}</span>
+                                </div>
+                                                                <div style={styles.songColAlbum}>
+                                  <span style={styles.songCellText}>{song.albumTitle}</span>
+                                </div>
+                                <div style={styles.songColDuration}>
+                                  <span style={styles.songCellText}>{formatDuration(song.duration)}</span>
+                                </div>
+                                                                <div style={styles.songColMenu}>
+                                  <button
+                                    style={styles.songMenuBtn}
+                                    className="song-menu-btn"
+                                    onClick={(e) => handleOpenContextMenu(e, song)}
+                                    title="更多操作"
+                                  >
+                                    <span style={styles.songMenuDots}>···</span>
+                                  </button>
+                                </div>
                               </div>
                             );
                           })}
                         </div>
-                      );
+                                            );
                     })()}
+
+                    {/* 单曲操作菜单 */}
+                    {contextMenu && (
+                      <>
+                        <div style={styles.contextOverlay} onClick={handleCloseContextMenu} />
+                        <div
+                          style={{
+                            ...styles.contextMenu,
+                            left: contextMenu.x,
+                            top: contextMenu.y,
+                          }}
+                        >
+                                                    <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handleContextMenuAction("album", contextMenu.song)}>
+                            <span style={styles.contextMenuIcon}>💿</span>
+                            <span>专辑</span>
+                          </div>
+                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handleContextMenuAction("artist", contextMenu.song)}>
+                            <span style={styles.contextMenuIcon}>👤</span>
+                            <span>艺人</span>
+                          </div>
+                          <div style={styles.contextMenuDivider} />
+                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handleContextMenuAction("addToPlaylist", contextMenu.song)}>
+                            <span style={styles.contextMenuIcon}>❤️</span>
+                            <span>添加到播放列表</span>
+                          </div>
+                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handleContextMenuAction("playNext", contextMenu.song)}>
+                            <span style={styles.contextMenuIcon}>⏭</span>
+                            <span>插播</span>
+                          </div>
+                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handleContextMenuAction("playLater", contextMenu.song)}>
+                            <span style={styles.contextMenuIcon}>📋</span>
+                            <span>稍后播放</span>
+                          </div>
+                        </div>
+                      </>
+                    )}
+
+                    {/* 删除确认浮窗 */}
+                    {showDeleteConfirm && (
+                      <div style={styles.overlay} onClick={handleCancelSelect}>
+                        <div style={styles.confirmDialog} onClick={(e) => e.stopPropagation()}>
+                          <div style={styles.confirmIcon}>⚠️</div>
+                          <h3 style={styles.confirmTitle}>确认删除</h3>
+                          <p style={styles.confirmText}>
+                            确定要删除选中的 {selectedSongs.size} 首歌曲吗？此操作不可撤销。
+                          </p>
+                          <div style={styles.confirmActions}>
+                            <button style={styles.confirmDeleteBtn} onClick={handleConfirmDelete}>
+                              确认删除
+                            </button>
+                            <button style={styles.confirmCancelBtn} onClick={handleCancelSelect}>
+                              取消
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </main>
                                 ) : (
                                   /* ================================================================ */
@@ -811,7 +1307,7 @@ export default function MusicLibrary() {
       {/* ============================================================ */}
       {/* ③ 播放控制器（底部播放条 + 播放详情页）                     */}
       {/* ============================================================ */}
-            <MusicPlayer
+                        <MusicPlayer
         albums={albums}
         playlists={playlists}
         currentAlbumId={currentAlbumId}
@@ -828,6 +1324,8 @@ export default function MusicLibrary() {
         volume={volume}
         setVolume={setVolume}
         audioRef={audioRef}
+        playQueue={playQueue}
+        setPlayQueue={setPlayQueue}
       />
     </div>
   );
@@ -1043,36 +1541,190 @@ const styles = {
     fontSize: "12px", color: "#6b7280", margin: 0,
   },
 
-  // ---- 歌曲列表视图 ----
-  songList: {
+    // ---- 歌曲表格视图 ----
+  songTable: {
     display: "flex", flexDirection: "column", gap: "2px",
+    borderTop: "1px solid #e5e7eb",
   },
-  songListItem: {
-    display: "flex", alignItems: "center", gap: "12px",
-    padding: "10px 14px", borderRadius: "8px",
+  songTableHeader: {
+    display: "flex", alignItems: "center", gap: "0",
+    padding: "10px 14px", borderBottom: "1px solid #e5e7eb",
+    fontSize: "12px", fontWeight: 600, color: "#6b7280",
+    letterSpacing: "0.5px", textTransform: "uppercase",
+  },
+    songTableRow: {
+    display: "flex", alignItems: "center", gap: "0",
+    padding: "6px 10px", borderRadius: "8px",
     cursor: "pointer", transition: "background 0.15s",
   },
-  songListItemActive: {
-    background: "rgba(233,69,96,0.1)",
+    songTableRowActive: {
     border: "1px solid rgba(233,69,96,0.2)",
   },
-  songListIdx: {
-    fontSize: "12px", color: "#6b7280", fontVariantNumeric: "tabular-nums",
-    minWidth: "24px", textAlign: "right", flexShrink: 0,
+    // 列宽定义
+            songColCheck: { width: "36px", flexShrink: 0, display: "flex", alignItems: "center" },
+  songColTitle: { flex: "2 1 0", minWidth: 0, paddingRight: "8px", overflow: "hidden" },
+  songColArtist: { flex: "1 1 0", minWidth: 0, paddingRight: "8px", overflow: "hidden" },
+  songColYear: { width: "60px", flexShrink: 0, paddingRight: "8px" },
+  songColAlbum: { flex: "1 1 0", minWidth: 0, overflow: "hidden", paddingRight: "8px" },
+  songColDuration: { width: "60px", flexShrink: 0, textAlign: "right", paddingRight: "4px" },
+  songColMenu: { width: "40px", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" },
+    // 单元格样式
+  songCheckbox: {
+    width: "16px", height: "16px", cursor: "pointer",
+    accentColor: "#e94560",
   },
-  songListInfo: {
-    flex: 1, overflow: "hidden", display: "flex", flexDirection: "column", gap: "2px",
+  songCoverThumb: {
+    width: "32px", height: "32px", borderRadius: "4px",
+    overflow: "hidden", flexShrink: 0,
+    background: "#f3f4f6",
   },
-  songListTitle: {
+  songCoverThumbImg: {
+    width: "100%", height: "100%", objectFit: "cover", display: "block",
+  },
+  songCoverThumbPlaceholder: {
+    display: "flex", alignItems: "center", justifyContent: "center",
+    width: "100%", height: "100%", fontSize: "14px", opacity: 0.4,
+  },
+  songCellTitle: {
     fontSize: "14px", fontWeight: 500, color: "#1f2937",
     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
   },
-  songListMeta: {
-    fontSize: "12px", color: "#6b7280",
+  songCellTitleActive: { color: "#e94560", fontWeight: 600 },
+  songCellText: {
+    fontSize: "13px", color: "#6b7280",
     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
   },
-  songListPlaying: {
-    fontSize: "12px", color: "#e94560", flexShrink: 0,
+        songPlayingIndicator: {
+    fontSize: "12px", color: "#e94560", fontWeight: 600,
+  },
+
+    // ---- 单曲操作按钮 ---- 
+  songMenuBtn: {
+    width: "32px", height: "32px", borderRadius: "50%",
+    border: "none", background: "transparent",
+    cursor: "pointer", display: "flex", alignItems: "center",
+    justifyContent: "center", opacity: 0,
+    transition: "all 0.15s",
+    color: "#6b7280", flexShrink: 0,
+  },
+  songMenuDots: {
+    fontSize: "18px", fontWeight: 700, lineHeight: 1,
+    letterSpacing: "2px", marginTop: "-2px",
+  },
+
+  // ---- 单曲操作菜单 ---- 
+  contextOverlay: {
+    position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+    zIndex: 999, background: "transparent",
+  },
+  contextMenu: {
+    position: "fixed", zIndex: 1000,
+    minWidth: "180px", padding: "6px", borderRadius: "12px",
+    background: "#ffffff", boxShadow: "0 8px 30px rgba(0,0,0,0.15)",
+    border: "1px solid #e5e7eb",
+  },
+  contextMenuItem: {
+    display: "flex", alignItems: "center", gap: "10px",
+    padding: "8px 14px", borderRadius: "8px",
+    fontSize: "13px", color: "#374151", fontWeight: 500,
+    cursor: "pointer", transition: "background 0.15s",
+  },
+  contextMenuIcon: {
+    fontSize: "14px", width: "20px", textAlign: "center",
+  },
+  contextMenuDivider: {
+    height: "1px", background: "#e5e7eb",
+    margin: "4px 8px",
+  },
+
+    // ---- 多选模式样式 ----
+  multiSelectBarSticky: {
+    position: "sticky", top: 0, zIndex: 50,
+    display: "flex", alignItems: "center", justifyContent: "space-between",
+    padding: "12px 16px", marginBottom: "16px",
+    background: "#ffffff", border: "1px solid #e5e7eb",
+    borderRadius: "12px", boxShadow: "0 4px 20px rgba(0,0,0,0.08)",
+    gap: "12px", flexWrap: "wrap",
+  },
+  multiSelectLeft: {
+    display: "flex", alignItems: "center", gap: "8px",
+    flexWrap: "wrap",
+  },
+  multiSelectRight: {
+    display: "flex", alignItems: "center", gap: "8px",
+    flexWrap: "wrap",
+    marginLeft: "auto",
+  },
+  multiSelectInfo: {
+    fontSize: "14px", color: "#1f2937", fontWeight: 600,
+    marginRight: "4px", whiteSpace: "nowrap",
+  },
+  actionBtn: {
+    padding: "6px 16px", borderRadius: "20px", border: "1px solid #d1d5db",
+    background: "#f9fafb", color: "#374151",
+    fontSize: "13px", fontWeight: 500, cursor: "pointer",
+    fontFamily: "inherit", whiteSpace: "nowrap",
+    transition: "all 0.2s",
+  },
+  deleteBtn: {
+    padding: "6px 20px", borderRadius: "20px", border: "none",
+    background: "#e94560", color: "#fff",
+    fontSize: "13px", fontWeight: 600, cursor: "pointer",
+    fontFamily: "inherit", whiteSpace: "nowrap",
+    transition: "all 0.2s",
+  },
+  cancelSelectBtn: {
+    padding: "6px 20px", borderRadius: "20px",
+    border: "1px solid #d1d5db", background: "#ffffff",
+    color: "#374151", fontSize: "13px", fontWeight: 500,
+    cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap",
+    transition: "all 0.2s",
+  },
+  songTableRowChecked: {
+    background: "rgba(233,69,96,0.06)",
+    border: "1px solid rgba(233,69,96,0.15)",
+  },
+
+  // ---- 删除确认浮窗 ----
+  overlay: {
+    position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+    background: "rgba(0,0,0,0.4)", zIndex: 1000,
+    display: "flex", alignItems: "center", justifyContent: "center",
+    backdropFilter: "blur(4px)",
+  },
+  confirmDialog: {
+    width: "380px", padding: "32px", borderRadius: "16px",
+    background: "#ffffff", boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+    display: "flex", flexDirection: "column", alignItems: "center",
+    gap: "12px",
+  },
+  confirmIcon: {
+    fontSize: "48px",
+  },
+  confirmTitle: {
+    fontSize: "20px", fontWeight: 700, color: "#1f2937",
+    margin: 0,
+  },
+  confirmText: {
+    fontSize: "14px", color: "#6b7280", textAlign: "center",
+    margin: "4px 0 8px", lineHeight: 1.5,
+  },
+  confirmActions: {
+    display: "flex", gap: "12px", marginTop: "4px",
+  },
+  confirmDeleteBtn: {
+    padding: "10px 28px", borderRadius: "20px", border: "none",
+    background: "#e94560", color: "#fff",
+    fontSize: "14px", fontWeight: 600, cursor: "pointer",
+    fontFamily: "inherit",
+    transition: "all 0.2s",
+  },
+  confirmCancelBtn: {
+    padding: "10px 28px", borderRadius: "20px",
+    border: "1px solid #d1d5db", background: "#ffffff",
+    color: "#374151", fontSize: "14px", fontWeight: 500,
+    cursor: "pointer", fontFamily: "inherit",
+    transition: "all 0.2s",
   },
 
   // ---- 资料库-播放列表概览 ----

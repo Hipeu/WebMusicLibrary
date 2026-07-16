@@ -68,3 +68,46 @@
 .sidebar-item:hover .sidebar-delete-btn {
   opacity: 1 !important;
 }
+
+/* 歌曲表格行 - 复选框默认隐藏，hover 时显示，
+   但选中的行(isSelecting模式下)或已被勾选的行始终显示 */
+.song-table-row .song-checkbox {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.song-table-row:hover .song-checkbox {
+  opacity: 1;
+}
+/* 多选模式（进入复选状态）下，所有复选框始终可见 */
+.multi-select-active .song-checkbox,
+.song-table-row.is-checked .song-checkbox,
+.song-table-row:hover .song-checkbox {
+  opacity: 1 !important;
+}
+/* 活动行（正在播放）不再显示红色背景，仅保留边框高亮 */
+.song-table-row.song-row-active {
+  background: transparent !important;
+}
+/* 选中行（已勾选）显示浅红色背景 — 即使也是正在播放行也要显示 */
+.song-table-row.is-checked {
+  background: rgba(233,69,96,0.06) !important;
+  border: 1px solid rgba(233,69,96,0.15) !important;
+}
+
+/* 歌曲操作三点按钮 - hover 时显示 */
+.song-table-row .song-menu-btn {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.song-table-row:hover .song-menu-btn {
+  opacity: 1;
+}
+.song-table-row .song-menu-btn:hover {
+  background: #e5e7eb !important;
+  opacity: 1 !important;
+}
+
+/* 上下文菜单项 hover */
+.context-menu-item:hover {
+  background: #f3f4f6 !important;
+}

@@ -33,13 +33,17 @@ export async function readMetadata(file) {
       genre = Array.isArray(raw) ? raw.join(" / ") : String(raw);
     }
 
-    let coverURL = null;
+        let coverURL = null;
     const picture = metadata.common.picture?.[0];
   if (picture) {
     const blob = new Blob([picture.data], { type: picture.format });
       coverURL = URL.createObjectURL(blob);
   }
-    return { title, artist, album, year, coverURL, genre };
+
+    // 时长获取（秒）
+    const duration = metadata.format?.duration || null;
+
+    return { title, artist, album, year, coverURL, genre, duration };
   } catch (err) {
     console.warn("读取元数据失败:", err);
     // 降级：只用文件名

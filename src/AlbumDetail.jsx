@@ -13,6 +13,7 @@ export default function AlbumDetail({
   onPlayAlbum,
   onPlaySong,
   onBack,
+  onOpenArtist,
 }) {
   if (!album) return null;
 
@@ -43,7 +44,22 @@ export default function AlbumDetail({
         {/* 右：信息区（独立，可自由增删内容） */}
         <div style={styles.infoColumn}>
           <h1 style={styles.albumTitle}>{album.title}</h1>
-          <p style={styles.albumArtist}>{album.artist}</p>
+          <p style={styles.albumArtist}>
+            {onOpenArtist ? (
+              <span
+                style={styles.artistLink}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenArtist(album.artist);
+                }}
+                title="查看艺人详情"
+              >
+                {album.artist}
+              </span>
+            ) : (
+              album.artist
+            )}
+          </p>
                     <p style={styles.albumYear}>
             {yearText}年
             {genreText && <><span style={styles.yearGenreSep}>·</span><span style={styles.albumGenre}>{genreText}</span></>}
@@ -94,7 +110,20 @@ export default function AlbumDetail({
                   }}>
                     {song.title}
                   </span>
-                  <span style={styles.songArtist}>{song.artist}</span>
+                  {onOpenArtist ? (
+                    <span
+                      style={styles.songArtistLink}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onOpenArtist(song.artist);
+                      }}
+                      title="查看艺人详情"
+                    >
+                      {song.artist}
+                    </span>
+                  ) : (
+                    <span style={styles.songArtist}>{song.artist}</span>
+                  )}
                 </div>
               </div>
             );
@@ -189,8 +218,16 @@ const styles = {
         fontSize: "32px", fontWeight: 700, color: "#1f2937",
     margin: 0, lineHeight: 1.2,
   },
-  albumArtist: {
+    albumArtist: {
     fontSize: "18px", color: "#6b7280", margin: 0, fontWeight: 400,
+  },
+  artistLink: {
+    color: "#e94560",
+    cursor: "pointer",
+    fontWeight: 500,
+    textDecoration: "none",
+    transition: "color 0.2s",
+    borderBottom: "1px solid transparent",
   },
         albumYear: {
     fontSize: "14px", color: "#6b7280", margin: 0,
@@ -295,9 +332,16 @@ const styles = {
     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
   },
   songTitleActive: { color: "#1f2937", fontWeight: 600 },
-  songArtist: {
+    songArtist: {
     fontSize: "12px", color: "#6b7280",
     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+  },
+  songArtistLink: {
+    fontSize: "12px", color: "#e94560",
+    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+    cursor: "pointer",
+    fontWeight: 500,
+    transition: "color 0.2s",
   },
     nowPlayingBadge: {
     fontSize: "11px", color: "#e94560", fontWeight: 500,

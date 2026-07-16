@@ -26,23 +26,52 @@ export default function MusicPlayer({
   volume,
   setVolume,
   audioRef,
+  playQueue = [],
+  setPlayQueue,
 }) {
     const [showDetail, setShowDetail] = useState(false);
   const [lyricsData, setLyricsData] = useState(null); // { type: 'timed'|'plain', lines: [...] }
   const lrcInputRef = useRef(null);
 
     // 当前专辑 & 当前歌曲（支持专辑和播放列表两种来源）
-  const currentAlbum = albums.find((a) => a.id === currentAlbumId) || null;
-  const currentPlaylist = currentPlaylistId ? playlists.find((p) => p.id === currentPlaylistId) : null;
-  const currentSong = currentAlbum?.songs?.[currentSongIndex]
-    || currentPlaylist?.songs?.[currentSongIndex]
-    || null;
-  // 用于展示的专辑/播放列表信息（播放详情页使用）
-  const displayAlbum = currentAlbum || (currentPlaylist ? {
-    ...currentPlaylist,
-    title: currentPlaylist.name,
-    artist: "播放列表",
-  } : null);
+    const currentAlbum = albums.find((a) => a.id === currentAlbumId) || null;
+    const currentPlaylist = currentPlaylistId ? playlists.find((p) => p.id === currentPlaylistId) : null;
+    // 源歌曲列表（不包含 queue）
+    const sourceSongs = currentAlbum?.songs || currentPlaylist?.songs || [];
+    // 完整歌曲列表 = 源列表 + 播放队列
+    const allSongs = [...sourceSongs, ...playQueue];
+    // 当前歌曲：先看 sourceSongs 范围内，再看 playQueue 范围内
+    const currentSong = currentAlbum?.songs?.[currentSongIndex]
+      || currentPlaylist?.songs?.[currentSongIndex]
+      || playQueue[currentSongIndex - sourceSongs.length] || null;
+    // 用于展示的专辑/播放列表信息（播放详情页使用）
+    // 如果是播放队列单曲（currentAlbumId == null），从歌曲信息构造展示信息
+    const displayAlbum = currentAlbum
+      || (currentPlaylist ? {
+        ...currentPlaylist,
+        title: currentPlaylist.name,
+        artist: "播放列表",
+      } : null)
+      || (playQueue.length > 0 && playQueue[0] ? (() => {
+        const firstSong = playQueue[0];
+        // 查找这首歌所属的专辑获取封面
+        const foundAlbum = albums.find((a) =>
+          a.songs.some((s) => s.url === firstSong.url || s.title === firstSong.title)
+        );
+        if (foundAlbum) {
+          return {
+            ...foundAlbum,
+            title: "播放队列",
+            artist: firstSong.artist || "未知艺术家",
+          };
+        }
+        return {
+          title: "播放队列",
+          artist: firstSong.artist || "未知艺术家",
+          coverURL: firstSong.coverURL || null,
+        };
+      })() : null);
+  const queueCount = playQueue.length;
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
 
   // ---------- 格式化时间 ----------
@@ -81,23 +110,43 @@ export default function MusicPlayer({
     setIsPlaying(!isPlaying);
   }
 
-        function prevTrack() {
-    const songs = currentAlbum?.songs || currentPlaylist?.songs || [];
-    if (songs.length === 0) return;
-    const newIndex = (currentSongIndex - 1 + songs.length) % songs.length;
+                function prevTrack() {
+    if (allSongs.length === 0) return;
+    const newIndex = (currentSongIndex - 1 + allSongs.length) % allSongs.length;
     setCurrentSongIndex(newIndex);
     setLyricsData(null);
     setIsPlaying(true);
   }
 
-  function nextTrack() {
-    const songs = currentAlbum?.songs || currentPlaylist?.songs || [];
-    if (songs.length === 0) return;
-    const newIndex = (currentSongIndex + 1) % songs.length;
-    setCurrentSongIndex(newIndex);
-    setLyricsData(null);
-    setIsPlaying(true);
-  }
+    function nextTrack() {
+      if (allSongs.length === 0) return;
+      const nextIndex = currentSongIndex + 1;
+      // 如果当前播放的是 queue 中的歌（索引 >= sourceSongs.length），播完后从 queue 中移除
+      if (currentSongIndex >= sourceSongs.length && setPlayQueue) {
+        // 当前是 queue 歌曲，播完后移除它
+        const queueIdx = currentSongIndex - sourceSongs.length;
+        setPlayQueue((prev) => prev.filter((_, i) => i !== queueIdx));
+        // 移除后 nextIndex-1 对应原来 queue 中的下一首
+        if (nextIndex - 1 < allSongs.length - 1) {
+          setCurrentSongIndex(nextIndex);
+        } else {
+          // queue 中的歌全播完了
+          if (sourceSongs.length > 0) {
+            // 回到源列表最后一首的下一个（循环到开头）
+            setCurrentSongIndex((currentSongIndex + 1) % sourceSongs.length);
+          } else {
+            setCurrentSongIndex(0);
+          }
+        }
+      } else if (nextIndex < allSongs.length) {
+        setCurrentSongIndex(nextIndex);
+      } else {
+        // 播完所有，回到开头
+        setCurrentSongIndex(0);
+      }
+      setLyricsData(null);
+      setIsPlaying(true);
+    }
 
   function handleSeek(e) {
     if (!audioRef.current || !currentSong) return;
@@ -128,9 +177,8 @@ export default function MusicPlayer({
     }
   }
 
-    function handleEnded() {
-    const songs = currentAlbum?.songs || currentPlaylist?.songs || [];
-    if (songs.length > 1) {
+        function handleEnded() {
+    if (allSongs.length > 1) {
       nextTrack();
     } else {
       setIsPlaying(false);
@@ -138,16 +186,23 @@ export default function MusicPlayer({
     }
   }
 
-    // 切换歌曲时重置 audio 并清空歌词
+                // 切换歌曲时重置 audio 并清空歌词
+    // 用 ref 记录当前实际播放的歌曲 url，避免队列插入导致重新加载
+    const prevSongUrlRef = useRef(null);
     useEffect(() => {
+    if (!currentSong) return;
+    // 如果歌曲 url 没变，说明只是队列变化，不需要重新加载
+    if (currentSong.url === prevSongUrlRef.current) return;
+    prevSongUrlRef.current = currentSong.url;
+
     setLyricsData(null);
-    if (audioRef.current && currentSong) {
+    if (audioRef.current) {
       audioRef.current.load();
       if (isPlaying) {
         audioRef.current.play().catch(() => setIsPlaying(false));
       }
     }
-  }, [currentAlbumId, currentPlaylistId, currentSongIndex]);
+  }, [currentAlbumId, currentPlaylistId, currentSongIndex, currentSong?.url]);
 
   return (
     <>
@@ -206,29 +261,38 @@ export default function MusicPlayer({
               <p style={styles.detailAlbumTitle}>{displayAlbum.title}</p>
               <p style={styles.detailAlbumArtist}>{displayAlbum.artist}</p>
 
-              {/* 专辑/播放列表 歌曲列表 */}
+                            {/* 专辑/播放列表 歌曲列表（含播放队列） */}
               <div style={styles.detailSongList}>
-                <p style={styles.detailSongListLabel}>歌曲列表</p>
-                {(currentAlbum?.songs || currentPlaylist?.songs || []).map((song, idx) => (
+                <p style={styles.detailSongListLabel}>
+                  歌曲列表{playQueue.length > 0 ? ` (+${playQueue.length} 待播)` : ""}
+                </p>
+                {allSongs.map((song, idx) => {
+                  const isQueueSong = idx >= sourceSongs.length;
+                  return (
                   <div
                     key={idx}
                     className="detail-song-item"
                     style={{
                       ...styles.detailSongItem,
                       ...(idx === currentSongIndex ? styles.detailSongItemActive : {}),
+                      ...(isQueueSong ? styles.detailQueueSongItem : {}),
                     }}
                     onClick={() => { setCurrentSongIndex(idx); setIsPlaying(true); }}
                   >
                     <span style={styles.detailSongIdx}>{String(idx + 1).padStart(2, "0")}</span>
                     <div style={{ flex: 1, overflow: "hidden" }}>
-                      <p style={styles.detailSongName}>{song.title}</p>
+                      <p style={styles.detailSongName}>
+                        {song.title}
+                        {isQueueSong && <span style={styles.detailQueueTag}> 待播</span>}
+                      </p>
                       <p style={styles.detailSongArtist}>{song.artist}</p>
                     </div>
                     {idx === currentSongIndex && (
                       <span style={styles.detailPlayingIndicator}>{isPlaying ? "▶" : "⏸"}</span>
                     )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
@@ -364,6 +428,13 @@ const styles = {
     margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
   },
   detailPlayingIndicator: { fontSize: "14px", color: "#e94560", flexShrink: 0 },
+  detailQueueSongItem: {
+    opacity: 0.75,
+    borderLeft: "3px solid #e94560",
+  },
+  detailQueueTag: {
+    fontSize: "10px", color: "#e94560", fontWeight: 600, marginLeft: "4px",
+  },
   detailLyricsArea: {
     flex: 1, maxWidth: "520px", display: "flex",
     flexDirection: "column", height: "100%", minHeight: 0,
