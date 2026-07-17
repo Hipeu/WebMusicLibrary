@@ -111,3 +111,16 @@
 .context-menu-item:hover {
   background: #f3f4f6 !important;
 }
+
+/* 专辑卡片三点按钮（名称右侧）- hover 时显示 */
+.album-card .album-menu-btn {
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.album-card:hover .album-menu-btn {
+  opacity: 1;
+}
+.album-card .album-menu-btn:hover {
+  background: #f3f4f6 !important;
+  color: #e94560 !important;
+}

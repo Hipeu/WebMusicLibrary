@@ -299,8 +299,10 @@ export default function MusicLibrary() {
     setActiveNav(val);
         // 切换导航时退出多选模式
     handleCancelSelect();
-    // 切换导航时关闭单曲菜单
+                // 切换导航时关闭单曲菜单和专辑菜单
     setContextMenu(null);
+    setAlbumMenu(null);
+    setPlaylistMenu(null);
   }
 
     // ---------- 从播放列表详情播放全部 ----------
@@ -578,6 +580,171 @@ export default function MusicLibrary() {
     }
   }
 
+  // ---------- 专辑操作菜单 ----------
+  function handleOpenAlbumMenu(e, album) {
+    e.stopPropagation();
+    e.preventDefault();
+    const menuWidth = 180;
+    const menuHeight = 200;
+    let x = e.clientX;
+    let y = e.clientY;
+    if (x + menuWidth > window.innerWidth) {
+      x = window.innerWidth - menuWidth - 8;
+    }
+    if (y + menuHeight > window.innerHeight) {
+      y = window.innerHeight - menuHeight - 8;
+    }
+    setAlbumMenu({ x, y, album });
+  }
+
+  function handleCloseAlbumMenu() {
+    setAlbumMenu(null);
+  }
+
+  function handleAlbumMenuAction(action, album) {
+    handleCloseAlbumMenu();
+    if (!album) return;
+
+    if (action === "playNext") {
+      // 插播：将专辑所有歌曲插入到下一首
+      const songs = album.songs.map(s => ({ ...s, albumId: album.id }));
+      if (songs.length === 0) return;
+      
+      if (currentSong && !currentAlbumId && !currentPlaylistId && playQueue.length > 0) {
+        // 正在播放队列歌曲，在下一首位置插入
+        const insertAt = currentSongIndex + 1;
+        setPlayQueue((prev) => {
+          const newQueue = [...prev];
+          newQueue.splice(insertAt, 0, ...songs);
+          return newQueue;
+        });
+      } else {
+        // 普通模式：插入到队列最前面
+        setPlayQueue((prev) => [...songs, ...prev]);
+      }
+      // 如果当前没有在播放，直接播放第一首
+      if (!currentSong) {
+        setCurrentPlaylistId(null);
+        setCurrentAlbumId(null);
+        setPlayQueue(songs);
+        setCurrentSongIndex(0);
+        setIsPlaying(true);
+      }
+    } else if (action === "playLater") {
+      // 稍后播放：追加到播放队列末尾
+      const songs = album.songs.map(s => ({ ...s, albumId: album.id }));
+      if (songs.length === 0) return;
+      
+      setPlayQueue((prev) => [...prev, ...songs]);
+      // 如果当前没有在播放，直接播放第一首
+      if (!currentSong) {
+        setCurrentPlaylistId(null);
+        setCurrentAlbumId(null);
+        setPlayQueue(songs);
+        setCurrentSongIndex(0);
+        setIsPlaying(true);
+      }
+    } else if (action === "artist") {
+      // 专辑艺人：跳转至艺人详情页
+      handleOpenArtistDetail(album.artist || "未知艺术家");
+    } else if (action === "delete") {
+      // 删除：弹出警告弹窗
+      setDeleteAlbumConfirm(album.id);
+    }
+  }
+
+  function handleConfirmDeleteAlbum() {
+    const albumId = deleteAlbumConfirm;
+    if (!albumId) return;
+    
+    // 如果正在播放该专辑，停止播放
+    if (currentAlbumId === albumId) {
+      setIsPlaying(false);
+      setCurrentAlbumId(null);
+    }
+    // 从播放队列中移除该专辑的歌曲
+    setPlayQueue((prev) => prev.filter(s => s.albumId !== albumId));
+    // 删除专辑
+    setAlbums((prev) => prev.filter(a => a.id !== albumId));
+    setDeleteAlbumConfirm(null);
+  }
+
+    function handleCancelDeleteAlbum() {
+    setDeleteAlbumConfirm(null);
+  }
+
+  // ---------- 播放列表操作菜单 ----------
+  function handleOpenPlaylistMenu(e, playlist) {
+    e.stopPropagation();
+    e.preventDefault();
+    const menuWidth = 180;
+    const menuHeight = 200;
+    let x = e.clientX;
+    let y = e.clientY;
+    if (x + menuWidth > window.innerWidth) {
+      x = window.innerWidth - menuWidth - 8;
+    }
+    if (y + menuHeight > window.innerHeight) {
+      y = window.innerHeight - menuHeight - 8;
+    }
+    setPlaylistMenu({ x, y, playlist });
+  }
+
+  function handleClosePlaylistMenu() {
+    setPlaylistMenu(null);
+  }
+
+  function handlePlaylistMenuAction(action, playlist) {
+    handleClosePlaylistMenu();
+    if (!playlist) return;
+
+    if (action === "playNext") {
+      const songs = playlist.songs.map(s => ({ ...s, albumId: playlist.id }));
+      if (songs.length === 0) return;
+      if (currentSong && !currentAlbumId && !currentPlaylistId && playQueue.length > 0) {
+        const insertAt = currentSongIndex + 1;
+        setPlayQueue((prev) => {
+          const newQueue = [...prev];
+          newQueue.splice(insertAt, 0, ...songs);
+          return newQueue;
+        });
+      } else {
+        setPlayQueue((prev) => [...songs, ...prev]);
+      }
+      if (!currentSong) {
+        setCurrentAlbumId(null);
+        setCurrentPlaylistId(null);
+        setPlayQueue(songs);
+        setCurrentSongIndex(0);
+        setIsPlaying(true);
+      }
+    } else if (action === "playLater") {
+      const songs = playlist.songs.map(s => ({ ...s, albumId: playlist.id }));
+      if (songs.length === 0) return;
+      setPlayQueue((prev) => [...prev, ...songs]);
+      if (!currentSong) {
+        setCurrentAlbumId(null);
+        setCurrentPlaylistId(null);
+        setPlayQueue(songs);
+        setCurrentSongIndex(0);
+        setIsPlaying(true);
+      }
+    } else if (action === "delete") {
+      setDeletePlaylistConfirm(playlist.id);
+    }
+  }
+
+  function handleConfirmDeletePlaylist() {
+    const playlistId = deletePlaylistConfirm;
+    if (!playlistId) return;
+    handleDeletePlaylist(playlistId);
+    setDeletePlaylistConfirm(null);
+  }
+
+  function handleCancelDeletePlaylist() {
+    setDeletePlaylistConfirm(null);
+  }
+
   // ---------- 过滤专辑 ----------
   const filteredAlbums = albums.filter((a) => {
     if (!filterText) return true;
@@ -648,8 +815,16 @@ export default function MusicLibrary() {
         const [isSelecting, setIsSelecting] = useState(false); // 是否处于多选模式
         const [showDeleteConfirm, setShowDeleteConfirm] = useState(false); // 是否显示删除确认浮窗
 
-        // ---------- 单曲菜单状态 ----------
+                // ---------- 单曲菜单状态 ----------
     const [contextMenu, setContextMenu] = useState(null); // { x, y, song } 或 null
+
+                // ---------- 专辑操作菜单状态 ----------
+        const [albumMenu, setAlbumMenu] = useState(null); // { x, y, album } 或 null
+        const [deleteAlbumConfirm, setDeleteAlbumConfirm] = useState(null); // 要删除的专辑id或null
+
+        // ---------- 播放列表操作菜单状态 ----------
+        const [playlistMenu, setPlaylistMenu] = useState(null); // { x, y, playlist } 或 null
+        const [deletePlaylistConfirm, setDeletePlaylistConfirm] = useState(null); // 要删除的播放列表id或null
 
     // ---------- 艺人视图排序 ----------
     const [artistSortMode, setArtistSortMode] = useState("a-z"); // "a-z" | "z-a"
@@ -846,7 +1021,7 @@ export default function MusicLibrary() {
                                     <span style={styles.coverPlaceholderIcon}>🎶</span>
                                   </div>
                                 )}
-                                <CoverPlayButton
+                                                                <CoverPlayButton
                                   isActive={album.id === currentAlbumId}
                                   isPlaying={isPlaying}
                                   onTogglePlay={() => handleQuickPlay(album.id)}
@@ -854,12 +1029,75 @@ export default function MusicLibrary() {
                                 {album.id === currentAlbumId && (
                                   <div style={styles.playingBadge}>▶ 正在播放</div>
                                 )}
+                                                            </div>
+                              <div style={styles.albumTitleRow}>
+                                <p style={styles.albumTitle}>{album.title}</p>
+                                <button
+                                  className="album-menu-btn"
+                                  style={styles.albumMenuBtnInline}
+                                  onClick={(e) => handleOpenAlbumMenu(e, album)}
+                                  title="更多操作"
+                                >
+                                  <span style={styles.albumMenuDotsInline}>···</span>
+                                </button>
                               </div>
-                              <p style={styles.albumTitle}>{album.title}</p>
                               <p style={styles.albumArtist}>{album.artist}</p>
                             </div>
                           );
                         })}
+                      </div>
+                    )}
+
+                    {/* 专辑操作菜单 */}
+                    {albumMenu && (
+                      <>
+                        <div style={styles.contextOverlay} onClick={handleCloseAlbumMenu} />
+                        <div
+                          style={{
+                            ...styles.contextMenu,
+                            left: albumMenu.x,
+                            top: albumMenu.y,
+                          }}
+                        >
+                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handleAlbumMenuAction("playNext", albumMenu.album)}>
+                            <span style={styles.contextMenuIcon}>⏭</span>
+                            <span>插播</span>
+                          </div>
+                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handleAlbumMenuAction("playLater", albumMenu.album)}>
+                            <span style={styles.contextMenuIcon}>📋</span>
+                            <span>稍后播放</span>
+                          </div>
+                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handleAlbumMenuAction("artist", albumMenu.album)}>
+                            <span style={styles.contextMenuIcon}>👤</span>
+                            <span>专辑艺人</span>
+                          </div>
+                          <div style={styles.contextMenuDivider} />
+                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handleAlbumMenuAction("delete", albumMenu.album)}>
+                            <span style={styles.contextMenuIcon}>🗑️</span>
+                            <span>删除</span>
+                          </div>
+                        </div>
+                      </>
+                    )}
+
+                    {/* 专辑删除确认浮窗 */}
+                    {deleteAlbumConfirm && (
+                      <div style={styles.overlay} onClick={handleCancelDeleteAlbum}>
+                        <div style={styles.confirmDialog} onClick={(e) => e.stopPropagation()}>
+                          <div style={styles.confirmIcon}>⚠️</div>
+                          <h3 style={styles.confirmTitle}>确认删除</h3>
+                          <p style={styles.confirmText}>
+                            确定要删除专辑「{albums.find(a => a.id === deleteAlbumConfirm)?.title}」吗？此操作不可撤销。
+                          </p>
+                          <div style={styles.confirmActions}>
+                            <button style={styles.confirmDeleteBtn} onClick={handleConfirmDeleteAlbum}>
+                              确认删除
+                            </button>
+                            <button style={styles.confirmCancelBtn} onClick={handleCancelDeleteAlbum}>
+                              取消
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     )}
                   </main>
@@ -1243,62 +1481,185 @@ export default function MusicLibrary() {
                                       <div style={styles.libraryGrid}>
                                         {/* 专辑卡片 */}
                                         {librarySortedAlbums.map((album) => {
-                          const isActive = album.id === currentAlbumId;
-                          return (
-                            <div
-                              key={album.id}
-                              className="album-card"
-                              style={{
-                                ...styles.libraryCard,
-                                ...(isActive ? styles.albumCardActive : {}),
-                              }}
-                              onClick={() => handleOpenAlbumDetail(album.id)}
-                            >
-                              <div style={styles.coverWrapper}>
-                                {album.coverURL ? (
-                                  <img src={album.coverURL} alt={album.title} style={styles.coverImage} />
-                                ) : (
-                                  <div style={styles.coverPlaceholder}>
-                                    <span style={styles.coverPlaceholderIcon}>🎶</span>
-                                  </div>
-                                )}
-                                <CoverPlayButton
-                                  isActive={album.id === currentAlbumId}
-                                  isPlaying={isPlaying}
-                                  onTogglePlay={() => handleQuickPlay(album.id)}
-                                />
-                                {album.id === currentAlbumId && (
-                                  <div style={styles.playingBadge}>▶ 正在播放</div>
-                                )}
-                              </div>
-                              <p style={styles.albumTitle}>{album.title}</p>
-                              <p style={styles.albumArtist}>{album.artist}</p>
-                            </div>
-                          );
-                        })}
+                                          const isActive = album.id === currentAlbumId;
+                                          return (
+                                            <div
+                                              key={album.id}
+                                              className="album-card"
+                                              style={{
+                                                ...styles.libraryCard,
+                                                ...(isActive ? styles.albumCardActive : {}),
+                                              }}
+                                              onClick={() => handleOpenAlbumDetail(album.id)}
+                                            >
+                                              <div style={styles.coverWrapper}>
+                                                {album.coverURL ? (
+                                                  <img src={album.coverURL} alt={album.title} style={styles.coverImage} />
+                                                ) : (
+                                                  <div style={styles.coverPlaceholder}>
+                                                    <span style={styles.coverPlaceholderIcon}>🎶</span>
+                                                  </div>
+                                                )}
+                                                <CoverPlayButton
+                                                  isActive={album.id === currentAlbumId}
+                                                  isPlaying={isPlaying}
+                                                  onTogglePlay={() => handleQuickPlay(album.id)}
+                                                />
+                                                {album.id === currentAlbumId && (
+                                                  <div style={styles.playingBadge}>▶ 正在播放</div>
+                                                )}
+                                              </div>
+                                              <div style={styles.albumTitleRow}>
+                                                <p style={styles.albumTitle}>{album.title}</p>
+                                                <button
+                                                  className="album-menu-btn"
+                                                  style={styles.albumMenuBtnInline}
+                                                  onClick={(e) => handleOpenAlbumMenu(e, album)}
+                                                  title="更多操作"
+                                                >
+                                                  <span style={styles.albumMenuDotsInline}>···</span>
+                                                </button>
+                                              </div>
+                                              <p style={styles.albumArtist}>{album.artist}</p>
+                                            </div>
+                                          );
+                                        })}
 
-                                                {/* 播放列表卡片 */}
-                                                {playlists.map((pl) => (
-                          <div
-                            key={pl.id}
-                            style={styles.libraryCard}
-                            onClick={() => handleOpenPlaylistDetail(pl.id)}
-                          >
-                            <div style={styles.coverWrapper}>
-                              {pl.coverURL ? (
-                                <img src={pl.coverURL} alt={pl.name} style={styles.coverImage} />
-                              ) : (
-                                <div style={styles.playlistCoverPlaceholder}>
-                                  {pl.id === "liked" ? "❤️" : pl.id === "recent" ? "🎧" : "📋"}
-                                </div>
-                              )}
-                            </div>
-                            <p style={styles.albumTitle}>{pl.name}</p>
-                            <p style={styles.albumArtist}>播放列表</p>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                                                                                                                                {/* 播放列表卡片 */}
+                                                                {playlists.map((pl) => (
+                                          <div
+                                            key={pl.id}
+                                            className="album-card"
+                                            style={styles.libraryCard}
+                                            onClick={() => handleOpenPlaylistDetail(pl.id)}
+                                          >
+                                            <div style={styles.coverWrapper}>
+                                              {pl.coverURL ? (
+                                                <img src={pl.coverURL} alt={pl.name} style={styles.coverImage} />
+                                              ) : (
+                                                <div style={styles.playlistCoverPlaceholder}>
+                                                  {pl.id === "liked" ? "❤️" : pl.id === "recent" ? "🎧" : "📋"}
+                                                </div>
+                                              )}
+                                            </div>
+                                            <div style={styles.albumTitleRow}>
+                                              <p style={styles.albumTitle}>{pl.name}</p>
+                                              <button
+                                                className="album-menu-btn"
+                                                style={styles.albumMenuBtnInline}
+                                                onClick={(e) => handleOpenPlaylistMenu(e, pl)}
+                                                title="更多操作"
+                                              >
+                                                <span style={styles.albumMenuDotsInline}>···</span>
+                                              </button>
+                                            </div>
+                                            <p style={styles.albumArtist}>播放列表</p>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+
+                                    {/* 专辑操作菜单 */}
+                                    {albumMenu && (
+                                      <>
+                                        <div style={styles.contextOverlay} onClick={handleCloseAlbumMenu} />
+                                        <div
+                                          style={{
+                                            ...styles.contextMenu,
+                                            left: albumMenu.x,
+                                            top: albumMenu.y,
+                                          }}
+                                        >
+                                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handleAlbumMenuAction("playNext", albumMenu.album)}>
+                                            <span style={styles.contextMenuIcon}>⏭</span>
+                                            <span>插播</span>
+                                          </div>
+                                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handleAlbumMenuAction("playLater", albumMenu.album)}>
+                                            <span style={styles.contextMenuIcon}>📋</span>
+                                            <span>稍后播放</span>
+                                          </div>
+                                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handleAlbumMenuAction("artist", albumMenu.album)}>
+                                            <span style={styles.contextMenuIcon}>👤</span>
+                                            <span>专辑艺人</span>
+                                          </div>
+                                          <div style={styles.contextMenuDivider} />
+                                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handleAlbumMenuAction("delete", albumMenu.album)}>
+                                            <span style={styles.contextMenuIcon}>🗑️</span>
+                                            <span>删除</span>
+                                          </div>
+                                        </div>
+                                      </>
+                                    )}
+
+                                                                        {/* 专辑删除确认浮窗 */}
+                                    {deleteAlbumConfirm && (
+                                      <div style={styles.overlay} onClick={handleCancelDeleteAlbum}>
+                                        <div style={styles.confirmDialog} onClick={(e) => e.stopPropagation()}>
+                                          <div style={styles.confirmIcon}>⚠️</div>
+                                          <h3 style={styles.confirmTitle}>确认删除</h3>
+                                          <p style={styles.confirmText}>
+                                            确定要删除专辑「{albums.find(a => a.id === deleteAlbumConfirm)?.title}」吗？此操作不可撤销。
+                                          </p>
+                                          <div style={styles.confirmActions}>
+                                            <button style={styles.confirmDeleteBtn} onClick={handleConfirmDeleteAlbum}>
+                                              确认删除
+                                            </button>
+                                            <button style={styles.confirmCancelBtn} onClick={handleCancelDeleteAlbum}>
+                                              取消
+                                            </button>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {/* 播放列表操作菜单 */}
+                                    {playlistMenu && (
+                                      <>
+                                        <div style={styles.contextOverlay} onClick={handleClosePlaylistMenu} />
+                                        <div
+                                          style={{
+                                            ...styles.contextMenu,
+                                            left: playlistMenu.x,
+                                            top: playlistMenu.y,
+                                          }}
+                                        >
+                                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handlePlaylistMenuAction("playNext", playlistMenu.playlist)}>
+                                            <span style={styles.contextMenuIcon}>⏭</span>
+                                            <span>插播</span>
+                                          </div>
+                                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handlePlaylistMenuAction("playLater", playlistMenu.playlist)}>
+                                            <span style={styles.contextMenuIcon}>📋</span>
+                                            <span>稍后播放</span>
+                                          </div>
+                                          <div style={styles.contextMenuDivider} />
+                                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handlePlaylistMenuAction("delete", playlistMenu.playlist)}>
+                                            <span style={styles.contextMenuIcon}>🗑️</span>
+                                            <span>删除</span>
+                                          </div>
+                                        </div>
+                                      </>
+                                    )}
+
+                                    {/* 播放列表删除确认浮窗 */}
+                                    {deletePlaylistConfirm && (
+                                      <div style={styles.overlay} onClick={handleCancelDeletePlaylist}>
+                                        <div style={styles.confirmDialog} onClick={(e) => e.stopPropagation()}>
+                                          <div style={styles.confirmIcon}>⚠️</div>
+                                          <h3 style={styles.confirmTitle}>确认删除</h3>
+                                          <p style={styles.confirmText}>
+                                            确定要删除播放列表「{playlists.find(p => p.id === deletePlaylistConfirm)?.name}」吗？此操作不可撤销。
+                                          </p>
+                                          <div style={styles.confirmActions}>
+                                            <button style={styles.confirmDeleteBtn} onClick={handleConfirmDeletePlaylist}>
+                                              确认删除
+                                            </button>
+                                            <button style={styles.confirmCancelBtn} onClick={handleCancelDeletePlaylist}>
+                                              取消
+                                            </button>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    )}
                   </main>
                 )}
               </div>
@@ -1307,7 +1668,7 @@ export default function MusicLibrary() {
       {/* ============================================================ */}
       {/* ③ 播放控制器（底部播放条 + 播放详情页）                     */}
       {/* ============================================================ */}
-                        <MusicPlayer
+                                                <MusicPlayer
         albums={albums}
         playlists={playlists}
         currentAlbumId={currentAlbumId}
@@ -1326,6 +1687,16 @@ export default function MusicLibrary() {
         audioRef={audioRef}
         playQueue={playQueue}
         setPlayQueue={setPlayQueue}
+        onNavigateToAlbum={(albumId) => {
+          setDetailAlbumId(albumId);
+          setDetailArtistName(null);
+        }}
+        onNavigateToArtist={(artistName) => {
+          setDetailAlbumId(null);
+          setDetailPlaylistId(null);
+          setDetailArtistName(artistName);
+          setActiveNav("artists");
+        }}
       />
     </div>
   );
@@ -1477,14 +1848,15 @@ const styles = {
     borderRadius: "10px",     background: "rgba(0,0,0,0.7)", color: "#fff",
     fontSize: "11px", fontWeight: 500, backdropFilter: "blur(4px)",
   },
-    albumTitle: {
+        albumTitle: {
     fontSize: "14px", fontWeight: 600, color: "#1f2937",
-    margin: "10px 12px 2px", overflow: "hidden",
+    margin: 0, overflow: "hidden",
     textOverflow: "ellipsis", whiteSpace: "nowrap",
+    flex: 1, minWidth: 0,
   },
-  albumArtist: {
+    albumArtist: {
     fontSize: "12px", color: "#6b7280",
-    margin: "0 12px 12px", overflow: "hidden",
+    margin: "0 12px 12px 12px", overflow: "hidden",
     textOverflow: "ellipsis", whiteSpace: "nowrap",
   },
 
@@ -1607,10 +1979,38 @@ const styles = {
     transition: "all 0.15s",
     color: "#6b7280", flexShrink: 0,
   },
-  songMenuDots: {
+    songMenuDots: {
     fontSize: "18px", fontWeight: 700, lineHeight: 1,
     letterSpacing: "2px", marginTop: "-2px",
   },
+
+    // ---- 专辑名右侧操作按钮 ----
+        albumTitleRow: {
+      display: "flex",
+      alignItems: "center",
+      gap: "4px",
+      margin: "10px 12px 2px",
+    },
+        albumMenuBtnInline: {
+          flexShrink: 0,
+          width: "32px",
+          height: "32px",
+          borderRadius: "50%",
+          border: "none",
+          background: "transparent",
+          cursor: "pointer",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: "#9ca3af",
+        },
+        albumMenuDotsInline: {
+          fontSize: "18px",
+          fontWeight: 700,
+          lineHeight: 1,
+          letterSpacing: "2px",
+          marginTop: "-2px",
+        },
 
   // ---- 单曲操作菜单 ---- 
   contextOverlay: {
