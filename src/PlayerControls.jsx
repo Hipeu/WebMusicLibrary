@@ -3,6 +3,8 @@
    功能：进度条 + 歌曲信息 + 播放/暂停/切歌 + 音量控制
    从 MusicPlayer 中独立出来的模块
    ================================================================ */
+import { FaHeart, FaRegHeart } from "react-icons/fa";
+
 export default function PlayerControls({
   currentSong,
   currentAlbum,
@@ -45,12 +47,12 @@ export default function PlayerControls({
           onClick={() => currentSong && onShowDetail()}
           title={currentSong ? "点击查看播放详情" : ""}
         >
-          {!showDetail && currentSong && currentAlbum && (
+          {!showDetail && currentSong && (
             <div style={styles.miniCoverWrapper}>
-              {currentAlbum.coverURL ? (
+              {(currentAlbum?.coverURL || currentSong?.coverURL) ? (
                 <img
-                  src={currentAlbum.coverURL}
-                  alt={currentAlbum.title}
+                  src={currentAlbum?.coverURL || currentSong?.coverURL}
+                  alt={currentAlbum?.title || currentSong?.title}
                   style={styles.miniCover}
                 />
               ) : (

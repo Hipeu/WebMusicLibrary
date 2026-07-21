@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { FiPlus } from "react-icons/fi";
+import { FaEllipsisH } from "react-icons/fa";
 import { readMetadata } from "./MetadataReader";
 import MusicPlayer from "./MusicPlayer";
 import AlbumDetail from "./AlbumDetail";
@@ -125,6 +126,7 @@ export default function MusicLibrary() {
         genre: entry.genre,
         duration: entry.duration,
         url: entry.url,
+        coverURL: entry.coverURL,
       });
       // 如果封面还没设置，用第一首歌的封面
       if (!album.coverURL && entry.coverURL) {
@@ -939,6 +941,35 @@ export default function MusicLibrary() {
                       onPlaySong={handlePlaySongFromDetail}
                       onBack={handleCloseDetail}
                       onOpenArtist={handleOpenArtistDetail}
+                      onAddToPlaylist={(song) => {
+                        setPlaylists((prev) =>
+                          prev.map((pl) => {
+                            if (pl.id === "liked") {
+                              const existingUrls = new Set(pl.songs.map((s) => s.url));
+                              if (!existingUrls.has(song.url)) {
+                                return { ...pl, songs: [...pl.songs, song] };
+                              }
+                            }
+                            return pl;
+                          })
+                        );
+                      }}
+                      onPlayNext={(song) => {
+                        setPlayQueue((prev) => [song, ...prev]);
+                        if (!currentSong) {
+                          setCurrentAlbumId(detailAlbumId);
+                          setCurrentSongIndex(0);
+                          setIsPlaying(true);
+                        }
+                      }}
+                      onPlayLater={(song) => {
+                        setPlayQueue((prev) => [...prev, song]);
+                        if (!currentSong) {
+                          setCurrentAlbumId(detailAlbumId);
+                          setCurrentSongIndex(0);
+                          setIsPlaying(true);
+                        }
+                      }}
                     />
                   </div>
                 ) : detailPlaylistId ? (
@@ -1340,13 +1371,23 @@ export default function MusicLibrary() {
                                                                   </div>
                                                                 </div>
                                 <div style={styles.songColArtist}>
-                                  <span style={styles.songCellText}>{song.artist || "未知"}</span>
+                                  <span
+                                    style={{ ...styles.songCellText, ...styles.clickableCellText }}
+                                    onClick={(e) => { e.stopPropagation(); handleOpenArtistDetail(song.artist || "未知艺术家"); }}
+                                  >
+                                    {song.artist || "未知"}
+                                  </span>
                                 </div>
                                 <div style={styles.songColYear}>
                                   <span style={styles.songCellText}>{song.albumYear ? `${song.albumYear}年` : "—"}</span>
                                 </div>
                                                                 <div style={styles.songColAlbum}>
-                                  <span style={styles.songCellText}>{song.albumTitle}</span>
+                                  <span
+                                    style={{ ...styles.songCellText, ...styles.clickableCellText }}
+                                    onClick={(e) => { e.stopPropagation(); handleOpenAlbumDetail(song.albumId); }}
+                                  >
+                                    {song.albumTitle}
+                                  </span>
                                 </div>
                                 <div style={styles.songColDuration}>
                                   <span style={styles.songCellText}>{formatDuration(song.duration)}</span>
@@ -1358,7 +1399,7 @@ export default function MusicLibrary() {
                                     onClick={(e) => handleOpenContextMenu(e, song)}
                                     title="更多操作"
                                   >
-                                    <span style={styles.songMenuDots}>···</span>
+                                    <FaEllipsisH size={14} />
                                   </button>
                                 </div>
                               </div>
@@ -1671,6 +1712,7 @@ export default function MusicLibrary() {
                                                 <MusicPlayer
         albums={albums}
         playlists={playlists}
+        setPlaylists={setPlaylists}
         currentAlbumId={currentAlbumId}
         currentPlaylistId={currentPlaylistId}
         setCurrentAlbumId={setCurrentAlbumId}
@@ -1696,6 +1738,11 @@ export default function MusicLibrary() {
           setDetailPlaylistId(null);
           setDetailArtistName(artistName);
           setActiveNav("artists");
+        }}
+        onNavigateToPlaylist={(playlistId) => {
+          setDetailAlbumId(null);
+          setDetailArtistName(null);
+          handleOpenPlaylistDetail(playlistId);
         }}
       />
     </div>
@@ -1965,6 +2012,12 @@ const styles = {
   songCellText: {
     fontSize: "13px", color: "#6b7280",
     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+  },
+  clickableCellText: {
+    color: "#e94560",
+    cursor: "pointer",
+    fontWeight: 500,
+    transition: "color 0.15s",
   },
         songPlayingIndicator: {
     fontSize: "12px", color: "#e94560", fontWeight: 600,

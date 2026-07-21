@@ -54,6 +54,9 @@
 .detail-song-item:hover {
   background: #f3f4f6 !important;
 }
+.detail-song-item:hover .song-action-btn {
+  opacity: 1 !important;
+}
 .album-card:hover .cover-play-btn {
   opacity: 1 !important;
   transform: scale(1) !important;
@@ -64,6 +67,9 @@
 }
 .cover-play-btn:active .cover-play-btn-inner {
   transform: scale(0.92);
+}
+.detail-song-item .song-dropdown-item:hover {
+  background: #f3f4f6 !important;
 }
 .sidebar-item:hover .sidebar-delete-btn {
   opacity: 1 !important;
@@ -100,7 +106,7 @@
   transition: opacity 0.15s ease;
 }
 .song-table-row:hover .song-menu-btn {
-  opacity: 1;
+  opacity: 1 !important;
 }
 .song-table-row .song-menu-btn:hover {
   background: #e5e7eb !important;

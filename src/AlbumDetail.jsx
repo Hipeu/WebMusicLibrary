@@ -1,4 +1,5 @@
-import { FaPlay, FaPause, FaArrowLeft, FaEdit } from "react-icons/fa";
+import { useState } from "react";
+import { FaPlay, FaPause, FaArrowLeft, FaEdit, FaEllipsisH, FaHeart, FaStepForward, FaClock } from "react-icons/fa";
 import PlayingAnimation from "./PlayingAnimation";
 
 /* ================================================================
@@ -14,11 +15,18 @@ export default function AlbumDetail({
   onPlaySong,
   onBack,
   onOpenArtist,
+  onAddToPlaylist,
+  onPlayNext,
+  onPlayLater,
 }) {
+  const [menuSongIdx, setMenuSongIdx] = useState(null);
+
   if (!album) return null;
 
     const yearText = album.year ? `${album.year}` : "未知年份";
   const genreText = album.genre || null;
+
+  function closeMenu() { setMenuSongIdx(null); }
 
   return (
     <div style={styles.container}>
@@ -85,6 +93,7 @@ export default function AlbumDetail({
         <div style={styles.songList}>
           {album.songs.map((song, idx) => {
             const isActive = idx === currentSongIndex;
+            const isMenuOpen = menuSongIdx === idx;
             return (
               <div
                 key={idx}
@@ -92,8 +101,9 @@ export default function AlbumDetail({
                   ...styles.songItem,
                   ...(isActive ? styles.songItemActive : {}),
                 }}
-                onClick={() => onPlaySong(idx)}
+                onClick={() => { closeMenu(); onPlaySong(idx); }}
                 className="detail-song-item"
+                onMouseLeave={() => isMenuOpen && setMenuSongIdx(null)}
               >
                 <span style={styles.songIndex}>
                   {isActive && isPlaying ? (
@@ -110,19 +120,36 @@ export default function AlbumDetail({
                   }}>
                     {song.title}
                   </span>
-                  {onOpenArtist ? (
-                    <span
-                      style={styles.songArtistLink}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onOpenArtist(song.artist);
-                      }}
-                      title="查看艺人详情"
-                    >
-                      {song.artist}
-                    </span>
-                  ) : (
-                    <span style={styles.songArtist}>{song.artist}</span>
+                  <span style={styles.songArtist}>{song.artist}</span>
+                </div>
+
+                <div style={styles.songActions}>
+                  <button
+                    className="song-action-btn"
+                    style={styles.songActionBtn}
+                    onClick={(e) => { e.stopPropagation(); setMenuSongIdx(isMenuOpen ? null : idx); }}
+                    title="更多操作"
+                  >
+                    <FaEllipsisH size={14} />
+                  </button>
+                  {isMenuOpen && (
+                    <>
+                      <div style={styles.menuOverlay} onClick={(e) => { e.stopPropagation(); closeMenu(); }} />
+                      <div style={styles.songDropdown} onClick={(e) => e.stopPropagation()}>
+                        <button className="song-dropdown-item" style={styles.dropdownItem} onClick={() => { onAddToPlaylist?.(song); closeMenu(); }}>
+                          <FaHeart size={13} style={{ marginRight: "10px" }} />
+                          添加到播放列表
+                        </button>
+                        <button className="song-dropdown-item" style={styles.dropdownItem} onClick={() => { onPlayNext?.(song, album.id, idx); closeMenu(); }}>
+                          <FaStepForward size={13} style={{ marginRight: "10px" }} />
+                          插播
+                        </button>
+                        <button className="song-dropdown-item" style={styles.dropdownItem} onClick={() => { onPlayLater?.(song, album.id, idx); closeMenu(); }}>
+                          <FaClock size={13} style={{ marginRight: "10px" }} />
+                          稍后播放
+                        </button>
+                      </div>
+                    </>
                   )}
                 </div>
               </div>
@@ -313,6 +340,7 @@ const styles = {
     display: "flex", alignItems: "center", gap: "14px",
     padding: "10px 14px", borderRadius: "10px",
     cursor: "pointer", transition: "background 0.2s",
+    position: "relative",
   },
   songItemActive: {
     background: "rgba(233,69,96,0.12)",
@@ -336,12 +364,37 @@ const styles = {
     fontSize: "12px", color: "#6b7280",
     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
   },
-  songArtistLink: {
-    fontSize: "12px", color: "#e94560",
-    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-    cursor: "pointer",
-    fontWeight: 500,
-    transition: "color 0.2s",
+  songActions: {
+    position: "relative",
+    flexShrink: 0,
+    marginLeft: "8px",
+  },
+  songActionBtn: {
+    background: "none", border: "none", cursor: "pointer",
+    width: "32px", height: "32px", borderRadius: "50%",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    color: "#9ca3af", opacity: 0,
+    transition: "opacity 0.15s, background 0.15s",
+  },
+  menuOverlay: {
+    position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+    zIndex: 999, background: "transparent",
+  },
+  songDropdown: {
+    position: "absolute", right: 0, top: "100%",
+    zIndex: 1000, minWidth: "160px", padding: "6px",
+    borderRadius: "10px", background: "#ffffff",
+    boxShadow: "0 8px 30px rgba(0,0,0,0.15)",
+    border: "1px solid #e5e7eb",
+  },
+  dropdownItem: {
+    display: "flex", alignItems: "center",
+    padding: "8px 14px", borderRadius: "8px",
+    border: "none", background: "none",
+    fontSize: "13px", color: "#374151", fontWeight: 500,
+    cursor: "pointer", width: "100%", textAlign: "left",
+    fontFamily: "inherit", whiteSpace: "nowrap",
+    transition: "background 0.15s",
   },
     nowPlayingBadge: {
     fontSize: "11px", color: "#e94560", fontWeight: 500,

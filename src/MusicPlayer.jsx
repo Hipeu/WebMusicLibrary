@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { FaChevronDown, FaList, FaMusic } from "react-icons/fa";
+import { FaChevronDown, FaList, FaMusic, FaHeart, FaRegHeart, FaEllipsisH, FaInfoCircle, FaPlus, FaCompactDisc, FaUser, FaStepForward, FaRedo, FaRandom } from "react-icons/fa";
 import Lyrics from "./Lyrics";
 import { parseLRC } from "./LyricsParser";
 import PlayerControls from "./PlayerControls";
@@ -12,6 +12,7 @@ import PlayerControls from "./PlayerControls";
 export default function MusicPlayer({
   albums,
   playlists,
+  setPlaylists,
   currentAlbumId,
   currentPlaylistId,
   setCurrentAlbumId,
@@ -30,12 +31,19 @@ export default function MusicPlayer({
   setPlayQueue,
   onNavigateToAlbum,
   onNavigateToArtist,
+  onNavigateToPlaylist,
 }) {
-  const [showDetail, setShowDetail] = useState(false);
+    const [showDetail, setShowDetail] = useState(false);
   const [lyricsData, setLyricsData] = useState(null);
   const lrcInputRef = useRef(null);
   const [detailTab, setDetailTab] = useState("songs"); // "songs" | "lyrics"
   const [tabTransition, setTabTransition] = useState(false);
+    const [isFavorited, setIsFavorited] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
+  const menuRef = useRef(null);
+  const [playMode, setPlayMode] = useState("sequential"); // "sequential" | "loop" | "shuffle"
+  const [showPlaylistPanel, setShowPlaylistPanel] = useState(false);
+  const [playlistSearch, setPlaylistSearch] = useState("");
 
   // 当前专辑 & 当前歌曲
   const currentAlbum = albums.find((a) => a.id === currentAlbumId) || null;
@@ -50,20 +58,21 @@ export default function MusicPlayer({
       if (currentAlbum && currentSongIndex < (currentAlbum.songs?.length || 0)) {
         return currentAlbum;
       }
-      // 2. 如果当前有播放列表且在列表歌曲范围内，用播放列表
-      if (currentPlaylist && currentSongIndex < (currentPlaylist.songs?.length || 0)) {
-        return {
-          ...currentPlaylist,
-          title: currentPlaylist.name,
-          artist: "播放列表",
-        };
-      }
-      // 3. 从所有专辑中查找当前歌曲所属的专辑
+      // 2. 优先从专辑中查找当前歌曲的原专辑（覆盖播放列表场景）
       const foundAlbum = albums.find((a) =>
         a.songs.some((s) => s.url === currentSong.url || s.title === currentSong.title)
       );
       if (foundAlbum) {
         return foundAlbum;
+      }
+      // 3. 如果当前有播放列表且在列表歌曲范围内，用播放列表（保留歌曲自身封面）
+      if (currentPlaylist && currentSongIndex < (currentPlaylist.songs?.length || 0)) {
+        return {
+          ...currentPlaylist,
+          title: currentPlaylist.name,
+          artist: "播放列表",
+          coverURL: currentSong.coverURL || currentPlaylist.coverURL || null,
+        };
       }
       // 4. 用歌曲自身信息
       return {
@@ -189,7 +198,7 @@ export default function MusicPlayer({
     }
   }
 
-  // 切换歌曲时重置 audio 并清空歌词
+    // 切换歌曲时重置 audio 并清空歌词
   const prevSongUrlRef = useRef(null);
   useEffect(() => {
     if (!currentSong) return;
@@ -203,7 +212,89 @@ export default function MusicPlayer({
         audioRef.current.play().catch(() => setIsPlaying(false));
       }
     }
+
+    // 自动添加到最近播放（最新在前）
+    if (setPlaylists) {
+      setPlaylists((prev) =>
+        prev.map((pl) => {
+          if (pl.id === "recent") {
+            const filtered = pl.songs.filter((s) => s.url !== currentSong.url);
+            return { ...pl, songs: [currentSong, ...filtered] };
+          }
+          return pl;
+        })
+      );
+    }
   }, [currentAlbumId, currentPlaylistId, currentSongIndex, currentSong?.url]);
+
+    // 点击菜单外关闭
+  useEffect(() => {
+    function handleClick(e) {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setShowMenu(false);
+      }
+    }
+    if (showMenu) {
+      document.addEventListener("mousedown", handleClick);
+    }
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [showMenu]);
+
+  // 同步喜爱状态
+  useEffect(() => {
+    if (currentSong && playlists) {
+      const likedPlaylist = playlists.find((p) => p.id === "liked");
+      if (likedPlaylist) {
+        setIsFavorited(likedPlaylist.songs.some((s) => s.url === currentSong.url));
+      }
+    }
+  }, [currentSong?.url, playlists]);
+
+  // 处理喜爱切换
+  function handleToggleFavorite() {
+    if (!currentSong || !setPlaylists) return;
+    const likedPlaylist = playlists.find((p) => p.id === "liked");
+    if (likedPlaylist) {
+      const isLiked = likedPlaylist.songs.some((s) => s.url === currentSong.url);
+      if (isLiked) {
+        setPlaylists((prev) =>
+          prev.map((pl) =>
+            pl.id === "liked"
+              ? { ...pl, songs: pl.songs.filter((s) => s.url !== currentSong.url) }
+              : pl
+          )
+        );
+      } else {
+        setPlaylists((prev) =>
+          prev.map((pl) =>
+            pl.id === "liked"
+              ? { ...pl, songs: [...pl.songs, currentSong] }
+              : pl
+          )
+        );
+      }
+      setIsFavorited(!isLiked);
+    }
+  }
+
+  // 添加到指定播放列表
+  function handleAddToSpecificPlaylist(playlistId) {
+    if (!currentSong || !setPlaylists) return;
+    const targetPlaylist = playlists.find((p) => p.id === playlistId);
+    if (targetPlaylist) {
+      const isAlready = targetPlaylist.songs.some((s) => s.url === currentSong.url);
+      if (!isAlready) {
+        setPlaylists((prev) =>
+          prev.map((pl) =>
+            pl.id === playlistId
+              ? { ...pl, songs: [...pl.songs, currentSong] }
+              : pl
+          )
+        );
+      }
+    }
+    setShowPlaylistPanel(false);
+  }
 
   return (
     <>
@@ -243,174 +334,332 @@ export default function MusicPlayer({
       {/* ================================================================ */}
       {/* 播放详情页 — 全屏弹窗                                           */}
       {/* ================================================================ */}
-      {showDetail && displayAlbum && currentSong && (
-        <div style={styles.detailOverlay}>
-          <button className="detail-back-btn" style={styles.detailBackBtn} onClick={() => setShowDetail(false)}>
-            <FaChevronDown />
-          </button>
+            {showDetail && displayAlbum && currentSong && (
+              <div style={styles.detailOverlay}>
+                <button className="detail-back-btn" style={styles.detailBackBtn} onClick={() => setShowDetail(false)}>
+                  <FaChevronDown />
+                </button>
 
-                    <div style={styles.detailContent}>
-                      {/* ===== 左侧：封面 + 歌曲信息 ===== */}
-                      <div style={styles.leftPanel}>
-                        {/* 封面图片容器 */}
-                        <div style={styles.coverContainer}>
-                          {displayAlbum.coverURL ? (
-                            <img src={displayAlbum.coverURL} alt={displayAlbum.title} style={styles.detailCover} />
-                          ) : (
-                            <div style={styles.detailCoverPlaceholder}>
-                              <span style={styles.detailCoverPlaceholderIcon}>🎵</span>
-                            </div>
-                          )}
-                        </div>
-
-                                                {/* 歌曲信息 */}
-                        <div style={styles.songInfoArea}>
-                          <p style={styles.detailNowPlayingName}>{currentSong.title}</p>
-                          <p
-                            style={styles.clickableLink}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (onNavigateToArtist && displayAlbum?.artist) {
-                                setShowDetail(false);
-                                onNavigateToArtist(displayAlbum.artist);
-                              }
-                            }}
-                          >
-                            {displayAlbum.artist}
-                          </p>
-                          <p
-                            style={styles.clickableLink}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              // 从所有专辑中查找匹配的专辑
-                              const found = albums.find((a) => a.title === displayAlbum?.title);
-                              if (onNavigateToAlbum && found?.id) {
-                                setShowDetail(false);
-                                onNavigateToAlbum(found.id);
-                              }
-                            }}
-                          >
-                            {displayAlbum.title}
-                          </p>
-                        </div>
-                      </div>
-
-                                            {/* ===== 右侧：胶囊按钮 + 功能区域 ===== */}
-                      <div style={styles.rightPanel}>
-                        {/* 胶囊按钮 — 在功能区域上方 */}
-                        <div style={styles.capsuleOuterWrapper}>
-                          <div style={styles.capsuleOuter}>
-                            <button
-                              style={{
-                                ...styles.capsuleBtn,
-                                ...(detailTab === "songs" ? styles.capsuleBtnActive : {}),
-                              }}
-                              onClick={() => switchTab("songs")}
-                            >
-                              <FaList size={13} style={{ marginRight: "6px" }} />
-                              歌曲列表
-                            </button>
-                            <button
-                              style={{
-                                ...styles.capsuleBtn,
-                                ...(detailTab === "lyrics" ? styles.capsuleBtnActive : {}),
-                              }}
-                              onClick={() => switchTab("lyrics")}
-                            >
-                              <FaMusic size={13} style={{ marginRight: "6px" }} />
-                              歌词
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* 过渡动画包装器 */}
-                        <div
-                          style={{
-                            ...styles.tabContentWrapper,
-                            opacity: tabTransition ? 0 : 1,
-                            transform: tabTransition ? "translateY(12px)" : "translateY(0)",
-                          }}
-                        >
-                          {/* ----- 歌曲列表 Tab ----- */}
-                          {detailTab === "songs" && (
-                            <div style={styles.detailSongList}>
-                              <p style={styles.detailSongListLabel}>
-                                歌曲列表{playQueue.length > 0 ? ` (+${playQueue.length} 待播)` : ""}
-                              </p>
-                              {allSongs.map((song, idx) => {
-                                const isQueueSong = idx >= sourceSongs.length;
-                                return (
-                                  <div
-                                    key={idx}
-                                    className="detail-song-item"
-                                    style={{
-                                      ...styles.detailSongItem,
-                                      ...(idx === currentSongIndex ? styles.detailSongItemActive : {}),
-                                      ...(isQueueSong ? styles.detailQueueSongItem : {}),
-                                    }}
-                                    onClick={() => { setCurrentSongIndex(idx); setIsPlaying(true); }}
-                                  >
-                                    <span style={styles.detailSongIdx}>{String(idx + 1).padStart(2, "0")}</span>
-                                    <div style={{ flex: 1, overflow: "hidden" }}>
-                                      <p style={styles.detailSongName}>
-                                        {song.title}
-                                        {isQueueSong && <span style={styles.detailQueueTag}> 待播</span>}
-                                      </p>
-                                      <p style={styles.detailSongArtist}>{song.artist}</p>
-                                    </div>
-                                    {idx === currentSongIndex && (
-                                      <span style={styles.detailPlayingIndicator}>{isPlaying ? "▶" : "⏸"}</span>
-                                    )}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-
-                          {/* ----- 歌词 Tab ----- */}
-                          {detailTab === "lyrics" && (
-                            <div style={styles.detailLyricsArea}>
-                              {/* 导入歌词工具栏 */}
-                              <div style={styles.lyricsToolbar}>
-                                <button
-                                  style={styles.importLrcBtn}
-                                  onClick={() => lrcInputRef.current?.click()}
-                                >
-                                  📄 导入歌词
-                                </button>
-                                {lyricsData?.type === "timed" && (
-                                  <span style={styles.lyricsBadge}>⏱ 时间轴</span>
-                                )}
-                                {lyricsData?.type === "plain" && (
-                                  <span style={styles.lyricsBadge}>📝 纯文本</span>
-                                )}
-                                <input
-                                  ref={lrcInputRef}
-                                  type="file"
-                                  accept=".lrc,.txt"
-                                  style={{ display: "none" }}
-                                  onChange={handleImportLRC}
-                                />
-                              </div>
-
-                              {/* 歌词内容 */}
-                              <Lyrics
-                                lyricsData={lyricsData}
-                                currentTime={currentTime}
-                                onSeek={(time) => {
-                                  if (audioRef.current) {
-                                    audioRef.current.currentTime = time;
-                                    setCurrentTime(time);
-                                  }
-                                }}
-                              />
-                            </div>
-                          )}
-                        </div>
-                      </div>
+                                                                <div style={styles.detailContent}>
+                                  {/* ===== 左侧：封面 ===== */}
+                                  <div style={styles.detailLeft}>
+                                    <div style={styles.coverContainer}>
+                                      {(displayAlbum.coverURL || currentSong?.coverURL) ? (
+                                        <img src={displayAlbum.coverURL || currentSong?.coverURL} alt={displayAlbum.title} style={styles.detailCover} />
+                                      ) : (
+                                        <div style={styles.detailCoverPlaceholder}>
+                                          <span style={styles.detailCoverPlaceholderIcon}>🎵</span>
                                         </div>
-                  </div>
-                )}
+                                      )}
+                                    </div>
+
+                                    {/* 封面下方的操作按钮 */}
+                                    <div style={styles.coverActions}>
+                                                                            <button
+                                        style={{
+                                          ...styles.coverActionBtn,
+                                          color: isFavorited ? "#e94560" : "#6b7280",
+                                        }}
+                                        onClick={handleToggleFavorite}
+                                        title="喜爱"
+                                      >
+                                        {isFavorited ? <FaHeart size={18} /> : <FaRegHeart size={18} />}
+                                      </button>
+                                      <div style={{ position: "relative" }} ref={menuRef}>
+                                        <button
+                                          style={styles.coverActionBtn}
+                                          onClick={() => setShowMenu(!showMenu)}
+                                          title="更多"
+                                        >
+                                          <FaEllipsisH size={18} />
+                                        </button>
+                                                                                {showMenu && (
+                                          <div style={styles.coverMenu}>
+                                                                                        <button
+                                              style={styles.coverMenuItem}
+                                              onClick={() => { setShowMenu(false); setShowPlaylistPanel(true); }}
+                                            >
+                                              <FaPlus size={14} style={{ marginRight: "10px" }} />
+                                              添加到播放列表
+                                            </button>
+                                            {currentPlaylist && (
+                                              <button
+                                                style={styles.coverMenuItem}
+                                                onClick={() => {
+                                                  setShowMenu(false);
+                                                  setShowDetail(false);
+                                                  onNavigateToPlaylist?.(currentPlaylist.id);
+                                                }}
+                                              >
+                                                <FaList size={14} style={{ marginRight: "10px" }} />
+                                                转至播放列表
+                                              </button>
+                                            )}
+                                            <button
+                                              style={styles.coverMenuItem}
+                                              onClick={(e) => {
+                                                setShowMenu(false);
+                                                const found = albums.find((a) => a.title === displayAlbum?.title);
+                                                if (onNavigateToAlbum && found?.id) {
+                                                  setShowDetail(false);
+                                                  onNavigateToAlbum(found.id);
+                                                }
+                                              }}
+                                            >
+                                              <FaCompactDisc size={14} style={{ marginRight: "10px" }} />
+                                              转至专辑
+                                            </button>
+                                            <button
+                                              style={styles.coverMenuItem}
+                                              onClick={(e) => {
+                                                setShowMenu(false);
+                                                if (onNavigateToArtist && displayAlbum?.artist) {
+                                                  setShowDetail(false);
+                                                  onNavigateToArtist(displayAlbum.artist);
+                                                }
+                                              }}
+                                            >
+                                              <FaUser size={14} style={{ marginRight: "10px" }} />
+                                              转至艺人
+                                            </button>
+                                            <button
+                                              style={styles.coverMenuItem}
+                                              onClick={() => { setShowMenu(false); }}
+                                            >
+                                              <FaInfoCircle size={14} style={{ marginRight: "10px" }} />
+                                              详细信息
+                                            </button>
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                                                    {/* ===== 右侧：歌曲信息 + 功能区 + 胶囊 ===== */}
+                                  <div style={styles.detailRight}>
+                                    {/* 歌曲信息 */}
+                                    <div style={styles.songInfoAside}>
+                                      <p style={styles.detailNowPlayingName}>{currentSong.title}</p>
+                                      <p
+                                        style={styles.clickableLink}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          if (onNavigateToArtist && displayAlbum?.artist) {
+                                            setShowDetail(false);
+                                            onNavigateToArtist(displayAlbum.artist);
+                                          }
+                                        }}
+                                      >
+                                        {displayAlbum.artist}
+                                      </p>
+                                      <p
+                                        style={styles.albumNameLink}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          const found = albums.find((a) => a.title === displayAlbum?.title);
+                                          if (onNavigateToAlbum && found?.id) {
+                                            setShowDetail(false);
+                                            onNavigateToAlbum(found.id);
+                                          }
+                                        }}
+                                      >
+                                        {displayAlbum.title}
+                                      </p>
+                                    </div>
+
+                                    {/* 播放模式/工具栏（固定不滚动） */}
+                                    {detailTab === "songs" && (
+                                      <div style={styles.playModeBar}>
+                                        <span style={styles.sourceLabel}>
+                                          来自 {currentAlbum?.title || currentPlaylist?.name || "未知"}
+                                        </span>
+                                        <div style={{ flex: 1 }} />
+                                        <button
+                                          style={{
+                                            ...styles.playModeBtn,
+                                            ...(playMode === "sequential" ? styles.playModeBtnActive : {}),
+                                          }}
+                                          onClick={() => setPlayMode("sequential")}
+                                          title="顺序播放"
+                                        >
+                                          <FaStepForward size={16} />
+                                        </button>
+                                        <button
+                                          style={{
+                                            ...styles.playModeBtn,
+                                            ...(playMode === "loop" ? styles.playModeBtnActive : {}),
+                                          }}
+                                          onClick={() => setPlayMode("loop")}
+                                          title="循环播放"
+                                        >
+                                          <FaRedo size={16} />
+                                        </button>
+                                        <button
+                                          style={{
+                                            ...styles.playModeBtn,
+                                            ...(playMode === "shuffle" ? styles.playModeBtnActive : {}),
+                                          }}
+                                          onClick={() => setPlayMode("shuffle")}
+                                          title="随机播放"
+                                        >
+                                          <FaRandom size={16} />
+                                        </button>
+                                      </div>
+                                    )}
+                                    {detailTab === "lyrics" && (
+                                      <div style={styles.lyricsToolbar}>
+                                        <button
+                                          style={styles.importLrcBtn}
+                                          onClick={() => lrcInputRef.current?.click()}
+                                        >
+                                          📄 导入歌词
+                                        </button>
+                                        <input
+                                          ref={lrcInputRef}
+                                          type="file"
+                                          accept=".lrc,.txt"
+                                          style={{ display: "none" }}
+                                          onChange={handleImportLRC}
+                                        />
+                                      </div>
+                                    )}
+
+                                    {/* 可滚动的内容区 */}
+                                    <div
+                                      style={{
+                                        ...styles.tabContentWrapper,
+                                        opacity: tabTransition ? 0 : 1,
+                                        transform: tabTransition ? "translateY(12px)" : "translateY(0)",
+                                      }}
+                                    >
+                                      {detailTab === "songs" && (
+                                        <div style={styles.detailSongList}>
+                                          {allSongs.map((song, idx) => {
+                                            const isQueueSong = idx >= sourceSongs.length;
+                                            return (
+                                              <div
+                                                key={idx}
+                                                className="detail-song-item"
+                                                style={{
+                                                  ...styles.detailSongItem,
+                                                  ...(idx === currentSongIndex ? styles.detailSongItemActive : {}),
+                                                  ...(isQueueSong ? styles.detailQueueSongItem : {}),
+                                                }}
+                                                onClick={() => { setCurrentSongIndex(idx); setIsPlaying(true); }}
+                                              >
+                                                <span style={styles.detailSongIdx}>{String(idx + 1).padStart(2, "0")}</span>
+                                                <div style={{ flex: 1, overflow: "hidden" }}>
+                                                  <p style={styles.detailSongName}>
+                                                    {song.title}
+                                                    {isQueueSong && <span style={styles.detailQueueTag}> 待播</span>}
+                                                  </p>
+                                                  <p style={styles.detailSongArtist}>{song.artist}</p>
+                                                </div>
+                                                {idx === currentSongIndex && (
+                                                  <span style={styles.detailPlayingIndicator}>{isPlaying ? "▶" : "⏸"}</span>
+                                                )}
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      )}
+
+                                      {detailTab === "lyrics" && (
+                                        <div style={styles.detailLyricsArea}>
+                                          <Lyrics
+                                            lyricsData={lyricsData}
+                                            currentTime={currentTime}
+                                            onSeek={(time) => {
+                                              if (audioRef.current) {
+                                                audioRef.current.currentTime = time;
+                                                setCurrentTime(time);
+                                              }
+                                            }}
+                                          />
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    {/* 底部胶囊 */}
+                                    <div style={styles.capsuleOuterWrapper}>
+                                      <div style={styles.capsuleOuter}>
+                                        <button
+                                          style={{
+                                            ...styles.capsuleBtn,
+                                            ...(detailTab === "songs" ? styles.capsuleBtnActive : {}),
+                                          }}
+                                          onClick={() => switchTab("songs")}
+                                        >
+                                          <FaList size={13} style={{ marginRight: "6px" }} />
+                                          歌曲列表
+                                        </button>
+                                        <button
+                                          style={{
+                                            ...styles.capsuleBtn,
+                                            ...(detailTab === "lyrics" ? styles.capsuleBtnActive : {}),
+                                          }}
+                                          onClick={() => switchTab("lyrics")}
+                                        >
+                                          <FaMusic size={13} style={{ marginRight: "6px" }} />
+                                          歌词
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                                                </div>
+        </div>
+      )}
+
+      {/* ===== 添加到播放列表浮窗 ===== */}
+      {showPlaylistPanel && (
+        <div style={styles.playlistPanelOverlay} onClick={() => setShowPlaylistPanel(false)}>
+          <div style={styles.playlistPanel} onClick={(e) => e.stopPropagation()}>
+            <h3 style={styles.playlistPanelTitle}>添加到播放列表</h3>
+            <input
+              style={styles.playlistPanelSearch}
+              placeholder="搜索播放列表…"
+              value={playlistSearch}
+              onChange={(e) => setPlaylistSearch(e.target.value)}
+              autoFocus
+            />
+            <div style={styles.playlistPanelList}>
+              {(() => {
+                const userPlaylists = playlists.filter((p) => p.id !== "recent");
+                const searched = playlistSearch
+                  ? userPlaylists.filter((p) => p.name.toLowerCase().includes(playlistSearch.toLowerCase()))
+                  : userPlaylists;
+                const sorted = [...searched].sort((a, b) => {
+                  const aHas = a.songs.some((s) => s.url === currentSong?.url) ? 1 : 0;
+                  const bHas = b.songs.some((s) => s.url === currentSong?.url) ? 1 : 0;
+                  if (aHas !== bHas) return bHas - aHas;
+                  return b.id.localeCompare(a.id);
+                });
+                return sorted.map((pl) => {
+                  const isAlready = pl.songs.some((s) => s.url === currentSong?.url);
+                  return (
+                    <button
+                      key={pl.id}
+                      style={styles.playlistPanelItem}
+                      onClick={() => handleAddToSpecificPlaylist(pl.id)}
+                    >
+                    <span style={styles.playlistPanelItemIcon}>{pl.id === "liked" ? <FaHeart size={16} /> : "📋"}</span>
+                    <span style={styles.playlistPanelItemName}>{pl.name}</span>
+                      {isAlready && <span style={styles.playlistPanelItemTag}>已添加</span>}
+                      <span style={styles.playlistPanelItemCount}>{pl.songs.length} 首</span>
+                    </button>
+                  );
+                });
+              })()}
+              {playlists.filter((p) => p.id !== "recent").length === 0 && (
+                <p style={styles.playlistPanelEmpty}>暂无播放列表</p>
+              )}
+              {playlistSearch && playlists.filter((p) => p.id !== "recent").length > 0 && !playlists.some((p) => p.id !== "recent" && p.name.toLowerCase().includes(playlistSearch.toLowerCase())) && (
+                <p style={styles.playlistPanelEmpty}>未找到匹配的播放列表</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -438,56 +687,118 @@ const styles = {
     padding: 0, borderRadius: "50%", cursor: "pointer",
     zIndex: 210, transition: "background 0.2s, transform 0.15s",
   },
-    detailContent: {
-    flex: 1, display: "flex", alignItems: "center",
-    justifyContent: "center", gap: "100px",
-    padding: "80px 60px 120px", overflow: "hidden",
+                                                                detailContent: {
+    flex: 1,
+    display: "flex",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "80px",
+    padding: "60px 60px 100px",
+    overflow: "hidden",
   },
 
-    // ===== 左右分栏布局 =====
-  leftPanel: {
-    flex: "0 0 380px",
+    // ===== 左侧：封面 =====
+  detailLeft: {
+    flexShrink: 0,
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
-    gap: "20px",
+    gap: "16px",
   },
-  rightPanel: {
+  coverActions: {
+    display: "flex",
+    alignItems: "center",
+    gap: "14px",
+  },
+  coverActionBtn: {
+    width: "44px",
+    height: "44px",
+    borderRadius: "50%",
+    border: "1px solid #e5e7eb",
+    background: "#ffffff",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+    transition: "all 0.2s",
+    color: "#6b7280",
+    boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+  },
+    coverMenu: {
+    position: "absolute",
+    top: "50%",
+    left: "calc(100% + 8px)",
+    transform: "translateY(-50%)",
+    background: "#ffffff",
+    borderRadius: "12px",
+    boxShadow: "0 8px 32px rgba(0,0,0,0.15)",
+    border: "1px solid #f3f4f6",
+    padding: "6px 0",
+    minWidth: "180px",
+    zIndex: 500,
+  },
+  coverMenuItem: {
+    display: "flex",
+    alignItems: "center",
+    width: "100%",
+    padding: "10px 18px",
+    border: "none",
+    background: "transparent",
+    fontSize: "13px",
+    color: "#374151",
+    cursor: "pointer",
+    transition: "background 0.15s",
+    fontFamily: "inherit",
+    textAlign: "left",
+    gap: "2px",
+  },
+
+  // ===== 右侧：歌曲信息 + 功能区 + 胶囊 =====
+  detailRight: {
     flex: 1,
     maxWidth: "520px",
+    height: "100%",
     display: "flex",
     flexDirection: "column",
-    height: "100%",
     minHeight: 0,
-    paddingTop: "20px",
+    paddingTop: "8px",
   },
-  coverContainer: {
-    position: "relative",
-    width: "380px",
-    height: "380px",
-    borderRadius: "16px",
-    overflow: "hidden",
+  songInfoAside: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "12px",
     flexShrink: 0,
+    marginBottom: "20px",
   },
-  detailCover: {
-    width: "380px", height: "380px", borderRadius: "16px",
-    objectFit: "cover", display: "block",
-    boxShadow: "0 20px 60px rgba(0,0,0,0.5), 0 0 40px rgba(233,69,96,0.1)",
-  },
-  detailCoverPlaceholder: {
-    width: "380px", height: "380px", borderRadius: "16px",
-    display: "flex", alignItems: "center", justifyContent: "center",
-    background: "#f3f4f6",
-    boxShadow: "0 20px 60px rgba(0,0,0,0.5)",
-  },
-  detailCoverPlaceholderIcon: { fontSize: "80px", opacity: 0.3 },
+    coverContainer: {
+      position: "relative",
+      width: "360px",
+      height: "360px",
+      borderRadius: "16px",
+      overflow: "hidden",
+      flexShrink: 0,
+    },
+    detailCover: {
+      width: "360px", height: "360px", borderRadius: "16px",
+      objectFit: "cover", display: "block",
+      boxShadow: "0 20px 60px rgba(0,0,0,0.5), 0 0 40px rgba(233,69,96,0.1)",
+    },
+    detailCoverPlaceholder: {
+      width: "360px", height: "360px", borderRadius: "16px",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      background: "#f3f4f6",
+      boxShadow: "0 20px 60px rgba(0,0,0,0.5)",
+    },
+    detailCoverPlaceholderIcon: { fontSize: "72px", opacity: 0.3 },
 
-    // ===== 胶囊按钮（外层包裹） =====
-  capsuleOuterWrapper: {
+        // ===== 胶囊按钮（底部） =====
+    capsuleOuterWrapper: {
     width: "100%",
     display: "flex",
     justifyContent: "center",
-    marginBottom: "50px",
+    paddingTop: "16px",
+    flexShrink: 0,
   },
   capsuleOuter: {
     display: "flex",
@@ -520,50 +831,82 @@ const styles = {
     boxShadow: "0 4px 16px rgba(233,69,96,0.4)",
   },
 
-  // ===== 左侧歌曲信息 =====
-  songInfoArea: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    gap: "6px",
-    textAlign: "center",
-    width: "100%",
-  },
-    detailNowPlayingName: {
-    fontSize: "20px", fontWeight: 700, color: "#1f2937",
-    margin: 0, textAlign: "center",
-  },
-    clickableLink: {
-    fontSize: "14px",
+                // ===== 右侧 - 歌曲信息样式（并列于封面右侧） =====
+  albumNameLink: {
+    fontSize: "20px",
     color: "#e94560",
     margin: 0,
-    textAlign: "center",
+    cursor: "pointer",
+    transition: "color 0.15s",
+    fontWeight: 500,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+
+  detailNowPlayingName: {
+    fontSize: "30px", fontWeight: 700, color: "#1f2937",
+    margin: 0,
+  },
+  clickableLink: {
+    fontSize: "20px",
+    color: "#e94560",
+    margin: 0,
     cursor: "pointer",
     transition: "color 0.15s",
     fontWeight: 500,
   },
 
-  // ===== 右侧内容包装 =====
+        // ===== 右侧内容包装 =====
     tabContentWrapper: {
     width: "100%",
     flex: 1,
     minHeight: 0,
-    overflow: "hidden",
+    overflow: "auto",
     transition: "opacity 0.25s ease, transform 0.25s ease",
+    marginTop: "12px",
+  },
+
+        // ===== 右侧 - 播放模式栏（固定不滚动） =====
+  playModeBar: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: "8px",
+    flexShrink: 0,
+  },
+  sourceLabel: {
+    fontSize: "12px",
+    color: "#9ca3af",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    maxWidth: "200px",
+  },
+  playModeBtn: {
+    background: "transparent",
+    border: "none",
+    cursor: "pointer",
+    width: "34px",
+    height: "34px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    transition: "all 0.2s",
+    fontFamily: "inherit",
+    borderRadius: "6px",
+    color: "#9ca3af",
+  },
+  playModeBtnActive: {
+    background: "#e94560",
+    color: "#ffffff",
   },
 
     // ===== 右侧 - 歌曲列表 =====
-    detailSongList: {
+        detailSongList: {
     width: "100%",
-    flex: 1,
     minHeight: 0,
-    overflowY: "auto",
     paddingRight: "4px",
-  },
-  detailSongListLabel: {
-    fontSize: "11px", color: "#6b7280",
-    letterSpacing: "2px", textTransform: "uppercase",
-    marginBottom: "8px", paddingLeft: "4px",
   },
   detailSongItem: {
     display: "flex", alignItems: "center", gap: "10px",
@@ -596,24 +939,20 @@ const styles = {
     fontSize: "10px", color: "#e94560", fontWeight: 600, marginLeft: "4px",
   },
 
-    // ===== 右侧 - 歌词区域 =====
+                // ===== 右侧 - 歌词区域 =====
     detailLyricsArea: {
       width: "100%",
-      flex: 1,
       minHeight: 0,
-      maxHeight: "430px",
       display: "flex",
       flexDirection: "column",
-      overflow: "hidden",
     },
-  lyricsToolbar: {
+    lyricsToolbar: {
     display: "flex",
     alignItems: "center",
     gap: "10px",
-    marginBottom: "12px",
     flexShrink: 0,
   },
-  importLrcBtn: {
+        importLrcBtn: {
     background: "rgba(233,69,96,0.15)",
     border: "1px solid rgba(233,69,96,0.3)",
     color: "#e94560",
@@ -628,12 +967,97 @@ const styles = {
     gap: "6px",
     fontFamily: "inherit",
   },
-  lyricsBadge: {
+
+  // ===== 添加到播放列表浮窗 =====
+  playlistPanelOverlay: {
+    position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+    background: "rgba(0,0,0,0.6)",
+    zIndex: 1000,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    backdropFilter: "blur(4px)",
+  },
+  playlistPanel: {
+    width: "360px",
+    maxHeight: "70vh",
+    background: "#1a1a2e",
+    borderRadius: "16px",
+    padding: "24px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "12px",
+    boxShadow: "0 20px 60px rgba(0,0,0,0.5)",
+    overflow: "hidden",
+  },
+  playlistPanelTitle: {
+    fontSize: "18px",
+    fontWeight: 700,
+    color: "#ffffff",
+    margin: 0,
+  },
+  playlistPanelSearch: {
+    padding: "10px 14px",
+    borderRadius: "10px",
+    border: "1px solid rgba(255,255,255,0.15)",
+    background: "rgba(255,255,255,0.08)",
+    color: "#e0e0e0",
+    fontSize: "14px",
+    outline: "none",
+    fontFamily: "inherit",
+    width: "100%",
+    boxSizing: "border-box",
+  },
+  playlistPanelList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "6px",
+    overflowY: "auto",
+    maxHeight: "60vh",
+  },
+  playlistPanelItem: {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    padding: "12px 14px",
+    border: "none",
+    borderRadius: "10px",
+    background: "rgba(255,255,255,0.06)",
+    color: "#e0e0e0",
+    fontSize: "14px",
+    cursor: "pointer",
+    transition: "background 0.2s",
+    fontFamily: "inherit",
+    textAlign: "left",
+    width: "100%",
+  },
+  playlistPanelItemIcon: {
+    fontSize: "18px",
+    flexShrink: 0,
+  },
+  playlistPanelItemName: {
+    flex: 1,
+    fontWeight: 500,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  playlistPanelItemTag: {
     fontSize: "11px",
+    color: "#10b981",
+    fontWeight: 600,
+    flexShrink: 0,
+  },
+  playlistPanelItemCount: {
+    fontSize: "12px",
+    color: "#9ca3af",
+    flexShrink: 0,
+  },
+  playlistPanelEmpty: {
     color: "#6b7280",
-    background: "#f3f4f6",
-    padding: "3px 10px",
-    borderRadius: "12px",
-    border: "1px solid #e5e7eb",
+    fontSize: "14px",
+    textAlign: "center",
+    padding: "24px 0",
+    margin: 0,
   },
 };
