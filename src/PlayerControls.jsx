@@ -3,7 +3,7 @@
    功能：进度条 + 歌曲信息 + 播放/暂停/切歌 + 音量控制
    从 MusicPlayer 中独立出来的模块
    ================================================================ */
-import { FaHeart, FaRegHeart } from "react-icons/fa";
+import { FaHeart, FaRegHeart, FaRedo, FaRandom } from "react-icons/fa";
 
 export default function PlayerControls({
   currentSong,
@@ -21,6 +21,8 @@ export default function PlayerControls({
   onVolumeChange,
   onShowDetail,
   formatTime,
+  playMode,
+  onPlayModeChange,
 }) {
   return (
     <footer style={styles.bottomBar}>
@@ -85,8 +87,34 @@ export default function PlayerControls({
           <span style={styles.time}>{formatTime(duration)}</span>
         </div>
 
-        {/* 右侧：音量 */}
+        {/* 右侧：播放模式 + 音量 */}
         <div style={styles.volumeArea}>
+          <button
+            style={{
+              ...styles.modeBtn,
+              ...((playMode === "loop" || playMode === "loop-one") ? styles.modeBtnActive : {}),
+              position: "relative",
+            }}
+            onClick={() => {
+              if (playMode === "loop") onPlayModeChange?.("loop-one");
+              else if (playMode === "loop-one") onPlayModeChange?.("sequential");
+              else onPlayModeChange?.("loop");
+            }}
+            title={playMode === "loop-one" ? "单曲循环" : "列表循环"}
+          >
+            <FaRedo size={13} />
+            {playMode === "loop-one" && <span style={styles.loopOneBadge}>1</span>}
+          </button>
+          <button
+            style={{
+              ...styles.modeBtn,
+              ...(playMode === "shuffle" ? styles.modeBtnActive : {}),
+            }}
+            onClick={() => onPlayModeChange?.(playMode === "shuffle" ? "sequential" : "shuffle")}
+            title="随机播放"
+          >
+            <FaRandom size={13} />
+          </button>
           <span style={{ fontSize: "16px" }}>
             {volume === 0 ? "🔇" : volume < 0.5 ? "🔉" : "🔊"}
           </span>
@@ -172,8 +200,27 @@ const styles = {
     minWidth: "36px", textAlign: "center",
   },
   volumeArea: {
-    display: "flex", alignItems: "center", gap: "8px",
+    display: "flex", alignItems: "center", gap: "6px",
     flex: "0 0 150px", justifyContent: "flex-end",
+  },
+  modeBtn: {
+    background: "none", border: "none", cursor: "pointer",
+    width: "30px", height: "30px", borderRadius: "6px",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    color: "#9ca3af", fontFamily: "inherit",
+    transition: "all 0.2s", position: "relative",
+  },
+  modeBtnActive: {
+    background: "#e94560", color: "#ffffff",
+  },
+  loopOneBadge: {
+    position: "absolute", top: "-3px", right: "-3px",
+    background: "#e94560", color: "#fff",
+    fontSize: "9px", fontWeight: 700,
+    width: "14px", height: "14px",
+    borderRadius: "50%",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    lineHeight: 1,
   },
   volumeSlider: {
     width: "80px", height: "4px", appearance: "none",

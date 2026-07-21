@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { FiPlus } from "react-icons/fi";
-import { FaEllipsisH } from "react-icons/fa";
+import { FaEllipsisH, FaCompactDisc, FaUser, FaHeart, FaStepForward, FaClock, FaPlus, FaSortAmountDown, FaArrowUp, FaTrash, FaMusic } from "react-icons/fa";
 import { readMetadata } from "./MetadataReader";
 import MusicPlayer from "./MusicPlayer";
 import AlbumDetail from "./AlbumDetail";
@@ -30,6 +30,12 @@ export default function MusicLibrary() {
   const [volume, setVolume] = useState(1);
   const audioRef = useRef(null);
   const fileInputRef = useRef(null);
+  const [showImportMenu, setShowImportMenu] = useState(false);
+  const [showCreatePlaylist, setShowCreatePlaylist] = useState(false);
+  const [newPlaylistCover, setNewPlaylistCover] = useState(null);
+  const [newPlaylistName, setNewPlaylistName] = useState("");
+  const [newPlaylistDesc, setNewPlaylistDesc] = useState("");
+  const coverInputRef = useRef(null);
 
         // ---------- 专辑详情页状态 ----------
   const [detailAlbumId, setDetailAlbumId] = useState(null);
@@ -68,6 +74,22 @@ export default function MusicLibrary() {
       ...prev,
       { id: newId, name: "新建播放列表", songs: [], description: "" },
     ]);
+  }
+
+  function handleCreatePlaylistWithDetails() {
+    const newId = "pl_" + Date.now();
+    const pl = {
+      id: newId,
+      name: newPlaylistName.trim() || "新建播放列表",
+      songs: [],
+      description: newPlaylistDesc.trim(),
+    };
+    if (newPlaylistCover) pl.coverURL = newPlaylistCover;
+    setPlaylists((prev) => [...prev, pl]);
+    setShowCreatePlaylist(false);
+    setNewPlaylistCover(null);
+    setNewPlaylistName("");
+    setNewPlaylistDesc("");
   }
 
   function handleDeletePlaylist(id) {
@@ -485,6 +507,22 @@ export default function MusicLibrary() {
     handleCancelSelect();
   }
 
+  function handleConfirmDeleteSong() {
+    if (!deleteSongConfirm) return;
+    setAlbums((prev) =>
+      prev.map((album) => {
+        if (album.id === deleteSongConfirm.albumId) {
+          return { ...album, songs: album.songs.filter((s) => s.url !== deleteSongConfirm.url) };
+        }
+        return album;
+      })
+    );
+    if (currentSong?.url === deleteSongConfirm.url) {
+      setIsPlaying(false);
+    }
+    setDeleteSongConfirm(null);
+  }
+
     // ---------- 格式化时长（秒 → mm:ss） ----------
   function formatDuration(seconds) {
     if (!seconds || isNaN(seconds)) return "--:--";
@@ -568,7 +606,7 @@ export default function MusicLibrary() {
         setCurrentSongIndex(0);
         setIsPlaying(true);
       }
-    } else if (action === "playLater") {
+      } else if (action === "playLater") {
       // 稍后播放：追加到播放队列末尾
       setPlayQueue((prev) => [...prev, song]);
       // 如果当前没有在播放，直接播放这首歌
@@ -579,6 +617,8 @@ export default function MusicLibrary() {
         setCurrentSongIndex(0);
         setIsPlaying(true);
       }
+    } else if (action === "deleteSong") {
+      setDeleteSongConfirm(song);
     }
   }
 
@@ -608,51 +648,54 @@ export default function MusicLibrary() {
     if (!album) return;
 
     if (action === "playNext") {
-      // 插播：将专辑所有歌曲插入到下一首
       const songs = album.songs.map(s => ({ ...s, albumId: album.id }));
       if (songs.length === 0) return;
-      
       if (currentSong && !currentAlbumId && !currentPlaylistId && playQueue.length > 0) {
-        // 正在播放队列歌曲，在下一首位置插入
         const insertAt = currentSongIndex + 1;
-        setPlayQueue((prev) => {
-          const newQueue = [...prev];
-          newQueue.splice(insertAt, 0, ...songs);
-          return newQueue;
-        });
+        setPlayQueue((prev) => { const nq = [...prev]; nq.splice(insertAt, 0, ...songs); return nq; });
       } else {
-        // 普通模式：插入到队列最前面
         setPlayQueue((prev) => [...songs, ...prev]);
       }
-      // 如果当前没有在播放，直接播放第一首
       if (!currentSong) {
-        setCurrentPlaylistId(null);
-        setCurrentAlbumId(null);
-        setPlayQueue(songs);
-        setCurrentSongIndex(0);
-        setIsPlaying(true);
+        setCurrentPlaylistId(null); setCurrentAlbumId(null);
+        setPlayQueue(songs); setCurrentSongIndex(0); setIsPlaying(true);
       }
     } else if (action === "playLater") {
-      // 稍后播放：追加到播放队列末尾
       const songs = album.songs.map(s => ({ ...s, albumId: album.id }));
       if (songs.length === 0) return;
-      
       setPlayQueue((prev) => [...prev, ...songs]);
-      // 如果当前没有在播放，直接播放第一首
       if (!currentSong) {
-        setCurrentPlaylistId(null);
-        setCurrentAlbumId(null);
-        setPlayQueue(songs);
-        setCurrentSongIndex(0);
-        setIsPlaying(true);
+        setCurrentPlaylistId(null); setCurrentAlbumId(null);
+        setPlayQueue(songs); setCurrentSongIndex(0); setIsPlaying(true);
       }
     } else if (action === "artist") {
-      // 专辑艺人：跳转至艺人详情页
       handleOpenArtistDetail(album.artist || "未知艺术家");
+    } else if (action === "toggleFavorite") {
+      handleToggleFavoriteAlbum(album.id);
+    } else if (action === "addToPlaylist") {
+      const songs = album.songs.map(s => ({ ...s, albumId: album.id }));
+      setPlaylists((prev) =>
+        prev.map((pl) => {
+          if (pl.id !== "liked" && pl.id !== "recent") {
+            const existingUrls = new Set(pl.songs.map((s) => s.url));
+            const newSongs = songs.filter((s) => !existingUrls.has(s.url));
+            if (newSongs.length > 0) return { ...pl, songs: [...pl.songs, ...newSongs] };
+          }
+          return pl;
+        })
+      );
     } else if (action === "delete") {
-      // 删除：弹出警告弹窗
       setDeleteAlbumConfirm(album.id);
     }
+  }
+
+  function handleToggleFavoriteAlbum(albumId) {
+    setFavoriteAlbums((prev) => {
+      const next = new Set(prev);
+      if (next.has(albumId)) next.delete(albumId);
+      else next.add(albumId);
+      return next;
+    });
   }
 
   function handleConfirmDeleteAlbum() {
@@ -700,7 +743,16 @@ export default function MusicLibrary() {
     handleClosePlaylistMenu();
     if (!playlist) return;
 
-    if (action === "playNext") {
+    if (action === "pin") {
+      setPlaylists((prev) => {
+        const idx = prev.findIndex((p) => p.id === playlist.id);
+        if (idx <= 0) return prev;
+        const arr = [...prev];
+        const [item] = arr.splice(idx, 1);
+        arr.splice(1, 0, item);
+        return arr;
+      });
+    } else if (action === "playNext") {
       const songs = playlist.songs.map(s => ({ ...s, albumId: playlist.id }));
       if (songs.length === 0) return;
       if (currentSong && !currentAlbumId && !currentPlaylistId && playQueue.length > 0) {
@@ -810,12 +862,16 @@ export default function MusicLibrary() {
   });
 
         // ---------- 歌曲视图排序 ----------
-    const [songSortMode, setSongSortMode] = useState("album"); // "album" | "time" | "artist"
+    const [songFilters, setSongFilters] = useState(new Set(["recent_add"])); // 多选过滤标签
+    const [songTimeDir, setSongTimeDir] = useState("desc"); // "desc" | "asc"
+    const [albumFilters, setAlbumFilters] = useState(new Set(["recent_add"]));
+    const [albumTimeDir, setAlbumTimeDir] = useState("desc");
 
         // ---------- 歌曲多选状态 ----------
         const [selectedSongs, setSelectedSongs] = useState(new Set()); // 存储选中的歌曲key（"albumId-index"）
         const [isSelecting, setIsSelecting] = useState(false); // 是否处于多选模式
         const [showDeleteConfirm, setShowDeleteConfirm] = useState(false); // 是否显示删除确认浮窗
+        const [deleteSongConfirm, setDeleteSongConfirm] = useState(null); // 单曲删除确认
 
                 // ---------- 单曲菜单状态 ----------
     const [contextMenu, setContextMenu] = useState(null); // { x, y, song } 或 null
@@ -823,6 +879,7 @@ export default function MusicLibrary() {
                 // ---------- 专辑操作菜单状态 ----------
         const [albumMenu, setAlbumMenu] = useState(null); // { x, y, album } 或 null
         const [deleteAlbumConfirm, setDeleteAlbumConfirm] = useState(null); // 要删除的专辑id或null
+        const [favoriteAlbums, setFavoriteAlbums] = useState(new Set()); // 收藏的专辑id集合
 
         // ---------- 播放列表操作菜单状态 ----------
         const [playlistMenu, setPlaylistMenu] = useState(null); // { x, y, playlist } 或 null
@@ -902,27 +959,53 @@ export default function MusicLibrary() {
                   </div>
 
                   {/* 右侧：导入按钮 */}
-                  <button
-                    className="upload-btn"
-                    style={styles.importBtn}
-                    onClick={() => fileInputRef.current?.click()}
-                    title="导入音乐"
-                  >
-                    <FiPlus size={18} />
-                  </button>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="audio/*"
-                    multiple
-                    onChange={handleImportFiles}
-                    style={{ display: "none" }}
-                  />
+                  <div style={{ position: "relative", marginLeft: "auto" }}>
+                    <button
+                      className="upload-btn"
+                      style={styles.importBtn}
+                      onClick={() => setShowImportMenu(!showImportMenu)}
+                      title="添加"
+                    >
+                      <FiPlus size={18} />
+                    </button>
+                    {showImportMenu && (
+                      <>
+                        <div style={styles.menuOverlay} onClick={() => setShowImportMenu(false)} />
+                        <div style={styles.importDropdown}>
+                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => { setShowImportMenu(false); fileInputRef.current?.click(); }}>
+                            <FaMusic size={14} style={{ marginRight: "10px" }} />
+                            <span>添加歌曲</span>
+                          </div>
+                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => { setShowImportMenu(false); setShowCreatePlaylist(true); }}>
+                            <FaPlus size={14} style={{ marginRight: "10px" }} />
+                            <span>新建播放列表</span>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="audio/*"
+                      multiple
+                      onChange={handleImportFiles}
+                      style={{ display: "none" }}
+                    />
+                    <input
+                      ref={coverInputRef}
+                      type="file"
+                      accept="image/*"
+                      style={{ display: "none" }}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        const reader = new FileReader();
+                        reader.onload = (ev) => setNewPlaylistCover(ev.target.result);
+                        reader.readAsDataURL(file);
+                      }}
+                    />
+                  </div>
 
-                  {/* 专辑统计 */}
-                  <span style={styles.stats}>
-                    {albums.length} 个专辑
-                  </span>
                 </header>
 
                                 {/* ============================================================ */}
@@ -931,8 +1014,10 @@ export default function MusicLibrary() {
                                 {detailAlbumId ? (
                   /* ----- 专辑详情页（从专辑网格点进去） ----- */
                   <div style={styles.detailPageArea}>
-                                        <AlbumDetail
+                                         <AlbumDetail
                       album={albums.find((a) => a.id === detailAlbumId)}
+                      playlists={playlists}
+                      setPlaylists={setPlaylists}
                       currentSongIndex={
                         detailAlbumId === currentAlbumId ? currentSongIndex : -1
                       }
@@ -941,19 +1026,6 @@ export default function MusicLibrary() {
                       onPlaySong={handlePlaySongFromDetail}
                       onBack={handleCloseDetail}
                       onOpenArtist={handleOpenArtistDetail}
-                      onAddToPlaylist={(song) => {
-                        setPlaylists((prev) =>
-                          prev.map((pl) => {
-                            if (pl.id === "liked") {
-                              const existingUrls = new Set(pl.songs.map((s) => s.url));
-                              if (!existingUrls.has(song.url)) {
-                                return { ...pl, songs: [...pl.songs, song] };
-                              }
-                            }
-                            return pl;
-                          })
-                        );
-                      }}
                       onPlayNext={(song) => {
                         setPlayQueue((prev) => [song, ...prev]);
                         if (!currentSong) {
@@ -986,6 +1058,24 @@ export default function MusicLibrary() {
                       onPlayAll={handlePlayAllFromPlaylist}
                       onPlaySong={handlePlaySongFromPlaylist}
                       onBack={handleClosePlaylistDetail}
+                      onOpenArtist={handleOpenArtistDetail}
+                      setPlaylists={setPlaylists}
+                      onPlayNext={(song) => {
+                        setPlayQueue((prev) => [song, ...prev]);
+                        if (!currentSong) {
+                          setCurrentPlaylistId(detailPlaylistId);
+                          setCurrentSongIndex(0);
+                          setIsPlaying(true);
+                        }
+                      }}
+                      onPlayLater={(song) => {
+                        setPlayQueue((prev) => [...prev, song]);
+                        if (!currentSong) {
+                          setCurrentPlaylistId(detailPlaylistId);
+                          setCurrentSongIndex(0);
+                          setIsPlaying(true);
+                        }
+                      }}
                     />
                   </div>
                 ) : activeNav === "albums" ? (
@@ -994,37 +1084,62 @@ export default function MusicLibrary() {
                   /* ================================================================ */
                                     <main style={styles.mainArea}>
                     <div style={styles.sortBar}>
-                      <span style={styles.sortLabel}>分类：</span>
-                      <button
-                        style={{
-                          ...styles.sortBtn,
-                          ...(sortMode === "recent_add" ? styles.sortBtnActive : {}),
-                        }}
-                        onClick={() => setSortMode("recent_add")}
-                      >
-                        最近添加
-                      </button>
-                      <button
-                        style={{
-                          ...styles.sortBtn,
-                          ...(sortMode === "new_to_old" ? styles.sortBtnActive : {}),
-                        }}
-                        onClick={() => setSortMode("new_to_old")}
-                      >
-                        从新到旧
-                      </button>
-                      <button
-                        style={{
-                          ...styles.sortBtn,
-                          ...(sortMode === "old_to_new" ? styles.sortBtnActive : {}),
-                        }}
-                        onClick={() => setSortMode("old_to_new")}
-                      >
-                        从旧到新
-                      </button>
+                      {["recent_add", "favorite", "time"].map((tag) => {
+                        const label = tag === "recent_add" ? "最近添加" : tag === "favorite" ? "已喜爱" : "时间";
+                        const isActive = albumFilters.has(tag);
+                        const isTime = tag === "time";
+                        return (
+                          <button
+                            key={tag}
+                            style={{
+                              ...styles.sortBtn,
+                              ...(isActive ? styles.sortBtnActive : {}),
+                            }}
+                            onClick={() => {
+                              if (isTime) {
+                                if (isActive) {
+                                  setAlbumTimeDir((d) => (d === "desc" ? "asc" : "desc"));
+                                } else {
+                                  setAlbumFilters((prev) => new Set([...prev, tag]));
+                                }
+                              } else {
+                                setAlbumFilters((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(tag)) next.delete(tag); else next.add(tag);
+                                  if (next.size === 0) next.add("recent_add");
+                                  return next;
+                                });
+                              }
+                            }}
+                          >
+                            {isTime && isActive ? (albumTimeDir === "desc" ? "从新到旧" : "从旧到新") : label}
+                          </button>
+                        );
+                      })}
+                      {albumFilters.size > 1 && (
+                        <button
+                          style={styles.cancelFilterBtn}
+                          onClick={() => setAlbumFilters(new Set(["recent_add"]))}
+                        >
+                          取消
+                        </button>
+                      )}
                     </div>
-
-                    {sortedAlbums.length === 0 ? (
+                    {(() => {
+                      let filtered = sortedAlbums;
+                      if (albumFilters.has("favorite")) {
+                        filtered = filtered.filter((a) => favoriteAlbums.has(a.id));
+                      }
+                      const sorted = [...filtered].sort((a, b) => {
+                        if (albumFilters.has("time")) {
+                          const diff = albumTimeDir === "desc"
+                            ? (b.year || 0) - (a.year || 0)
+                            : (a.year || 9999) - (b.year || 9999);
+                          if (diff !== 0) return diff;
+                        }
+                        return b.id.localeCompare(a.id);
+                      });
+                      return sorted.length === 0 ? (
                       <div style={styles.emptyState}>
                         <span style={styles.emptyIcon}>📀</span>
                         <p style={styles.emptyText}>还没有导入任何专辑</p>
@@ -1032,7 +1147,7 @@ export default function MusicLibrary() {
                       </div>
                     ) : (
                       <div style={styles.albumGrid}>
-                        {sortedAlbums.map((album) => {
+                        {sorted.map((album) => {
                           const isActive = album.id === currentAlbumId;
                           return (
                             <div
@@ -1078,7 +1193,7 @@ export default function MusicLibrary() {
                         })}
                       </div>
                     )}
-
+                  )()}
                     {/* 专辑操作菜单 */}
                     {albumMenu && (
                       <>
@@ -1090,27 +1205,47 @@ export default function MusicLibrary() {
                             top: albumMenu.y,
                           }}
                         >
+                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handleAlbumMenuAction("artist", albumMenu.album)}>
+                            <FaUser size={14} style={{ marginRight: "10px" }} />
+                            <span>转至艺人</span>
+                          </div>
+                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handleAlbumMenuAction("toggleFavorite", albumMenu.album)}>
+                            <FaHeart size={14} style={{ marginRight: "10px", color: favoriteAlbums.has(albumMenu.album.id) ? "#e94560" : undefined }} />
+                            <span>{favoriteAlbums.has(albumMenu.album.id) ? "取消喜欢" : "喜欢"}</span>
+                          </div>
+                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => {
+                            handleCloseAlbumMenu();
+                            const album = albumMenu.album;
+                            if (!album || !album.songs || album.songs.length === 0) return;
+                            setPlaylists((prev) => {
+                              const target = prev.find((p) => p.id !== "liked" && p.id !== "recent");
+                              if (!target) return prev;
+                              const songs = album.songs.map(s => ({ ...s, albumId: album.id }));
+                              const existingUrls = new Set(target.songs.map((s) => s.url));
+                              const newSongs = songs.filter((s) => !existingUrls.has(s.url));
+                              if (newSongs.length === 0) return prev;
+                              return prev.map((p) => p.id === target.id ? { ...p, songs: [...p.songs, ...newSongs] } : p);
+                            });
+                          }}>
+                            <FaPlus size={14} style={{ marginRight: "10px" }} />
+                            <span>添加到播放列表</span>
+                          </div>
                           <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handleAlbumMenuAction("playNext", albumMenu.album)}>
-                            <span style={styles.contextMenuIcon}>⏭</span>
+                            <FaStepForward size={14} style={{ marginRight: "10px" }} />
                             <span>插播</span>
                           </div>
                           <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handleAlbumMenuAction("playLater", albumMenu.album)}>
-                            <span style={styles.contextMenuIcon}>📋</span>
+                            <FaClock size={14} style={{ marginRight: "10px" }} />
                             <span>稍后播放</span>
                           </div>
-                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handleAlbumMenuAction("artist", albumMenu.album)}>
-                            <span style={styles.contextMenuIcon}>👤</span>
-                            <span>专辑艺人</span>
-                          </div>
                           <div style={styles.contextMenuDivider} />
-                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handleAlbumMenuAction("delete", albumMenu.album)}>
-                            <span style={styles.contextMenuIcon}>🗑️</span>
+                          <div className="context-menu-item" style={{ ...styles.contextMenuItem, color: "#e94560" }} onClick={() => handleAlbumMenuAction("delete", albumMenu.album)}>
+                            <FaTrash size={14} style={{ marginRight: "10px" }} />
                             <span>删除</span>
                           </div>
                         </div>
                       </>
                     )}
-
                     {/* 专辑删除确认浮窗 */}
                     {deleteAlbumConfirm && (
                       <div style={styles.overlay} onClick={handleCancelDeleteAlbum}>
@@ -1138,7 +1273,6 @@ export default function MusicLibrary() {
                   /* ================================================================ */
                                     <main style={styles.mainArea}>
                     <div style={styles.sortBar}>
-                      <span style={styles.sortLabel}>排序：</span>
                       <select
                         style={styles.sortSelect}
                         value={artistSortMode}
@@ -1242,34 +1376,46 @@ export default function MusicLibrary() {
                                     ) : (
                                       /* ----- 正常模式：分类按钮 ----- */
                                       <div style={styles.sortBar}>
-                                        <span style={styles.sortLabel}>分类：</span>
-                                        <button
-                                          style={{
-                                            ...styles.sortBtn,
-                                            ...(songSortMode === "album" ? styles.sortBtnActive : {}),
-                                          }}
-                                          onClick={() => setSongSortMode("album")}
-                                        >
-                                          专辑
-                                        </button>
-                                        <button
-                                          style={{
-                                            ...styles.sortBtn,
-                                            ...(songSortMode === "time" ? styles.sortBtnActive : {}),
-                                          }}
-                                          onClick={() => setSongSortMode("time")}
-                                        >
-                                          时间
-                                        </button>
-                                        <button
-                                          style={{
-                                            ...styles.sortBtn,
-                                            ...(songSortMode === "artist" ? styles.sortBtnActive : {}),
-                                          }}
-                                          onClick={() => setSongSortMode("artist")}
-                                        >
-                                          艺人
-                                        </button>
+                                        {["recent_add", "favorite", "album", "time"].map((tag) => {
+                                          const label = tag === "recent_add" ? "最近添加" : tag === "favorite" ? "已喜爱" : tag === "album" ? "专辑" : "时间";
+                                          const isActive = songFilters.has(tag);
+                                          const isTime = tag === "time";
+                                          return (
+                                            <button
+                                              key={tag}
+                                              style={{
+                                                ...styles.sortBtn,
+                                                ...(isActive ? styles.sortBtnActive : {}),
+                                              }}
+                                              onClick={() => {
+                                                if (isTime) {
+                                                  if (isActive) {
+                                                    setSongTimeDir((d) => (d === "desc" ? "asc" : "desc"));
+                                                  } else {
+                                                    setSongFilters((prev) => new Set([...prev, tag]));
+                                                  }
+                                                } else {
+                                                  setSongFilters((prev) => {
+                                                    const next = new Set(prev);
+                                                    if (next.has(tag)) next.delete(tag); else next.add(tag);
+                                                    if (next.size === 0) next.add("recent_add");
+                                                    return next;
+                                                  });
+                                                }
+                                              }}
+                                            >
+                                              {isTime && isActive ? (songTimeDir === "desc" ? "从新到旧" : "从旧到新") : label}
+                                            </button>
+                                          );
+                                        })}
+                                        {songFilters.size > 1 && (
+                                          <button
+                                            style={styles.cancelFilterBtn}
+                                            onClick={() => setSongFilters(new Set(["recent_add"]))}
+                                          >
+                                            取消
+                                          </button>
+                                        )}
                                       </div>
                                     )}
                     {(() => {
@@ -1284,20 +1430,24 @@ export default function MusicLibrary() {
                           </div>
                         );
                       }
-                      // 排序
-                      const sortedSongs = [...allSongs].sort((a, b) => {
-                        if (songSortMode === "time") {
-                          // 按专辑年份降序，无年份排最后
-                          const yearA = a.albumYear || 0;
-                          const yearB = b.albumYear || 0;
-                          return yearB - yearA;
+                      // 多选过滤 + 排序（优先级：时间 > 专辑 > 最近添加）
+                      let filteredSongs = [...allSongs];
+                      if (songFilters.has("favorite")) {
+                        const likedUrls = new Set((playlists.find((p) => p.id === "liked")?.songs || []).map((s) => s.url));
+                        filteredSongs = filteredSongs.filter((s) => likedUrls.has(s.url));
+                      }
+                      const sortedSongs = [...filteredSongs].sort((a, b) => {
+                        if (songFilters.has("time")) {
+                          const yearA = a.albumYear || (songTimeDir === "desc" ? 0 : 9999);
+                          const yearB = b.albumYear || (songTimeDir === "desc" ? 0 : 9999);
+                          const diff = songTimeDir === "desc" ? yearB - yearA : yearA - yearB;
+                          if (diff !== 0) return diff;
                         }
-                        if (songSortMode === "artist") {
-                          // 按艺人名称排序
-                          return (a.artist || "").localeCompare(b.artist || "", "zh-CN");
+                        if (songFilters.has("album")) {
+                          const cmp = (a.albumTitle || "").localeCompare(b.albumTitle || "", "zh-CN");
+                          if (cmp !== 0) return cmp;
                         }
-                        // "album" — 按专辑名排序
-                        return (a.albumTitle || "").localeCompare(b.albumTitle || "", "zh-CN");
+                        return b.id?.localeCompare?.(a.id || "") || 0;
                       });
                                             return (
                         <div style={styles.songTable}>
@@ -1312,9 +1462,10 @@ export default function MusicLibrary() {
                             <div style={styles.songColMenu}></div>
                           </div>
                                                     {/* 歌曲行 */}
-                          {sortedSongs.map((song, idx) => {
+                           {sortedSongs.map((song, idx) => {
                             const isActive = currentAlbumId === song.albumId && currentSongIndex === albums.find((a) => a.id === song.albumId)?.songs.findIndex((s) => s.title === song.title && s.url === song.url);
-                            const songKey = getSongKey(song, idx);
+                            const albumLocalIdx = albums.find((a) => a.id === song.albumId)?.songs.findIndex((s) => s.url === song.url) ?? idx;
+                            const songKey = `${song.albumId}-${albumLocalIdx}`;
                             const isChecked = selectedSongs.has(songKey);
                             return (
                                                             <div
@@ -1421,31 +1572,59 @@ export default function MusicLibrary() {
                           }}
                         >
                                                     <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handleContextMenuAction("album", contextMenu.song)}>
-                            <span style={styles.contextMenuIcon}>💿</span>
+                            <FaCompactDisc size={14} style={{ marginRight: "10px", flexShrink: 0 }} />
                             <span>专辑</span>
                           </div>
                           <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handleContextMenuAction("artist", contextMenu.song)}>
-                            <span style={styles.contextMenuIcon}>👤</span>
+                            <FaUser size={14} style={{ marginRight: "10px", flexShrink: 0 }} />
                             <span>艺人</span>
                           </div>
                           <div style={styles.contextMenuDivider} />
                           <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handleContextMenuAction("addToPlaylist", contextMenu.song)}>
-                            <span style={styles.contextMenuIcon}>❤️</span>
+                            <FaHeart size={14} style={{ marginRight: "10px", flexShrink: 0 }} />
+                            <span>喜欢</span>
+                          </div>
+                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handleContextMenuAction("addToPlaylist", contextMenu.song)}>
+                            <FaPlus size={14} style={{ marginRight: "10px", flexShrink: 0 }} />
                             <span>添加到播放列表</span>
                           </div>
                           <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handleContextMenuAction("playNext", contextMenu.song)}>
-                            <span style={styles.contextMenuIcon}>⏭</span>
+                            <FaStepForward size={14} style={{ marginRight: "10px", flexShrink: 0 }} />
                             <span>插播</span>
                           </div>
                           <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handleContextMenuAction("playLater", contextMenu.song)}>
-                            <span style={styles.contextMenuIcon}>📋</span>
+                            <FaClock size={14} style={{ marginRight: "10px", flexShrink: 0 }} />
                             <span>稍后播放</span>
+                          </div>
+                          <div style={styles.contextMenuDivider} />
+                          <div className="context-menu-item" style={{ ...styles.contextMenuItem, color: "#e94560" }} onClick={() => handleContextMenuAction("deleteSong", contextMenu.song)}>
+                            <FaTrash size={14} style={{ marginRight: "10px", flexShrink: 0 }} />
+                            <span>删除</span>
                           </div>
                         </div>
                       </>
                     )}
 
-                    {/* 删除确认浮窗 */}
+                    {/* 删除确认浮窗（单曲） */}
+                    {deleteSongConfirm && (
+                      <div style={styles.overlay} onClick={() => setDeleteSongConfirm(null)}>
+                        <div style={styles.confirmDialog} onClick={(e) => e.stopPropagation()}>
+                          <div style={styles.confirmIcon}>⚠️</div>
+                          <h3 style={styles.confirmTitle}>确认删除</h3>
+                          <p style={styles.confirmText}>确定要删除歌曲「{deleteSongConfirm.title}」吗？此操作不可撤销。</p>
+                          <div style={styles.confirmActions}>
+                            <button style={styles.confirmDeleteBtn} onClick={handleConfirmDeleteSong}>
+                              确认删除
+                            </button>
+                            <button style={styles.confirmCancelBtn} onClick={() => setDeleteSongConfirm(null)}>
+                              取消
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 删除确认浮窗（多选） */}
                     {showDeleteConfirm && (
                       <div style={styles.overlay} onClick={handleCancelSelect}>
                         <div style={styles.confirmDialog} onClick={(e) => e.stopPropagation()}>
@@ -1611,21 +1790,42 @@ export default function MusicLibrary() {
                                             top: albumMenu.y,
                                           }}
                                         >
+                                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handleAlbumMenuAction("artist", albumMenu.album)}>
+                                            <FaUser size={14} style={{ marginRight: "10px" }} />
+                                            <span>转至艺人</span>
+                                          </div>
+                                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handleAlbumMenuAction("toggleFavorite", albumMenu.album)}>
+                                            <FaHeart size={14} style={{ marginRight: "10px", color: favoriteAlbums.has(albumMenu.album.id) ? "#e94560" : undefined }} />
+                                            <span>{favoriteAlbums.has(albumMenu.album.id) ? "取消喜欢" : "喜欢"}</span>
+                                          </div>
+                                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => {
+                                            handleCloseAlbumMenu();
+                                            const album = albumMenu.album;
+                                            if (!album || !album.songs || album.songs.length === 0) return;
+                                            setPlaylists((prev) => {
+                                              const target = prev.find((p) => p.id !== "liked" && p.id !== "recent");
+                                              if (!target) return prev;
+                                              const songs = album.songs.map(s => ({ ...s, albumId: album.id }));
+                                              const existingUrls = new Set(target.songs.map((s) => s.url));
+                                              const newSongs = songs.filter((s) => !existingUrls.has(s.url));
+                                              if (newSongs.length === 0) return prev;
+                                              return prev.map((p) => p.id === target.id ? { ...p, songs: [...p.songs, ...newSongs] } : p);
+                                            });
+                                          }}>
+                                            <FaPlus size={14} style={{ marginRight: "10px" }} />
+                                            <span>添加到播放列表</span>
+                                          </div>
                                           <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handleAlbumMenuAction("playNext", albumMenu.album)}>
-                                            <span style={styles.contextMenuIcon}>⏭</span>
+                                            <FaStepForward size={14} style={{ marginRight: "10px" }} />
                                             <span>插播</span>
                                           </div>
                                           <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handleAlbumMenuAction("playLater", albumMenu.album)}>
-                                            <span style={styles.contextMenuIcon}>📋</span>
+                                            <FaClock size={14} style={{ marginRight: "10px" }} />
                                             <span>稍后播放</span>
                                           </div>
-                                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handleAlbumMenuAction("artist", albumMenu.album)}>
-                                            <span style={styles.contextMenuIcon}>👤</span>
-                                            <span>专辑艺人</span>
-                                          </div>
                                           <div style={styles.contextMenuDivider} />
-                                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handleAlbumMenuAction("delete", albumMenu.album)}>
-                                            <span style={styles.contextMenuIcon}>🗑️</span>
+                                          <div className="context-menu-item" style={{ ...styles.contextMenuItem, color: "#e94560" }} onClick={() => handleAlbumMenuAction("delete", albumMenu.album)}>
+                                            <FaTrash size={14} style={{ marginRight: "10px" }} />
                                             <span>删除</span>
                                           </div>
                                         </div>
@@ -1664,17 +1864,20 @@ export default function MusicLibrary() {
                                             top: playlistMenu.y,
                                           }}
                                         >
+                                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handlePlaylistMenuAction("pin", playlistMenu.playlist)}>
+                                            <FaArrowUp size={14} style={{ marginRight: "10px" }} />
+                                            <span>置顶</span>
+                                          </div>
                                           <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handlePlaylistMenuAction("playNext", playlistMenu.playlist)}>
-                                            <span style={styles.contextMenuIcon}>⏭</span>
+                                            <FaStepForward size={14} style={{ marginRight: "10px" }} />
                                             <span>插播</span>
                                           </div>
                                           <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handlePlaylistMenuAction("playLater", playlistMenu.playlist)}>
-                                            <span style={styles.contextMenuIcon}>📋</span>
+                                            <FaClock size={14} style={{ marginRight: "10px" }} />
                                             <span>稍后播放</span>
                                           </div>
-                                          <div style={styles.contextMenuDivider} />
                                           <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handlePlaylistMenuAction("delete", playlistMenu.playlist)}>
-                                            <span style={styles.contextMenuIcon}>🗑️</span>
+                                            <FaTrash size={14} style={{ marginRight: "10px" }} />
                                             <span>删除</span>
                                           </div>
                                         </div>
@@ -1705,6 +1908,52 @@ export default function MusicLibrary() {
                 )}
               </div>
             </div>
+
+      {/* ===== 新建播放列表对话框 ===== */}
+      {showCreatePlaylist && (
+        <div style={styles.overlay} onClick={() => setShowCreatePlaylist(false)}>
+          <div style={{ ...styles.createDialog, ...styles.confirmDialog }} onClick={(e) => e.stopPropagation()}>
+            <h3 style={styles.createDialogTitle}>新建播放列表</h3>
+            <div style={styles.createCoverSection}>
+              {newPlaylistCover ? (
+                <img src={newPlaylistCover} alt="封面" style={styles.createCover} />
+              ) : (
+                <div style={styles.createCoverPlaceholder} onClick={() => coverInputRef.current?.click()}>
+                  <span style={{ fontSize: "32px", opacity: 0.3 }}>📋</span>
+                  <span style={styles.createCoverHint}>点击设置封面</span>
+                </div>
+              )}
+              {newPlaylistCover && (
+                <button style={styles.createCoverChangeBtn} onClick={() => coverInputRef.current?.click()}>
+                  更换封面
+                </button>
+              )}
+            </div>
+            <input
+              style={styles.createInput}
+              placeholder="播放列表名称"
+              value={newPlaylistName}
+              onChange={(e) => setNewPlaylistName(e.target.value)}
+              autoFocus
+            />
+            <textarea
+              style={styles.createTextarea}
+              placeholder="简介（可选）"
+              value={newPlaylistDesc}
+              onChange={(e) => setNewPlaylistDesc(e.target.value)}
+              rows={3}
+            />
+            <div style={styles.createActions}>
+              <button style={styles.confirmDeleteBtn} onClick={handleCreatePlaylistWithDetails}>
+                创建
+              </button>
+              <button style={styles.confirmCancelBtn} onClick={() => setShowCreatePlaylist(false)}>
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ============================================================ */}
       {/* ③ 播放控制器（底部播放条 + 播放详情页）                     */}
@@ -1813,8 +2062,14 @@ const styles = {
     background: "linear-gradient(135deg, #e94560, #c73e52)",
     color: "#fff", fontSize: "18px",
     cursor: "pointer", boxShadow: "0 4px 15px rgba(233,69,96,0.3)", flexShrink: 0,
-    marginLeft: "auto",
     transition: "transform 0.2s, box-shadow 0.2s",
+  },
+  importDropdown: {
+    position: "absolute", right: 0, top: "calc(100% + 4px)",
+    zIndex: 1000, minWidth: "170px", padding: "6px",
+    borderRadius: "12px", background: "#ffffff",
+    boxShadow: "0 8px 30px rgba(0,0,0,0.15)",
+    border: "1px solid #e5e7eb",
   },
   stats: { fontSize: "12px", color: "#6b7280", whiteSpace: "nowrap", flexShrink: 0 },
 
@@ -2133,6 +2388,13 @@ const styles = {
     cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap",
     transition: "all 0.2s",
   },
+  cancelFilterBtn: {
+    padding: "4px 14px", borderRadius: "16px",
+    border: "1px solid #e94560", background: "#fff",
+    color: "#e94560", fontSize: "12px", fontWeight: 500,
+    cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap",
+    marginLeft: "auto",
+  },
   songTableRowChecked: {
     background: "rgba(233,69,96,0.06)",
     border: "1px solid rgba(233,69,96,0.15)",
@@ -2150,6 +2412,50 @@ const styles = {
     background: "#ffffff", boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
     display: "flex", flexDirection: "column", alignItems: "center",
     gap: "12px",
+  },
+  createDialog: {
+    gap: "16px", alignItems: "stretch", width: "400px",
+  },
+  createDialogTitle: {
+    fontSize: "20px", fontWeight: 700, color: "#1f2937",
+    margin: 0, textAlign: "center",
+  },
+  createCoverSection: {
+    display: "flex", flexDirection: "column", alignItems: "center", gap: "8px",
+  },
+  createCover: {
+    width: "200px", height: "200px", borderRadius: "12px",
+    objectFit: "cover", display: "block",
+  },
+  createCoverPlaceholder: {
+    width: "200px", height: "200px", borderRadius: "12px",
+    background: "#f3f4f6", display: "flex", flexDirection: "column",
+    alignItems: "center", justifyContent: "center", gap: "8px",
+    cursor: "pointer", border: "2px dashed #d1d5db",
+  },
+  createCoverHint: {
+    fontSize: "12px", color: "#9ca3af",
+  },
+  createCoverChangeBtn: {
+    background: "none", border: "none", color: "#e94560",
+    fontSize: "13px", fontWeight: 500, cursor: "pointer",
+    fontFamily: "inherit",
+  },
+  createInput: {
+    padding: "10px 14px", borderRadius: "10px",
+    border: "1px solid #d1d5db", outline: "none",
+    fontSize: "14px", fontFamily: "inherit", width: "100%",
+    boxSizing: "border-box",
+  },
+  createTextarea: {
+    padding: "10px 14px", borderRadius: "10px",
+    border: "1px solid #d1d5db", outline: "none",
+    fontSize: "14px", fontFamily: "inherit", width: "100%",
+    boxSizing: "border-box", resize: "vertical",
+    lineHeight: 1.5,
+  },
+  createActions: {
+    display: "flex", gap: "10px", justifyContent: "flex-end", marginTop: "4px",
   },
   confirmIcon: {
     fontSize: "48px",

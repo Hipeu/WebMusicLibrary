@@ -41,9 +41,10 @@ export default function MusicPlayer({
     const [isFavorited, setIsFavorited] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef(null);
-  const [playMode, setPlayMode] = useState("sequential"); // "sequential" | "loop" | "shuffle"
+  const [playMode, setPlayMode] = useState("sequential"); // "sequential" | "loop" | "loop-one" | "shuffle"
   const [showPlaylistPanel, setShowPlaylistPanel] = useState(false);
   const [playlistSearch, setPlaylistSearch] = useState("");
+  const [shuffledOrder, setShuffledOrder] = useState([]);
 
   // 当前专辑 & 当前歌曲
   const currentAlbum = albums.find((a) => a.id === currentAlbumId) || null;
@@ -83,6 +84,14 @@ export default function MusicPlayer({
     })() : null;
   const queueCount = playQueue.length;
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
+
+  // 随机模式下的展示顺序
+  const displaySongs = playMode === "shuffle" && shuffledOrder.length > 0
+    ? shuffledOrder.map((i) => allSongs[i])
+    : allSongs;
+  const displayCurrentIdx = playMode === "shuffle" && shuffledOrder.length > 0
+    ? shuffledOrder.indexOf(currentSongIndex)
+    : currentSongIndex;
 
   function formatTime(seconds) {
     if (isNaN(seconds)) return "00:00";
@@ -130,14 +139,33 @@ export default function MusicPlayer({
 
   function prevTrack() {
     if (allSongs.length === 0) return;
-    const newIndex = (currentSongIndex - 1 + allSongs.length) % allSongs.length;
-    setCurrentSongIndex(newIndex);
+    if (playMode === "shuffle" && shuffledOrder.length > 0) {
+      const curPos = shuffledOrder.indexOf(currentSongIndex);
+      const prevPos = (curPos - 1 + shuffledOrder.length) % shuffledOrder.length;
+      setCurrentSongIndex(shuffledOrder[prevPos]);
+    } else {
+      setCurrentSongIndex((currentSongIndex - 1 + allSongs.length) % allSongs.length);
+    }
     setLyricsData(null);
     setIsPlaying(true);
   }
 
   function nextTrack() {
     if (allSongs.length === 0) return;
+    if (playMode === "shuffle" && shuffledOrder.length > 0) {
+      const curPos = shuffledOrder.indexOf(currentSongIndex);
+      const nextPos = curPos + 1;
+      if (nextPos < shuffledOrder.length) {
+        setCurrentSongIndex(shuffledOrder[nextPos]);
+      } else {
+        setIsPlaying(false);
+        setCurrentTime(0);
+        return;
+      }
+      setLyricsData(null);
+      setIsPlaying(true);
+      return;
+    }
     const nextIndex = currentSongIndex + 1;
     if (currentSongIndex >= sourceSongs.length && setPlayQueue) {
       const queueIdx = currentSongIndex - sourceSongs.length;
@@ -154,7 +182,13 @@ export default function MusicPlayer({
     } else if (nextIndex < allSongs.length) {
       setCurrentSongIndex(nextIndex);
     } else {
-      setCurrentSongIndex(0);
+      if (playMode === "loop") {
+        setCurrentSongIndex(0);
+      } else {
+        setIsPlaying(false);
+        setCurrentTime(0);
+        return;
+      }
     }
     setLyricsData(null);
     setIsPlaying(true);
@@ -190,11 +224,47 @@ export default function MusicPlayer({
   }
 
   function handleEnded() {
-    if (allSongs.length > 1) {
-      nextTrack();
-    } else {
-      setIsPlaying(false);
+    if (playMode === "loop-one") {
       setCurrentTime(0);
+      if (audioRef.current) {
+        audioRef.current.currentTime = 0;
+        audioRef.current.play().catch(() => setIsPlaying(false));
+      }
+      return;
+    }
+    if (allSongs.length > 1) {
+      if (playMode === "loop") {
+        nextTrack();
+      } else if (playMode === "shuffle" && shuffledOrder.length > 0) {
+        const curPos = shuffledOrder.indexOf(currentSongIndex);
+        if (curPos + 1 < shuffledOrder.length) {
+          setCurrentSongIndex(shuffledOrder[curPos + 1]);
+        } else {
+          setIsPlaying(false);
+          setCurrentTime(0);
+          return;
+        }
+        setLyricsData(null);
+        setIsPlaying(true);
+      } else {
+        if (currentSongIndex < allSongs.length - 1) {
+          nextTrack();
+        } else {
+          setIsPlaying(false);
+          setCurrentTime(0);
+        }
+      }
+    } else {
+      if (playMode === "loop") {
+        setCurrentTime(0);
+        if (audioRef.current) {
+          audioRef.current.currentTime = 0;
+          audioRef.current.play().catch(() => setIsPlaying(false));
+        }
+      } else {
+        setIsPlaying(false);
+        setCurrentTime(0);
+      }
     }
   }
 
@@ -226,6 +296,22 @@ export default function MusicPlayer({
       );
     }
   }, [currentAlbumId, currentPlaylistId, currentSongIndex, currentSong?.url]);
+
+  // 切换播放模式或歌曲源时重置随机顺序
+  useEffect(() => {
+    if (playMode !== "shuffle" || allSongs.length === 0) return;
+    const indices = Array.from({ length: allSongs.length }, (_, i) => i);
+    for (let i = indices.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [indices[i], indices[j]] = [indices[j], indices[i]];
+    }
+    const curIdx = indices.indexOf(currentSongIndex);
+    if (curIdx > 0) {
+      indices.splice(curIdx, 1);
+      indices.unshift(currentSongIndex);
+    }
+    setShuffledOrder(indices);
+  }, [playMode, currentAlbumId, currentPlaylistId, sourceSongs.length]);
 
     // 点击菜单外关闭
   useEffect(() => {
@@ -329,6 +415,8 @@ export default function MusicPlayer({
         onVolumeChange={handleVolumeChange}
         onShowDetail={() => setShowDetail(true)}
         formatTime={formatTime}
+        playMode={playMode}
+        onPlayModeChange={setPlayMode}
       />
 
       {/* ================================================================ */}
@@ -477,29 +565,27 @@ export default function MusicPlayer({
                                         <button
                                           style={{
                                             ...styles.playModeBtn,
-                                            ...(playMode === "sequential" ? styles.playModeBtnActive : {}),
+                                            ...(playMode === "loop" || playMode === "loop-one" ? styles.playModeBtnActive : {}),
+                                            position: "relative",
                                           }}
-                                          onClick={() => setPlayMode("sequential")}
-                                          title="顺序播放"
-                                        >
-                                          <FaStepForward size={16} />
-                                        </button>
-                                        <button
-                                          style={{
-                                            ...styles.playModeBtn,
-                                            ...(playMode === "loop" ? styles.playModeBtnActive : {}),
+                                          onClick={() => {
+                                            if (playMode === "loop") setPlayMode("loop-one");
+                                            else if (playMode === "loop-one") setPlayMode("sequential");
+                                            else setPlayMode("loop");
                                           }}
-                                          onClick={() => setPlayMode("loop")}
-                                          title="循环播放"
+                                          title={playMode === "loop-one" ? "单曲循环" : "列表循环"}
                                         >
                                           <FaRedo size={16} />
+                                          {playMode === "loop-one" && (
+                                            <span style={styles.loopOneBadge}>1</span>
+                                          )}
                                         </button>
                                         <button
                                           style={{
                                             ...styles.playModeBtn,
                                             ...(playMode === "shuffle" ? styles.playModeBtnActive : {}),
                                           }}
-                                          onClick={() => setPlayMode("shuffle")}
+                                          onClick={() => setPlayMode(playMode === "shuffle" ? "sequential" : "shuffle")}
                                           title="随机播放"
                                         >
                                           <FaRandom size={16} />
@@ -534,20 +620,21 @@ export default function MusicPlayer({
                                     >
                                       {detailTab === "songs" && (
                                         <div style={styles.detailSongList}>
-                                          {allSongs.map((song, idx) => {
-                                            const isQueueSong = idx >= sourceSongs.length;
+                                          {displaySongs.map((song, idx) => {
+                                            const actualIdx = playMode === "shuffle" && shuffledOrder.length > 0 ? shuffledOrder[idx] : idx;
+                                            const isQueueSong = actualIdx >= sourceSongs.length;
                                             return (
                                               <div
-                                                key={idx}
+                                                key={actualIdx}
                                                 className="detail-song-item"
                                                 style={{
                                                   ...styles.detailSongItem,
-                                                  ...(idx === currentSongIndex ? styles.detailSongItemActive : {}),
+                                                  ...(displayCurrentIdx === idx ? styles.detailSongItemActive : {}),
                                                   ...(isQueueSong ? styles.detailQueueSongItem : {}),
                                                 }}
-                                                onClick={() => { setCurrentSongIndex(idx); setIsPlaying(true); }}
+                                                onClick={() => { setCurrentSongIndex(actualIdx); setIsPlaying(true); }}
                                               >
-                                                <span style={styles.detailSongIdx}>{String(idx + 1).padStart(2, "0")}</span>
+                                                <span style={styles.detailSongIdx}>{String(playMode === "shuffle" ? idx + 1 : actualIdx + 1).padStart(2, "0")}</span>
                                                 <div style={{ flex: 1, overflow: "hidden" }}>
                                                   <p style={styles.detailSongName}>
                                                     {song.title}
@@ -555,7 +642,7 @@ export default function MusicPlayer({
                                                   </p>
                                                   <p style={styles.detailSongArtist}>{song.artist}</p>
                                                 </div>
-                                                {idx === currentSongIndex && (
+                                                {displayCurrentIdx === idx && (
                                                   <span style={styles.detailPlayingIndicator}>{isPlaying ? "▶" : "⏸"}</span>
                                                 )}
                                               </div>
@@ -895,11 +982,20 @@ const styles = {
     transition: "all 0.2s",
     fontFamily: "inherit",
     borderRadius: "6px",
-    color: "#9ca3af",
+      color: "#9ca3af",
   },
   playModeBtnActive: {
     background: "#e94560",
     color: "#ffffff",
+  },
+  loopOneBadge: {
+    position: "absolute", top: "-4px", right: "-4px",
+    background: "#e94560", color: "#fff",
+    fontSize: "10px", fontWeight: 700,
+    width: "16px", height: "16px",
+    borderRadius: "50%",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    lineHeight: 1,
   },
 
     // ===== 右侧 - 歌曲列表 =====

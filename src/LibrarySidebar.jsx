@@ -159,14 +159,6 @@ export default function Sidebar({
           </div>
         ))}
 
-        <div style={styles.item} onClick={handleCreatePlaylist}>
-          <span style={{ ...styles.icon, color: "#e94560" }}>
-            <FaPlus />
-          </span>
-          <span style={{ ...styles.label, color: "#e94560", fontWeight: 500 }}>
-            新建播放列表
-          </span>
-        </div>
       </div>
     </div>
   );

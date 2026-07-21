@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { FaPlay, FaPause, FaArrowLeft, FaEdit } from "react-icons/fa";
+import { FaPlay, FaPause, FaArrowLeft, FaEdit, FaEllipsisH, FaHeart, FaPlus, FaStepForward, FaClock, FaCompactDisc, FaUser } from "react-icons/fa";
 import PlayingAnimation from "./PlayingAnimation";
 
 /* ================================================================
@@ -11,18 +11,25 @@ import PlayingAnimation from "./PlayingAnimation";
 export default function PlaylistDetail({
   playlist,
   playlists,
+  setPlaylists,
   onUpdatePlaylist,
   currentSongIndex,
   isPlaying,
   onPlayAll,
   onPlaySong,
   onBack,
+  onPlayNext,
+  onPlayLater,
+  onOpenArtist,
 }) {
   const [editing, setEditing] = useState(false);
-  const [editCover, setEditCover] = useState(null); // base64
+  const [editCover, setEditCover] = useState(null);
   const [editTitle, setEditTitle] = useState("");
   const [editDesc, setEditDesc] = useState("");
   const coverInputRef = useRef(null);
+  const [menuSongIdx, setMenuSongIdx] = useState(null);
+  const [panelSong, setPanelSong] = useState(null);
+  const [panelSearch, setPanelSearch] = useState("");
 
   if (!playlist) return null;
 
@@ -170,6 +177,7 @@ export default function PlaylistDetail({
           <div style={styles.songList}>
             {songs.map((song, idx) => {
               const isActive = idx === currentSongIndex;
+              const isMenuOpen = menuSongIdx === idx;
               return (
                 <div
                   key={idx}
@@ -177,8 +185,9 @@ export default function PlaylistDetail({
                     ...styles.songItem,
                     ...(isActive ? styles.songItemActive : {}),
                   }}
-                  onClick={() => onPlaySong(idx)}
+                  onClick={() => { setMenuSongIdx(null); onPlaySong(idx); }}
                   className="detail-song-item"
+                  onMouseLeave={() => isMenuOpen && setMenuSongIdx(null)}
                 >
                   <span style={styles.songIndex}>
                     {isActive && isPlaying ? (
@@ -197,12 +206,143 @@ export default function PlaylistDetail({
                     </span>
                     <span style={styles.songArtist}>{song.artist}</span>
                   </div>
+
+                  <div style={styles.songActions}>
+                    <button
+                      className="song-action-btn"
+                      style={styles.songActionBtn}
+                      onClick={(e) => { e.stopPropagation(); setMenuSongIdx(isMenuOpen ? null : idx); }}
+                      title="更多操作"
+                    >
+                      <FaEllipsisH size={14} />
+                    </button>
+                    {isMenuOpen && (
+                      <>
+                        <div style={styles.menuOverlay} onClick={(e) => { e.stopPropagation(); setMenuSongIdx(null); }} />
+                        <div style={styles.songDropdown} onClick={(e) => e.stopPropagation()}>
+                          <button className="song-dropdown-item" style={styles.dropdownItem} onClick={() => { setMenuSongIdx(null); }}>
+                            <FaCompactDisc size={14} style={{ marginRight: "10px" }} />
+                            专辑
+                          </button>
+                          <button className="song-dropdown-item" style={styles.dropdownItem} onClick={() => {
+                            if (onOpenArtist) { onOpenArtist(song.artist); }
+                            setMenuSongIdx(null);
+                          }}>
+                            <FaUser size={14} style={{ marginRight: "10px" }} />
+                            艺人
+                          </button>
+                          <div style={styles.menuDivider} />
+                          <button className="song-dropdown-item" style={styles.dropdownItem} onClick={() => {
+                            if (setPlaylists) {
+                              setPlaylists((prev) =>
+                                prev.map((pl) => {
+                                  if (pl.id === "liked") {
+                                    const existingUrls = new Set(pl.songs.map((s) => s.url));
+                                    if (!existingUrls.has(song.url)) {
+                                      return { ...pl, songs: [...pl.songs, song] };
+                                    }
+                                  }
+                                  return pl;
+                                })
+                              );
+                            }
+                            setMenuSongIdx(null);
+                          }}>
+                            <FaHeart size={13} style={{ marginRight: "10px" }} />
+                            喜欢
+                          </button>
+                          <button className="song-dropdown-item" style={styles.dropdownItem} onClick={() => {
+                            setPanelSong(song);
+                            setPanelSearch("");
+                            setMenuSongIdx(null);
+                          }}>
+                            <FaPlus size={13} style={{ marginRight: "10px" }} />
+                            添加到播放列表
+                          </button>
+                          <button className="song-dropdown-item" style={styles.dropdownItem} onClick={() => { onPlayNext?.(song); setMenuSongIdx(null); }}>
+                            <FaStepForward size={13} style={{ marginRight: "10px" }} />
+                            插播
+                          </button>
+                          <button className="song-dropdown-item" style={styles.dropdownItem} onClick={() => { onPlayLater?.(song); setMenuSongIdx(null); }}>
+                            <FaClock size={13} style={{ marginRight: "10px" }} />
+                            稍后播放
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
               );
             })}
+          <div style={styles.songListFooter}>
+            <div style={styles.dividerLine} />
+            <span style={styles.songCount}>{songs.length} 首</span>
+          </div>
           </div>
         )}
       </div>
+
+      {/* ===== 添加到播放列表浮窗 ===== */}
+      {panelSong && (
+        <div style={styles.panelOverlay} onClick={() => setPanelSong(null)}>
+          <div style={styles.playlistPanel} onClick={(e) => e.stopPropagation()}>
+            <h3 style={styles.panelTitle}>添加到播放列表</h3>
+            <input
+              style={styles.panelSearch}
+              placeholder="搜索播放列表…"
+              value={panelSearch}
+              onChange={(e) => setPanelSearch(e.target.value)}
+              autoFocus
+            />
+            <div style={styles.panelList}>
+              {(() => {
+                const userPlaylists = (playlists || []).filter((p) => p.id !== "recent");
+                const searched = panelSearch
+                  ? userPlaylists.filter((p) => p.name.toLowerCase().includes(panelSearch.toLowerCase()))
+                  : userPlaylists;
+                const sorted = [...searched].sort((a, b) => {
+                  const aHas = a.songs.some((s) => s.url === panelSong.url) ? 1 : 0;
+                  const bHas = b.songs.some((s) => s.url === panelSong.url) ? 1 : 0;
+                  if (aHas !== bHas) return bHas - aHas;
+                  return b.id.localeCompare(a.id);
+                });
+                return sorted.map((pl) => {
+                  const isAlready = pl.songs.some((s) => s.url === panelSong.url);
+                  return (
+                    <button
+                      key={pl.id}
+                      style={styles.panelItem}
+                      onClick={() => {
+                        if (setPlaylists) {
+                          setPlaylists((prev) =>
+                            prev.map((p) =>
+                              p.id === pl.id
+                                ? { ...p, songs: p.songs.some((s) => s.url === panelSong.url) ? p.songs : [...p.songs, panelSong] }
+                                : p
+                            )
+                          );
+                        }
+                        setPanelSong(null);
+                      }}
+                    >
+                      <span style={styles.panelItemIcon}>{pl.id === "liked" ? <FaHeart size={16} /> : "📋"}</span>
+                      <span style={styles.panelItemName}>{pl.name}</span>
+                      {isAlready && <span style={styles.panelItemTag}>已添加</span>}
+                      <span style={styles.panelItemCount}>{pl.songs.length} 首</span>
+                    </button>
+                  );
+                });
+              })()}
+              {(playlists || []).filter((p) => p.id !== "recent").length === 0 && (
+                <p style={styles.panelEmpty}>暂无播放列表</p>
+              )}
+              {panelSearch && (playlists || []).filter((p) => p.id !== "recent").length > 0 && !(playlists || []).some((p) => p.id !== "recent" && p.name.toLowerCase().includes(panelSearch.toLowerCase())) && (
+                <p style={styles.panelEmpty}>未找到匹配的播放列表</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -398,7 +538,7 @@ const styles = {
   },
 
         bottomSection: {
-    flex: 1, padding: "90px 170px 120px",
+    flex: 1, padding: "130px 170px 120px",
     display: "flex", flexDirection: "column", minHeight: 0, overflow: "visible",
   },
 
@@ -410,6 +550,7 @@ const styles = {
     display: "flex", alignItems: "center", gap: "14px",
     padding: "10px 14px", borderRadius: "10px",
     cursor: "pointer", transition: "background 0.2s",
+    position: "relative",
   },
   songItemActive: {
     background: "rgba(233,69,96,0.12)",
@@ -432,6 +573,59 @@ const styles = {
     fontSize: "12px", color: "#6b7280",
     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
   },
+  songActions: {
+    position: "relative",
+    flexShrink: 0,
+    marginLeft: "8px",
+  },
+  songActionBtn: {
+    background: "none", border: "none", cursor: "pointer",
+    width: "32px", height: "32px", borderRadius: "50%",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    color: "#9ca3af", opacity: 0,
+    transition: "opacity 0.15s, background 0.15s",
+  },
+  menuOverlay: {
+    position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+    zIndex: 999, background: "transparent",
+  },
+  songDropdown: {
+    position: "absolute", right: 0, top: "100%",
+    zIndex: 1000, minWidth: "160px", padding: "6px",
+    borderRadius: "10px", background: "#ffffff",
+    boxShadow: "0 8px 30px rgba(0,0,0,0.15)",
+    border: "1px solid #e5e7eb",
+  },
+  dropdownItem: {
+    display: "flex", alignItems: "center",
+    padding: "8px 14px", borderRadius: "8px",
+    border: "none", background: "none",
+    fontSize: "13px", color: "#374151", fontWeight: 500,
+    cursor: "pointer", width: "100%", textAlign: "left",
+    fontFamily: "inherit", whiteSpace: "nowrap",
+    transition: "background 0.15s",
+  },
+  menuDivider: {
+    height: "1px", background: "#e5e7eb",
+    margin: "4px 8px",
+  },
+  songListFooter: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "flex-start",
+    gap: "6px",
+    marginTop: "10px",
+    paddingTop: "10px",
+    flexShrink: 0,
+  },
+  dividerLine: {
+    width: "250px",
+    height: "2px",
+    borderRadius: "2px",
+    background: "#d1d5db",
+    flexShrink: 0,
+  },
+  songCount: { fontSize: "13px", color: "#6b7280" },
 
   // 空状态
   emptySongs: {
@@ -441,4 +635,45 @@ const styles = {
   emptyIcon: { fontSize: "48px", opacity: 0.3 },
   emptyText: { fontSize: "16px", color: "#374151", fontWeight: 500, margin: 0 },
   emptyHint: { fontSize: "13px", color: "#6b7280", margin: 0 },
+
+  // ===== 播放列表面板 =====
+  panelOverlay: {
+    position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+    background: "rgba(0,0,0,0.6)", zIndex: 1000,
+    display: "flex", alignItems: "center", justifyContent: "center",
+    backdropFilter: "blur(4px)",
+  },
+  playlistPanel: {
+    width: "360px", maxHeight: "70vh",
+    background: "#1a1a2e", borderRadius: "16px",
+    padding: "24px", display: "flex", flexDirection: "column",
+    gap: "12px", boxShadow: "0 20px 60px rgba(0,0,0,0.5)",
+    overflow: "hidden",
+  },
+  panelTitle: {
+    fontSize: "18px", fontWeight: 700, color: "#ffffff", margin: 0,
+  },
+  panelSearch: {
+    padding: "10px 14px", borderRadius: "10px",
+    border: "1px solid rgba(255,255,255,0.15)",
+    background: "rgba(255,255,255,0.08)",
+    color: "#e0e0e0", fontSize: "14px", outline: "none",
+    fontFamily: "inherit", width: "100%", boxSizing: "border-box",
+  },
+  panelList: {
+    display: "flex", flexDirection: "column",
+    gap: "6px", overflowY: "auto", maxHeight: "60vh",
+  },
+  panelItem: {
+    display: "flex", alignItems: "center", gap: "10px",
+    padding: "12px 14px", border: "none", borderRadius: "10px",
+    background: "rgba(255,255,255,0.06)", color: "#e0e0e0",
+    fontSize: "14px", cursor: "pointer", fontFamily: "inherit",
+    textAlign: "left", width: "100%", transition: "background 0.2s",
+  },
+  panelItemIcon: { fontSize: "18px", flexShrink: 0 },
+  panelItemName: { flex: 1, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  panelItemTag: { fontSize: "11px", color: "#10b981", fontWeight: 600, flexShrink: 0 },
+  panelItemCount: { fontSize: "12px", color: "#9ca3af", flexShrink: 0 },
+  panelEmpty: { color: "#6b7280", fontSize: "14px", textAlign: "center", padding: "24px 0", margin: 0 },
 };
