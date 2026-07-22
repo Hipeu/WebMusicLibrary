@@ -14,6 +14,8 @@ import {
    🎯 Sidebar — 音乐资料库侧边栏
    功能：导航 + 播放列表管理
    ================================================================ */
+import Search from "./Search";
+
 export default function Sidebar({
   activeNav,
   onNavChange,
@@ -21,6 +23,8 @@ export default function Sidebar({
   onCreatePlaylist,
   onDeletePlaylist,
   onRenamePlaylist,
+  filterText,
+  setFilterText,
 }) {
   const [editingPlaylist, setEditingPlaylist] = useState(null);
   const [editName, setEditName] = useState("");
@@ -67,6 +71,11 @@ export default function Sidebar({
 
   return (
     <div style={styles.sidebar}>
+      {/* ===== 搜索 ===== */}
+      <div style={styles.searchSection}>
+        <Search filterText={filterText} setFilterText={setFilterText} activeNav={activeNav} onNavChange={onNavChange} />
+      </div>
+
       {/* ===== 顶部导航 ===== */}
       <div style={styles.section}>
         {navItems.map((item) => (
@@ -181,6 +190,10 @@ const styles = {
     fontFamily: "'Segoe UI', sans-serif",
     overflowY: "auto",
     overflowX: "hidden",
+  },
+
+  searchSection: {
+    marginBottom: "-8px",
   },
 
   section: {

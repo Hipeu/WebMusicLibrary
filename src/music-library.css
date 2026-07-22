@@ -130,3 +130,216 @@
   background: #f3f4f6 !important;
   color: #e94560 !important;
 }
+
+/* ================================================================
+   搜索结果页 — 响应式网格
+   ================================================================ */
+.search-grid {
+  display: grid;
+  gap: 10px;
+}
+.search-grid-4 { grid-template-columns: repeat(4, 1fr); }
+.search-grid-5 { grid-template-columns: repeat(5, 1fr); }
+
+@media (max-width: 1400px) {
+  .search-grid-4 { grid-template-columns: repeat(3, 1fr); }
+  .search-grid-5 { grid-template-columns: repeat(4, 1fr); }
+}
+@media (max-width: 1150px) {
+  .search-grid-4 { grid-template-columns: repeat(2, 1fr); }
+  .search-grid-5 { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 900px) {
+  .search-grid-4 { grid-template-columns: repeat(1, 1fr); }
+  .search-grid-5 { grid-template-columns: repeat(2, 1fr); }
+}
+
+.search-result-card {
+  border-radius: 8px;
+  cursor: pointer;
+  overflow: hidden;
+  transition: background 0.15s;
+}
+.search-result-card:hover {
+  background: #f3f4f6;
+}
+
+.search-result-card-cover {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border-radius: 6px;
+  display: block;
+}
+.search-result-card-placeholder {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #e5e7eb;
+  color: #9ca3af;
+  font-size: 28px;
+}
+
+.search-section-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.search-section-header h2 {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1f2937;
+  margin: 0;
+  letter-spacing: 0.5px;
+}
+.search-show-all {
+  font-size: 14px;
+  color: #9ca3af;
+  cursor: pointer;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: background 0.15s, color 0.15s;
+  font-weight: 700;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.search-show-all:hover {
+  background: #e5e7eb;
+  color: #374151;
+}
+
+/* 歌曲卡片 — 水平布局 */
+.search-song-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.search-song-card:hover {
+  background: #f3f4f6;
+}
+.search-song-card-active {
+  background: rgba(233,69,96,0.08);
+}
+.search-song-thumb {
+  width: 48px;
+  height: 48px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.search-song-thumb-placeholder {
+  width: 48px;
+  height: 48px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #e5e7eb;
+  color: #9ca3af;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+.search-song-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.search-song-card-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f2937;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+}
+.search-song-card-meta {
+  font-size: 12px;
+  color: #9ca3af;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+}
+
+/* 专辑卡片（小）文字区 */
+.search-album-info {
+  padding: 6px 2px 0;
+}
+.search-album-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1f2937;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+}
+.search-album-artist {
+  font-size: 11px;
+  color: #9ca3af;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+  margin-top: 1px;
+}
+
+/* 艺人卡片 */
+.search-artist-avatar {
+  width: 110px;
+  aspect-ratio: 1 / 1;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #e5e7eb;
+  color: #9ca3af;
+  font-size: 26px;
+  margin: 0 auto;
+}
+.search-artist-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1f2937;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+  margin-top: 6px;
+}
+
+/* 播放列表卡片文字区 */
+.search-pl-info {
+  padding: 6px 2px 0;
+}
+.search-pl-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1f2937;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+}
+.search-pl-count {
+  font-size: 11px;
+  color: #9ca3af;
+  display: block;
+  margin-top: 1px;
+}

@@ -6,6 +6,7 @@ import MusicPlayer from "./MusicPlayer";
 import AlbumDetail from "./AlbumDetail";
 import ArtistsDetail from "./ArtistsDetail";
 import PlaylistDetail from "./PlaylistDetail";
+import { SearchResults } from "./Search";
 import CoverPlayButton from "./CoverPlayButton";
 import Sidebar from "./LibrarySidebar";
 import "./music-library.css";
@@ -36,6 +37,8 @@ export default function MusicLibrary() {
   const [newPlaylistName, setNewPlaylistName] = useState("");
   const [newPlaylistDesc, setNewPlaylistDesc] = useState("");
   const coverInputRef = useRef(null);
+  const [panelTarget, setPanelTarget] = useState(null); // {type:"song",data} | {type:"album",data}
+  const [panelSearch, setPanelSearch] = useState("");
 
         // ---------- 专辑详情页状态 ----------
   const [detailAlbumId, setDetailAlbumId] = useState(null);
@@ -306,8 +309,20 @@ export default function MusicLibrary() {
       setIsPlaying(true);
     }
 
+    // ---------- 从搜索结果页选择歌曲播放 ----------
+    function handlePlaySongFromSearch(albumId, songIndex) {
+      setCurrentPlaylistId(null);
+      setCurrentAlbumId(albumId);
+      setCurrentSongIndex(songIndex);
+      setIsPlaying(true);
+    }
+
                     // ---------- 导航切换 ----------
   function handleNavChange(val) {
+    // 离开搜索模式时清空搜索词，避免全局过滤干扰其他视图
+    if (activeNav === "search" && val !== "search") {
+      setFilterText("");
+    }
           const isPlaylist = playlists.some((p) => p.id === val);
     if (isPlaylist) {
       // 点击播放列表 → 关闭专辑详情（如果有），打开播放列表详情
@@ -926,6 +941,8 @@ export default function MusicLibrary() {
                               onCreatePlaylist={handleCreatePlaylist}
                               onDeletePlaylist={handleDeletePlaylist}
                               onRenamePlaylist={handleRenamePlaylist}
+                              filterText={filterText}
+                              setFilterText={setFilterText}
                             />
 
               {/* 右侧主区域 */}
@@ -936,26 +953,6 @@ export default function MusicLibrary() {
                   <div style={styles.logoArea}>
                     <span style={styles.logoIcon}>🎵</span>
                     <h1 style={styles.logoTitle}>音乐资料库</h1>
-                  </div>
-
-                  {/* 中间：搜索框 */}
-                  <div style={styles.searchArea}>
-                    <span style={styles.searchIcon}>🔍</span>
-                    <input
-                      style={styles.searchInput}
-                      type="text"
-                      placeholder="搜索专辑或艺人…"
-                      value={filterText}
-                      onChange={(e) => setFilterText(e.target.value)}
-                    />
-                    {filterText && (
-                      <span
-                        style={styles.clearBtn}
-                        onClick={() => setFilterText("")}
-                      >
-                        ✕
-                      </span>
-                    )}
                   </div>
 
                   {/* 右侧：导入按钮 */}
@@ -1078,6 +1075,27 @@ export default function MusicLibrary() {
                       }}
                     />
                   </div>
+                ) : activeNav === "search" ? (
+                  /* ================================================================ */
+                  /* 搜索结果页                                                        */
+                  /* ================================================================ */
+                  <main style={{ ...styles.mainArea, padding: "28px 32px", display: "flex", flexDirection: "column" }}>
+                    <SearchResults
+                      filterText={filterText}
+                      setFilterText={setFilterText}
+                      albums={albums}
+                      playlists={playlists}
+                      onPlaySong={handlePlaySongFromSearch}
+                      onOpenAlbum={(id) => { setDetailAlbumId(id); setDetailPlaylistId(null); setDetailArtistName(null); }}
+                      onOpenArtist={handleOpenArtistDetail}
+                      onOpenPlaylist={handleOpenPlaylistDetail}
+                      onNavChange={handleNavChange}
+                      currentSongIndex={currentSongIndex}
+                      currentAlbumId={currentAlbumId}
+                      isPlaying={isPlaying}
+                      togglePlay={togglePlay}
+                    />
+                  </main>
                 ) : activeNav === "albums" ? (
                   /* ================================================================ */
                   /* 专辑视图                                                         */
@@ -1215,17 +1233,8 @@ export default function MusicLibrary() {
                           </div>
                           <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => {
                             handleCloseAlbumMenu();
-                            const album = albumMenu.album;
-                            if (!album || !album.songs || album.songs.length === 0) return;
-                            setPlaylists((prev) => {
-                              const target = prev.find((p) => p.id !== "liked" && p.id !== "recent");
-                              if (!target) return prev;
-                              const songs = album.songs.map(s => ({ ...s, albumId: album.id }));
-                              const existingUrls = new Set(target.songs.map((s) => s.url));
-                              const newSongs = songs.filter((s) => !existingUrls.has(s.url));
-                              if (newSongs.length === 0) return prev;
-                              return prev.map((p) => p.id === target.id ? { ...p, songs: [...p.songs, ...newSongs] } : p);
-                            });
+                            setPanelTarget({ type: "album", data: albumMenu.album });
+                            setPanelSearch("");
                           }}>
                             <FaPlus size={14} style={{ marginRight: "10px" }} />
                             <span>添加到播放列表</span>
@@ -1584,7 +1593,11 @@ export default function MusicLibrary() {
                             <FaHeart size={14} style={{ marginRight: "10px", flexShrink: 0 }} />
                             <span>喜欢</span>
                           </div>
-                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handleContextMenuAction("addToPlaylist", contextMenu.song)}>
+                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => {
+                            handleCloseContextMenu();
+                            setPanelTarget({ type: "song", data: contextMenu.song });
+                            setPanelSearch("");
+                          }}>
                             <FaPlus size={14} style={{ marginRight: "10px", flexShrink: 0 }} />
                             <span>添加到播放列表</span>
                           </div>
@@ -1758,7 +1771,7 @@ export default function MusicLibrary() {
                                                 <img src={pl.coverURL} alt={pl.name} style={styles.coverImage} />
                                               ) : (
                                                 <div style={styles.playlistCoverPlaceholder}>
-                                                  {pl.id === "liked" ? "❤️" : pl.id === "recent" ? "🎧" : "📋"}
+                                                  {pl.id === "liked" ? "❤️" : pl.id === "recent" ? "🕐" : "📋"}
                                                 </div>
                                               )}
                                             </div>
@@ -1800,17 +1813,8 @@ export default function MusicLibrary() {
                                           </div>
                                           <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => {
                                             handleCloseAlbumMenu();
-                                            const album = albumMenu.album;
-                                            if (!album || !album.songs || album.songs.length === 0) return;
-                                            setPlaylists((prev) => {
-                                              const target = prev.find((p) => p.id !== "liked" && p.id !== "recent");
-                                              if (!target) return prev;
-                                              const songs = album.songs.map(s => ({ ...s, albumId: album.id }));
-                                              const existingUrls = new Set(target.songs.map((s) => s.url));
-                                              const newSongs = songs.filter((s) => !existingUrls.has(s.url));
-                                              if (newSongs.length === 0) return prev;
-                                              return prev.map((p) => p.id === target.id ? { ...p, songs: [...p.songs, ...newSongs] } : p);
-                                            });
+                                            setPanelTarget({ type: "album", data: albumMenu.album });
+                                            setPanelSearch("");
                                           }}>
                                             <FaPlus size={14} style={{ marginRight: "10px" }} />
                                             <span>添加到播放列表</span>
@@ -1876,10 +1880,12 @@ export default function MusicLibrary() {
                                             <FaClock size={14} style={{ marginRight: "10px" }} />
                                             <span>稍后播放</span>
                                           </div>
-                                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handlePlaylistMenuAction("delete", playlistMenu.playlist)}>
-                                            <FaTrash size={14} style={{ marginRight: "10px" }} />
-                                            <span>删除</span>
-                                          </div>
+                                          {playlistMenu.playlist.id !== "liked" && playlistMenu.playlist.id !== "recent" && (
+                                            <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handlePlaylistMenuAction("delete", playlistMenu.playlist)}>
+                                              <FaTrash size={14} style={{ marginRight: "10px" }} />
+                                              <span>删除</span>
+                                            </div>
+                                          )}
                                         </div>
                                       </>
                                     )}
@@ -1950,6 +1956,66 @@ export default function MusicLibrary() {
               <button style={styles.confirmCancelBtn} onClick={() => setShowCreatePlaylist(false)}>
                 取消
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== 添加到播放列表浮窗 ===== */}
+      {panelTarget && (
+        <div style={styles.overlay} onClick={() => setPanelTarget(null)}>
+          <div style={styles.playlistPanel} onClick={(e) => e.stopPropagation()}>
+            <h3 style={styles.panelTitle}>添加到播放列表</h3>
+            <input
+              style={styles.panelSearch}
+              placeholder="搜索播放列表…"
+              value={panelSearch}
+              onChange={(e) => setPanelSearch(e.target.value)}
+              autoFocus
+            />
+            <div style={styles.panelList}>
+              {(() => {
+                const items = panelTarget.type === "album"
+                  ? (panelTarget.data.songs || []).map((s) => ({ ...s, albumId: panelTarget.data.id }))
+                  : [panelTarget.data];
+                const userPls = playlists.filter((p) => p.id !== "recent");
+                const searched = panelSearch
+                  ? userPls.filter((p) => p.name.toLowerCase().includes(panelSearch.toLowerCase()))
+                  : userPls;
+                const sorted = [...searched].sort((a, b) => b.id.localeCompare(a.id));
+                return sorted.map((pl) => {
+                  const existingUrls = new Set(pl.songs.map((s) => s.url));
+                  const newItems = items.filter((s) => !existingUrls.has(s.url));
+                  const allExist = newItems.length === 0;
+                  return (
+                    <button
+                      key={pl.id}
+                      style={styles.panelItem}
+                      onClick={() => {
+                        if (newItems.length > 0) {
+                          setPlaylists((prev) =>
+                            prev.map((p) =>
+                              p.id === pl.id ? { ...p, songs: [...p.songs, ...newItems] } : p
+                            )
+                          );
+                        }
+                        setPanelTarget(null);
+                      }}
+                    >
+                      <span style={styles.panelItemIcon}>{pl.id === "liked" ? <FaHeart size={16} /> : "📋"}</span>
+                      <span style={styles.panelItemName}>{pl.name}</span>
+                      {allExist && <span style={styles.panelItemTag}>已添加</span>}
+                      <span style={styles.panelItemCount}>{pl.songs.length} 首</span>
+                    </button>
+                  );
+                });
+              })()}
+              {playlists.filter((p) => p.id !== "recent").length === 0 && (
+                <p style={styles.panelEmpty}>暂无播放列表</p>
+              )}
+              {panelSearch && playlists.filter((p) => p.id !== "recent").length > 0 && !playlists.some((p) => p.id !== "recent" && p.name.toLowerCase().includes(panelSearch.toLowerCase())) && (
+                <p style={styles.panelEmpty}>未找到匹配的播放列表</p>
+              )}
             </div>
           </div>
         </div>
@@ -2388,6 +2454,41 @@ const styles = {
     cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap",
     transition: "all 0.2s",
   },
+  // ===== 添加到播放列表面板 =====
+  playlistPanel: {
+    width: "360px", maxHeight: "70vh",
+    background: "#1a1a2e", borderRadius: "16px",
+    padding: "24px", display: "flex", flexDirection: "column",
+    gap: "12px", boxShadow: "0 20px 60px rgba(0,0,0,0.5)",
+    overflow: "hidden",
+  },
+  panelTitle: {
+    fontSize: "18px", fontWeight: 700, color: "#ffffff", margin: 0,
+  },
+  panelSearch: {
+    padding: "10px 14px", borderRadius: "10px",
+    border: "1px solid rgba(255,255,255,0.15)",
+    background: "rgba(255,255,255,0.08)",
+    color: "#e0e0e0", fontSize: "14px", outline: "none",
+    fontFamily: "inherit", width: "100%", boxSizing: "border-box",
+  },
+  panelList: {
+    display: "flex", flexDirection: "column",
+    gap: "6px", overflowY: "auto", maxHeight: "60vh",
+  },
+  panelItem: {
+    display: "flex", alignItems: "center", gap: "10px",
+    padding: "12px 14px", border: "none", borderRadius: "10px",
+    background: "rgba(255,255,255,0.06)", color: "#e0e0e0",
+    fontSize: "14px", cursor: "pointer", fontFamily: "inherit",
+    textAlign: "left", width: "100%", transition: "background 0.2s",
+  },
+  panelItemIcon: { fontSize: "18px", flexShrink: 0 },
+  panelItemName: { flex: 1, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  panelItemTag: { fontSize: "11px", color: "#10b981", fontWeight: 600, flexShrink: 0 },
+  panelItemCount: { fontSize: "12px", color: "#9ca3af", flexShrink: 0 },
+  panelEmpty: { color: "#6b7280", fontSize: "14px", textAlign: "center", padding: "24px 0", margin: 0 },
+
   cancelFilterBtn: {
     padding: "4px 14px", borderRadius: "16px",
     border: "1px solid #e94560", background: "#fff",

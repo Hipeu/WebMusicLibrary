@@ -91,7 +91,9 @@ export default function PlaylistDetail({
               <img src={playlist.coverURL} alt={playlist.name} style={styles.cover} />
             ) : (
               <div style={styles.coverPlaceholder}>
-                <span style={styles.coverPlaceholderIcon}>📋</span>
+                <span style={styles.coverPlaceholderIcon}>
+                  {playlist.id === "liked" ? "❤️" : playlist.id === "recent" ? "🕐" : "📋"}
+                </span>
               </div>
             )}
             {editing && (
