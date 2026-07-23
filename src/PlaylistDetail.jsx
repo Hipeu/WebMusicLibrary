@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { FaPlay, FaPause, FaArrowLeft, FaEdit, FaEllipsisH, FaHeart, FaPlus, FaStepForward, FaClock, FaCompactDisc, FaUser } from "react-icons/fa";
+import { FaPlay, FaPause, FaArrowLeft, FaEdit, FaEllipsisH, FaHeart, FaPlus, FaStepForward, FaClock, FaCompactDisc, FaUser, FaTrash, FaInfoCircle, FaTimes, FaMusic } from "react-icons/fa";
 import PlayingAnimation from "./PlayingAnimation";
 
 /* ================================================================
@@ -21,6 +21,9 @@ export default function PlaylistDetail({
   onPlayNext,
   onPlayLater,
   onOpenArtist,
+  onRemoveFromPlaylist,
+  onDeleteSong,
+  onEditInfo,
 }) {
   const [editing, setEditing] = useState(false);
   const [editCover, setEditCover] = useState(null);
@@ -195,7 +198,18 @@ export default function PlaylistDetail({
                     {isActive && isPlaying ? (
                       <PlayingAnimation />
                     ) : (
-                      String(idx + 1).padStart(2, "0")
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                        <span style={{ width: "10px", flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+                          {(playlists || []).find((p) => p.id === "liked")?.songs?.some((s) => s.url === song.url) && (
+                            <FaHeart size={9} style={{ color: "#e94560", flexShrink: 0 }} />
+                          )}
+                        </span>
+                        {song.coverURL ? (
+                          <img src={song.coverURL} alt="" style={{ width: "36px", height: "36px", borderRadius: "4px", objectFit: "cover", display: "block" }} />
+                        ) : (
+                          <span style={{ width: "36px", height: "36px", borderRadius: "4px", display: "flex", alignItems: "center", justifyContent: "center", background: "#e5e7eb", color: "#9ca3af", fontSize: "14px" }}><FaMusic size={14} /></span>
+                        )}
+                      </span>
                     )}
                   </span>
 
@@ -240,9 +254,10 @@ export default function PlaylistDetail({
                                 prev.map((pl) => {
                                   if (pl.id === "liked") {
                                     const existingUrls = new Set(pl.songs.map((s) => s.url));
-                                    if (!existingUrls.has(song.url)) {
-                                      return { ...pl, songs: [...pl.songs, song] };
+                                    if (existingUrls.has(song.url)) {
+                                      return { ...pl, songs: pl.songs.filter((s) => s.url !== song.url) };
                                     }
+                                    return { ...pl, songs: [...pl.songs, song] };
                                   }
                                   return pl;
                                 })
@@ -250,8 +265,8 @@ export default function PlaylistDetail({
                             }
                             setMenuSongIdx(null);
                           }}>
-                            <FaHeart size={13} style={{ marginRight: "10px" }} />
-                            喜欢
+                            <FaHeart size={13} style={{ marginRight: "10px", color: (playlists || []).find((p) => p.id === "liked")?.songs?.some((s) => s.url === song.url) ? "#e94560" : undefined }} />
+                            {(playlists || []).find((p) => p.id === "liked")?.songs?.some((s) => s.url === song.url) ? "取消喜欢" : "喜欢"}
                           </button>
                           <button className="song-dropdown-item" style={styles.dropdownItem} onClick={() => {
                             setPanelSong(song);
@@ -268,6 +283,19 @@ export default function PlaylistDetail({
                           <button className="song-dropdown-item" style={styles.dropdownItem} onClick={() => { onPlayLater?.(song); setMenuSongIdx(null); }}>
                             <FaClock size={13} style={{ marginRight: "10px" }} />
                             稍后播放
+                          </button>
+                          <div style={styles.menuDivider} />
+                          <button className="song-dropdown-item" style={styles.dropdownItem} onClick={() => { onRemoveFromPlaylist?.(playlist.id, song); setMenuSongIdx(null); }}>
+                            <FaTimes size={13} style={{ marginRight: "10px", color: "#e94560" }} />
+                            <span style={{ color: "#e94560" }}>从播放列表删除</span>
+                          </button>
+                          <button className="song-dropdown-item" style={styles.dropdownItem} onClick={() => { onDeleteSong?.(song, playlist.id); setMenuSongIdx(null); }}>
+                            <FaTrash size={13} style={{ marginRight: "10px", color: "#e94560" }} />
+                            <span style={{ color: "#e94560" }}>删除</span>
+                          </button>
+                          <button className="song-dropdown-item" style={styles.dropdownItem} onClick={() => { onEditInfo?.({ type: "song", data: { ...song, albumId: song.albumId } }); setMenuSongIdx(null); }}>
+                            <FaInfoCircle size={13} style={{ marginRight: "10px" }} />
+                            <span>更多信息</span>
                           </button>
                         </div>
                       </>
@@ -559,9 +587,8 @@ const styles = {
     border: "1px solid rgba(233,69,96,0.25)",
   },
   songIndex: {
-    fontSize: "13px", color: "#6b7280",
-    fontVariantNumeric: "tabular-nums",
-    minWidth: "28px", textAlign: "center", flexShrink: 0,
+    minWidth: "40px", textAlign: "center", flexShrink: 0,
+    display: "flex", alignItems: "center", justifyContent: "center",
   },
   songInfo: {
     flex: 1, display: "flex", flexDirection: "column", gap: "2px", overflow: "hidden",
@@ -592,8 +619,8 @@ const styles = {
     zIndex: 999, background: "transparent",
   },
   songDropdown: {
-    position: "absolute", right: 0, top: "100%",
-    zIndex: 1000, minWidth: "160px", padding: "6px",
+    position: "absolute", left: "100%", top: 0,
+    zIndex: 1000, minWidth: "180px", padding: "6px",
     borderRadius: "10px", background: "#ffffff",
     boxShadow: "0 8px 30px rgba(0,0,0,0.15)",
     border: "1px solid #e5e7eb",

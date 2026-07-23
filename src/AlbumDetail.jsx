@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { FaPlay, FaPause, FaArrowLeft, FaEdit, FaEllipsisH, FaHeart, FaStepForward, FaClock, FaPlus, FaCompactDisc, FaUser } from "react-icons/fa";
+import { FaPlay, FaPause, FaArrowLeft, FaEllipsisH, FaHeart, FaStepForward, FaClock, FaPlus, FaTrash, FaInfoCircle } from "react-icons/fa";
 import PlayingAnimation from "./PlayingAnimation";
 
 /* ================================================================
@@ -19,10 +19,14 @@ export default function AlbumDetail({
   onOpenArtist,
   onPlayNext,
   onPlayLater,
+  onDeleteAlbum,
+  onEditInfo,
+  onDeleteSong,
 }) {
   const [menuSongIdx, setMenuSongIdx] = useState(null);
   const [panelSong, setPanelSong] = useState(null);
   const [panelSearch, setPanelSearch] = useState("");
+  const [showAlbumMenu, setShowAlbumMenu] = useState(false);
 
   if (!album) return null;
 
@@ -83,9 +87,38 @@ export default function AlbumDetail({
                           <FaPlay size={16} />
                         )}
                       </button>
-                      <button style={styles.editButton} title="编辑专辑信息">
-                        <FaEdit size={16} /> 编辑
-                      </button>
+                      <div style={{ position: "relative" }}>
+                        <button
+                          style={styles.menuTriggerBtn}
+                          onClick={() => setShowAlbumMenu((v) => !v)}
+                          title="更多"
+                        >
+                          <FaEllipsisH size={16} />
+                        </button>
+                        {showAlbumMenu && (
+                          <>
+                            <div style={styles.menuOverlay} onClick={() => setShowAlbumMenu(false)} />
+                            <div style={styles.albumDropdown}>
+                              <button
+                                className="song-dropdown-item"
+                                style={styles.dropdownItem}
+                                onClick={() => { setShowAlbumMenu(false); onDeleteAlbum?.(album.id); }}
+                              >
+                                <FaTrash size={13} style={{ marginRight: "10px", color: "#e94560" }} />
+                                <span style={{ color: "#e94560" }}>删除</span>
+                              </button>
+                              <button
+                                className="song-dropdown-item"
+                                style={styles.dropdownItem}
+                                onClick={() => { setShowAlbumMenu(false); onEditInfo?.({ type: "album", data: album }); }}
+                              >
+                                <FaInfoCircle size={13} style={{ marginRight: "10px" }} />
+                                <span>更多信息</span>
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
                     </div>
         </div>
       </div>
@@ -94,27 +127,43 @@ export default function AlbumDetail({
       {/* 下半部分：歌曲列表 */}
       <div style={styles.bottomSection}>
         <div style={styles.songList}>
-          {album.songs.map((song, idx) => {
-            const isActive = idx === currentSongIndex;
-            const isMenuOpen = menuSongIdx === idx;
-            return (
-              <div
-                key={idx}
-                style={{
-                  ...styles.songItem,
-                  ...(isActive ? styles.songItemActive : {}),
-                }}
-                onClick={() => { closeMenu(); onPlaySong(idx); }}
-                className="detail-song-item"
-                onMouseLeave={() => isMenuOpen && setMenuSongIdx(null)}
-              >
-                <span style={styles.songIndex}>
-                  {isActive && isPlaying ? (
-                    <PlayingAnimation />
-                  ) : (
-                    String(idx + 1).padStart(2, "0")
-                  )}
-                </span>
+          {(() => {
+            // 按音轨号排序，无音轨号排最后
+            const sorted = album.songs
+              .map((s, i) => ({ song: s, originalIndex: i }))
+              .sort((a, b) => {
+                const ta = a.song.trackNo ?? 9999;
+                const tb = b.song.trackNo ?? 9999;
+                return ta - tb;
+              });
+            const likedUrls = (playlists || []).find((p) => p.id === "liked")?.songs?.map((s) => s.url) || [];
+            return sorted.map(({ song, originalIndex }) => {
+              const isActive = originalIndex === currentSongIndex;
+              const isMenuOpen = menuSongIdx === originalIndex;
+              const isLiked = likedUrls.includes(song.url);
+              return (
+                <div
+                  key={originalIndex}
+                  style={{
+                    ...styles.songItem,
+                    ...(isActive ? styles.songItemActive : {}),
+                  }}
+                  onClick={() => { closeMenu(); onPlaySong(originalIndex); }}
+                  className="detail-song-item"
+                  onMouseLeave={() => isMenuOpen && setMenuSongIdx(null)}
+                >
+                  <span style={styles.songIndex}>
+                    {isActive && isPlaying ? (
+                      <PlayingAnimation />
+                    ) : (
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                        <span style={{ width: "12px", flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+                          {isLiked && <FaHeart size={10} style={{ color: "#e94560", flexShrink: 0 }} />}
+                        </span>
+                        {String(song.trackNo != null ? song.trackNo : originalIndex + 1).padStart(2, "0")}
+                      </span>
+                    )}
+                  </span>
 
                 <div style={styles.songInfo}>
                   <span style={{
@@ -130,7 +179,7 @@ export default function AlbumDetail({
                   <button
                     className="song-action-btn"
                     style={styles.songActionBtn}
-                    onClick={(e) => { e.stopPropagation(); setMenuSongIdx(isMenuOpen ? null : idx); }}
+                    onClick={(e) => { e.stopPropagation(); setMenuSongIdx(isMenuOpen ? null : originalIndex); }}
                     title="更多操作"
                   >
                     <FaEllipsisH size={14} />
@@ -139,27 +188,16 @@ export default function AlbumDetail({
                     <>
                       <div style={styles.menuOverlay} onClick={(e) => { e.stopPropagation(); closeMenu(); }} />
                       <div style={styles.songDropdown} onClick={(e) => e.stopPropagation()}>
-                        <button className="song-dropdown-item" style={styles.dropdownItem} onClick={() => { closeMenu(); }}>
-                          <FaCompactDisc size={14} style={{ marginRight: "10px" }} />
-                          专辑
-                        </button>
-                        <button className="song-dropdown-item" style={styles.dropdownItem} onClick={() => {
-                          if (onOpenArtist) { onOpenArtist(song.artist); }
-                          closeMenu();
-                        }}>
-                          <FaUser size={14} style={{ marginRight: "10px" }} />
-                          艺人
-                        </button>
-                        <div style={styles.menuDivider} />
                         <button className="song-dropdown-item" style={styles.dropdownItem} onClick={() => {
                           if (setPlaylists) {
                             setPlaylists((prev) =>
                               prev.map((pl) => {
                                 if (pl.id === "liked") {
                                   const existingUrls = new Set(pl.songs.map((s) => s.url));
-                                  if (!existingUrls.has(song.url)) {
-                                    return { ...pl, songs: [...pl.songs, song] };
+                                  if (existingUrls.has(song.url)) {
+                                    return { ...pl, songs: pl.songs.filter((s) => s.url !== song.url) };
                                   }
+                                  return { ...pl, songs: [...pl.songs, song] };
                                 }
                                 return pl;
                               })
@@ -167,8 +205,8 @@ export default function AlbumDetail({
                           }
                           closeMenu();
                         }}>
-                          <FaHeart size={13} style={{ marginRight: "10px" }} />
-                          喜欢
+                          <FaHeart size={13} style={{ marginRight: "10px", color: (playlists || []).find((p) => p.id === "liked")?.songs?.some((s) => s.url === song.url) ? "#e94560" : undefined }} />
+                          {(playlists || []).find((p) => p.id === "liked")?.songs?.some((s) => s.url === song.url) ? "取消喜欢" : "喜欢"}
                         </button>
                         <button className="song-dropdown-item" style={styles.dropdownItem} onClick={() => {
                           setPanelSong(song);
@@ -178,13 +216,22 @@ export default function AlbumDetail({
                           <FaPlus size={13} style={{ marginRight: "10px" }} />
                           添加到播放列表
                         </button>
-                        <button className="song-dropdown-item" style={styles.dropdownItem} onClick={() => { onPlayNext?.(song, album.id, idx); closeMenu(); }}>
+                        <button className="song-dropdown-item" style={styles.dropdownItem} onClick={() => { onPlayNext?.(song, album.id, originalIndex); closeMenu(); }}>
                           <FaStepForward size={13} style={{ marginRight: "10px" }} />
                           插播
                         </button>
-                        <button className="song-dropdown-item" style={styles.dropdownItem} onClick={() => { onPlayLater?.(song, album.id, idx); closeMenu(); }}>
+                        <button className="song-dropdown-item" style={styles.dropdownItem} onClick={() => { onPlayLater?.(song, album.id, originalIndex); closeMenu(); }}>
                           <FaClock size={13} style={{ marginRight: "10px" }} />
                           稍后播放
+                        </button>
+                        <div style={styles.menuDivider} />
+                        <button className="song-dropdown-item" style={styles.dropdownItem} onClick={() => { onDeleteSong?.(song, album.id); closeMenu(); }}>
+                          <FaTrash size={13} style={{ marginRight: "10px", color: "#e94560" }} />
+                          <span style={{ color: "#e94560" }}>删除</span>
+                        </button>
+                        <button className="song-dropdown-item" style={styles.dropdownItem} onClick={() => { onEditInfo?.({ type: "song", data: { ...song, albumId: album.id } }); closeMenu(); }}>
+                          <FaInfoCircle size={13} style={{ marginRight: "10px" }} />
+                          <span>更多信息</span>
                         </button>
                       </div>
                     </>
@@ -192,13 +239,13 @@ export default function AlbumDetail({
                 </div>
               </div>
             );
-          })}
-        <div style={styles.songListHeader}>
-          <div style={styles.dividerLine} />
-          <span style={styles.songCount}>{album.songs.length} 首</span>
+          })})()}
+          <div style={styles.songListHeader}>
+            <div style={styles.dividerLine} />
+            <span style={styles.songCount}>{album.songs.length} 首</span>
+          </div>
         </div>
-        </div>
-      </div>
+    </div>
 
       {/* ===== 添加到播放列表浮窗 ===== */}
       {panelSong && (
@@ -250,7 +297,7 @@ export default function AlbumDetail({
                     </button>
                   );
                 });
-              })()}
+          })()}
               {(playlists || []).filter((p) => p.id !== "recent").length === 0 && (
                 <p style={styles.panelEmpty}>暂无播放列表</p>
               )}
@@ -405,6 +452,28 @@ const styles = {
     width: "fit-content",
   },
 
+  menuTriggerBtn: {
+    width: "40px",
+    height: "40px",
+    borderRadius: "50%",
+    border: "1px solid #e5e7eb",
+    background: "#f3f4f6",
+    color: "#6b7280",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    transition: "background 0.2s",
+  },
+
+  albumDropdown: {
+    position: "absolute", right: 0, top: "100%",
+    zIndex: 1000, minWidth: "160px", padding: "6px",
+    borderRadius: "10px", background: "#ffffff",
+    boxShadow: "0 8px 30px rgba(0,0,0,0.15)",
+    border: "1px solid #e5e7eb",
+  },
+
     bottomSection: {
     flex: 1, padding: "130px 170px 120px",
     display: "flex", flexDirection: "column", minHeight: 0, overflow: "visible",
@@ -449,7 +518,7 @@ const styles = {
   songIndex: {
     fontSize: "13px", color: "#6b7280",
     fontVariantNumeric: "tabular-nums",
-    minWidth: "28px", textAlign: "center", flexShrink: 0,
+    minWidth: "42px", textAlign: "center", flexShrink: 0,
   },
   playingIcon: { fontSize: "14px" },
   songInfo: {

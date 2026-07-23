@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { FiPlus } from "react-icons/fi";
-import { FaEllipsisH, FaCompactDisc, FaUser, FaHeart, FaStepForward, FaClock, FaPlus, FaSortAmountDown, FaArrowUp, FaTrash, FaMusic } from "react-icons/fa";
+import { FaEllipsisH, FaCompactDisc, FaUser, FaHeart, FaStepForward, FaClock, FaPlus, FaSortAmountDown, FaArrowUp, FaTrash, FaMusic, FaInfoCircle } from "react-icons/fa";
 import { readMetadata } from "./MetadataReader";
 import MusicPlayer from "./MusicPlayer";
 import AlbumDetail from "./AlbumDetail";
@@ -8,6 +8,7 @@ import ArtistsDetail from "./ArtistsDetail";
 import PlaylistDetail from "./PlaylistDetail";
 import { SearchResults } from "./Search";
 import CoverPlayButton from "./CoverPlayButton";
+import MusicEdit from "./MusicEdit";
 import Sidebar from "./LibrarySidebar";
 import "./music-library.css";
 
@@ -139,7 +140,9 @@ export default function MusicLibrary() {
             artist: entry.artist || "未知艺术家",
             year: entry.year || null,
             genre: entry.genre || null,
+            publisher: entry.publisher || null,
             coverURL: entry.coverURL,
+            importTime: Date.now(),
             songs: [],
           });
       }
@@ -152,6 +155,17 @@ export default function MusicLibrary() {
         duration: entry.duration,
         url: entry.url,
         coverURL: entry.coverURL,
+        trackNo: entry.trackNo,
+        composer: entry.composer,
+        lyricist: entry.lyricist,
+        publisher: entry.publisher,
+        comment: entry.comment,
+        bitrate: entry.bitrate,
+        codec: entry.codec,
+        container: entry.container,
+        creationTime: entry.creationTime,
+        modificationTime: entry.modificationTime,
+        importTime: entry.importTime,
       });
       // 如果封面还没设置，用第一首歌的封面
       if (!album.coverURL && entry.coverURL) {
@@ -315,6 +329,20 @@ export default function MusicLibrary() {
       setCurrentAlbumId(albumId);
       setCurrentSongIndex(songIndex);
       setIsPlaying(true);
+    }
+
+    // ---------- 从专辑详情页删除歌曲 ----------
+    function handleDeleteSongFromDetail(song, albumId) {
+      setDeleteSongConfirm({ ...song, albumId });
+    }
+
+    // ---------- 从播放列表移除歌曲 ----------
+    function handleRemoveFromPlaylist(playlistId, song) {
+      setPlaylists((prev) =>
+        prev.map((pl) =>
+          pl.id === playlistId ? { ...pl, songs: pl.songs.filter((s) => s.url !== song.url) } : pl
+        )
+      );
     }
 
                     // ---------- 导航切换 ----------
@@ -524,16 +552,31 @@ export default function MusicLibrary() {
 
   function handleConfirmDeleteSong() {
     if (!deleteSongConfirm) return;
-    setAlbums((prev) =>
-      prev.map((album) => {
-        if (album.id === deleteSongConfirm.albumId) {
-          return { ...album, songs: album.songs.filter((s) => s.url !== deleteSongConfirm.url) };
-        }
-        return album;
-      })
-    );
-    if (currentSong?.url === deleteSongConfirm.url) {
-      setIsPlaying(false);
+    const albumId = deleteSongConfirm.albumId;
+    const album = albums.find((a) => a.id === albumId);
+    const isLastSong = album && album.songs.length <= 1;
+
+    // 如果是最后一首歌 → 整张专辑删除
+    if (isLastSong) {
+      if (currentAlbumId === albumId) {
+        setIsPlaying(false);
+        setCurrentAlbumId(null);
+      }
+      setPlayQueue((prev) => prev.filter(s => s.albumId !== albumId));
+      setAlbums((prev) => prev.filter(a => a.id !== albumId));
+      setDetailAlbumId((prev) => prev === albumId ? null : prev);
+    } else {
+      setAlbums((prev) =>
+        prev.map((a) => {
+          if (a.id === albumId) {
+            return { ...a, songs: a.songs.filter((s) => s.url !== deleteSongConfirm.url) };
+          }
+          return a;
+        })
+      );
+      if (currentSong?.url === deleteSongConfirm.url) {
+        setIsPlaying(false);
+      }
     }
     setDeleteSongConfirm(null);
   }
@@ -727,11 +770,40 @@ export default function MusicLibrary() {
     // 删除专辑
     setAlbums((prev) => prev.filter(a => a.id !== albumId));
     setDeleteAlbumConfirm(null);
+    setDetailAlbumId((prev) => prev === albumId ? null : prev);
   }
 
     function handleCancelDeleteAlbum() {
     setDeleteAlbumConfirm(null);
   }
+
+    // ---------- 编辑元信息 ----------
+    function handleOpenMusicEdit(target) {
+      setEditTarget(target);
+    }
+
+    function handleSaveEdit(target, form, editCover) {
+      if (target.type === "album") {
+        setAlbums((prev) =>
+          prev.map((a) =>
+            a.id === target.data.id
+              ? { ...a, title: form.title, artist: form.artist, year: form.year ? parseInt(form.year) : null, genre: form.genre, publisher: form.publisher, ...(editCover ? { coverURL: editCover } : {}) }
+              : a
+          )
+        );
+      } else if (target.type === "song") {
+        setAlbums((prev) =>
+          prev.map((a) => ({
+            ...a,
+            songs: a.songs.map((s) =>
+              s.url === target.data.url && a.id === target.data.albumId
+                ? { ...s, title: form.title, artist: form.artist, album: form.album, genre: form.genre, trackNo: form.trackNo, composer: form.composer, lyricist: form.lyricist, publisher: form.publisher, comment: form.comment, ...(editCover ? { coverURL: editCover } : {}) }
+                : s
+            ),
+          }))
+        );
+      }
+    }
 
   // ---------- 播放列表操作菜单 ----------
   function handleOpenPlaylistMenu(e, playlist) {
@@ -900,6 +972,9 @@ export default function MusicLibrary() {
         const [playlistMenu, setPlaylistMenu] = useState(null); // { x, y, playlist } 或 null
         const [deletePlaylistConfirm, setDeletePlaylistConfirm] = useState(null); // 要删除的播放列表id或null
 
+        // ---------- 编辑元信息 ----------
+        const [editTarget, setEditTarget] = useState(null); // { type: "album"|"song", data } 或 null
+
     // ---------- 艺人视图排序 ----------
     const [artistSortMode, setArtistSortMode] = useState("a-z"); // "a-z" | "z-a"
 
@@ -1011,7 +1086,7 @@ export default function MusicLibrary() {
                                 {detailAlbumId ? (
                   /* ----- 专辑详情页（从专辑网格点进去） ----- */
                   <div style={styles.detailPageArea}>
-                                         <AlbumDetail
+                                          <AlbumDetail
                       album={albums.find((a) => a.id === detailAlbumId)}
                       playlists={playlists}
                       setPlaylists={setPlaylists}
@@ -1039,6 +1114,9 @@ export default function MusicLibrary() {
                           setIsPlaying(true);
                         }
                       }}
+                      onDeleteAlbum={(id) => { setDeleteAlbumConfirm(id); }}
+                      onEditInfo={handleOpenMusicEdit}
+                      onDeleteSong={handleDeleteSongFromDetail}
                     />
                   </div>
                 ) : detailPlaylistId ? (
@@ -1073,6 +1151,9 @@ export default function MusicLibrary() {
                           setIsPlaying(true);
                         }
                       }}
+                      onRemoveFromPlaylist={handleRemoveFromPlaylist}
+                      onDeleteSong={(song) => setDeleteSongConfirm({ ...song, albumId: song.albumId })}
+                      onEditInfo={handleOpenMusicEdit}
                     />
                   </div>
                 ) : activeNav === "search" ? (
@@ -1252,28 +1333,12 @@ export default function MusicLibrary() {
                             <FaTrash size={14} style={{ marginRight: "10px" }} />
                             <span>删除</span>
                           </div>
-                        </div>
-                      </>
-                    )}
-                    {/* 专辑删除确认浮窗 */}
-                    {deleteAlbumConfirm && (
-                      <div style={styles.overlay} onClick={handleCancelDeleteAlbum}>
-                        <div style={styles.confirmDialog} onClick={(e) => e.stopPropagation()}>
-                          <div style={styles.confirmIcon}>⚠️</div>
-                          <h3 style={styles.confirmTitle}>确认删除</h3>
-                          <p style={styles.confirmText}>
-                            确定要删除专辑「{albums.find(a => a.id === deleteAlbumConfirm)?.title}」吗？此操作不可撤销。
-                          </p>
-                          <div style={styles.confirmActions}>
-                            <button style={styles.confirmDeleteBtn} onClick={handleConfirmDeleteAlbum}>
-                              确认删除
-                            </button>
-                            <button style={styles.confirmCancelBtn} onClick={handleCancelDeleteAlbum}>
-                              取消
-                            </button>
+                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => { handleCloseAlbumMenu(); handleOpenMusicEdit({ type: "album", data: albumMenu.album }); }}>
+                            <FaInfoCircle size={14} style={{ marginRight: "10px" }} />
+                            <span>更多信息</span>
                           </div>
                         </div>
-                      </div>
+                      </>
                     )}
                   </main>
                                 ) : activeNav === "artists" && !detailArtistName ? (
@@ -1614,27 +1679,12 @@ export default function MusicLibrary() {
                             <FaTrash size={14} style={{ marginRight: "10px", flexShrink: 0 }} />
                             <span>删除</span>
                           </div>
-                        </div>
-                      </>
-                    )}
-
-                    {/* 删除确认浮窗（单曲） */}
-                    {deleteSongConfirm && (
-                      <div style={styles.overlay} onClick={() => setDeleteSongConfirm(null)}>
-                        <div style={styles.confirmDialog} onClick={(e) => e.stopPropagation()}>
-                          <div style={styles.confirmIcon}>⚠️</div>
-                          <h3 style={styles.confirmTitle}>确认删除</h3>
-                          <p style={styles.confirmText}>确定要删除歌曲「{deleteSongConfirm.title}」吗？此操作不可撤销。</p>
-                          <div style={styles.confirmActions}>
-                            <button style={styles.confirmDeleteBtn} onClick={handleConfirmDeleteSong}>
-                              确认删除
-                            </button>
-                            <button style={styles.confirmCancelBtn} onClick={() => setDeleteSongConfirm(null)}>
-                              取消
-                            </button>
+                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => { handleCloseContextMenu(); handleOpenMusicEdit({ type: "song", data: { ...contextMenu.song, albumId: contextMenu.song.albumId } }); }}>
+                            <FaInfoCircle size={14} style={{ marginRight: "10px", flexShrink: 0 }} />
+                            <span>更多信息</span>
                           </div>
                         </div>
-                      </div>
+                      </>
                     )}
 
                     {/* 删除确认浮窗（多选） */}
@@ -1832,30 +1882,15 @@ export default function MusicLibrary() {
                                             <FaTrash size={14} style={{ marginRight: "10px" }} />
                                             <span>删除</span>
                                           </div>
+                                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => { handleCloseAlbumMenu(); handleOpenMusicEdit({ type: "album", data: albumMenu.album }); }}>
+                                            <FaInfoCircle size={14} style={{ marginRight: "10px" }} />
+                                            <span>更多信息</span>
+                                          </div>
                                         </div>
                                       </>
                                     )}
 
-                                                                        {/* 专辑删除确认浮窗 */}
-                                    {deleteAlbumConfirm && (
-                                      <div style={styles.overlay} onClick={handleCancelDeleteAlbum}>
-                                        <div style={styles.confirmDialog} onClick={(e) => e.stopPropagation()}>
-                                          <div style={styles.confirmIcon}>⚠️</div>
-                                          <h3 style={styles.confirmTitle}>确认删除</h3>
-                                          <p style={styles.confirmText}>
-                                            确定要删除专辑「{albums.find(a => a.id === deleteAlbumConfirm)?.title}」吗？此操作不可撤销。
-                                          </p>
-                                          <div style={styles.confirmActions}>
-                                            <button style={styles.confirmDeleteBtn} onClick={handleConfirmDeleteAlbum}>
-                                              确认删除
-                                            </button>
-                                            <button style={styles.confirmCancelBtn} onClick={handleCancelDeleteAlbum}>
-                                              取消
-                                            </button>
-                                          </div>
-                                        </div>
-                                      </div>
-                                    )}
+
 
                                     {/* 播放列表操作菜单 */}
                                     {playlistMenu && (
@@ -2060,6 +2095,44 @@ export default function MusicLibrary() {
           handleOpenPlaylistDetail(playlistId);
         }}
       />
+
+      <MusicEdit
+        target={editTarget}
+        onClose={() => setEditTarget(null)}
+        onSave={handleSaveEdit}
+      />
+
+      {/* 单曲删除确认浮窗 */}
+      {deleteSongConfirm && (
+        <div style={styles.overlay} onClick={() => setDeleteSongConfirm(null)}>
+          <div style={styles.confirmDialog} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.confirmIcon}>⚠️</div>
+            <h3 style={styles.confirmTitle}>确认删除</h3>
+            <p style={styles.confirmText}>确定要删除歌曲「{deleteSongConfirm.title}」吗？此操作不可撤销。</p>
+            <div style={styles.confirmActions}>
+              <button style={styles.confirmDeleteBtn} onClick={handleConfirmDeleteSong}>确认删除</button>
+              <button style={styles.confirmCancelBtn} onClick={() => setDeleteSongConfirm(null)}>取消</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 专辑删除确认浮窗 */}
+      {deleteAlbumConfirm && (
+        <div style={styles.overlay} onClick={handleCancelDeleteAlbum}>
+          <div style={styles.confirmDialog} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.confirmIcon}>⚠️</div>
+            <h3 style={styles.confirmTitle}>确认删除</h3>
+            <p style={styles.confirmText}>
+              确定要删除专辑「{albums.find(a => a.id === deleteAlbumConfirm)?.title}」吗？此操作不可撤销。
+            </p>
+            <div style={styles.confirmActions}>
+              <button style={styles.confirmDeleteBtn} onClick={handleConfirmDeleteAlbum}>确认删除</button>
+              <button style={styles.confirmCancelBtn} onClick={handleCancelDeleteAlbum}>取消</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
