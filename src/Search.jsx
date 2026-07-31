@@ -12,9 +12,10 @@ export default function Search({ filterText, setFilterText, activeNav, onNavChan
   }
 
   return (
-    <div style={styles.searchContainer}>
+    <div style={styles.searchContainer} className="search-box">
       <span style={styles.searchIcon}>🔍</span>
       <input
+        className="search-box-input"
         style={styles.searchInput}
         type="text"
         placeholder="搜索"
@@ -181,7 +182,7 @@ export function SearchResults({
 
   // ---------- 网格概览视图 ----------
   return (
-    <div style={pageStyles.container}>
+    <div style={pageStyles.container} className="search-results">
       {/* 歌曲 */}
       {allResults.songs.length > 0 && (
         <div style={pageStyles.section}>
@@ -410,7 +411,7 @@ function SearchCategoryDetail({
   const gridClass = category === "songs" ? "search-grid-4" : "search-grid-5";
 
   return (
-    <div style={pageStyles.container}>
+    <div style={pageStyles.container} className="search-results">
       <div style={pageStyles.detailHeader}>
         <button className="detail-back-btn" style={pageStyles.backBtn} onClick={onBack} title="返回">
           <FaArrowLeft size={16} />
@@ -453,10 +454,18 @@ const styles = {
     fontFamily: "inherit",
   },
   clearBtn: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "20px",
+    height: "20px",
+    borderRadius: "50%",
     fontSize: "12px",
+    lineHeight: 1,
     cursor: "pointer",
     opacity: 0.5,
-    padding: "2px",
+    flexShrink: 0,
+    transition: "background 0.15s, opacity 0.15s",
   },
 };
 

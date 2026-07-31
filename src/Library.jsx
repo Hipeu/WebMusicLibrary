@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { FiPlus } from "react-icons/fi";
-import { FaEllipsisH, FaCompactDisc, FaUser, FaHeart, FaStepForward, FaClock, FaPlus, FaSortAmountDown, FaArrowUp, FaTrash, FaMusic, FaInfoCircle } from "react-icons/fa";
+import { FaEllipsisH, FaCompactDisc, FaUser, FaHeart, FaStepForward, FaClock, FaPlus, FaSortAmountDown, FaArrowUp, FaTrash, FaMusic, FaInfoCircle, FaCog } from "react-icons/fa";
 import { readMetadata } from "./MetadataReader";
 import MusicPlayer from "./MusicPlayer";
 import AlbumDetail from "./AlbumDetail";
@@ -10,6 +10,7 @@ import { SearchResults } from "./Search";
 import CoverPlayButton from "./CoverPlayButton";
 import MusicEdit from "./MusicEdit";
 import Sidebar from "./LibrarySidebar";
+import Settings, { applyTheme } from "./Settings";
 import "./music-library.css";
 
 /* ======================================================
@@ -34,6 +35,7 @@ export default function MusicLibrary() {
   const fileInputRef = useRef(null);
   const [showImportMenu, setShowImportMenu] = useState(false);
   const [showCreatePlaylist, setShowCreatePlaylist] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [newPlaylistCover, setNewPlaylistCover] = useState(null);
   const [newPlaylistName, setNewPlaylistName] = useState("");
   const [newPlaylistDesc, setNewPlaylistDesc] = useState("");
@@ -902,6 +904,22 @@ export default function MusicLibrary() {
   // 当播放的专辑变化时记录
   const prevAlbumIdRef = useRef(null);
   useEffect(() => {
+    // 应用已保存的主题（深色/浅色/跟随系统）
+    const savedTheme = localStorage.getItem("app-theme") || "system";
+    applyTheme(savedTheme);
+
+    // 跟随系统：监听系统主题变化并实时更新
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const handleSystemThemeChange = () => {
+      const current = localStorage.getItem("app-theme") || "system";
+      if (current === "system") {
+        applyTheme("system");
+      }
+    };
+    mediaQuery.addEventListener("change", handleSystemThemeChange);
+    return () => mediaQuery.removeEventListener("change", handleSystemThemeChange);
+  }, []);
+  useEffect(() => {
     if (currentAlbumId && isPlaying && currentAlbumId !== prevAlbumIdRef.current) {
       prevAlbumIdRef.current = currentAlbumId;
       setPlayHistory((prev) => {
@@ -913,6 +931,28 @@ export default function MusicLibrary() {
 
   // ---------- 分类排序（资料库视图） ----------
   const [librarySortMode, setLibrarySortMode] = useState("recent_add"); // "recent_add" | "recent_play" | "time" | "album" | "playlist"
+
+  // ---------- 全部播放列表排序 ----------
+  const [playlistSortMode, setPlaylistSortMode] = useState("recent_add"); // "recent_add" | "recent_create" | "create_time" | "a-z"
+  const [playlistTimeDir, setPlaylistTimeDir] = useState("desc"); // "desc" | "asc"
+  const sortedPlaylists = [...playlists].sort((a, b) => {
+    const getTime = (pl) => {
+      const ts = parseInt(pl.id.replace("pl_", "")) || 0;
+      return ts;
+    };
+    switch (playlistSortMode) {
+      case "a-z":
+        return a.name.localeCompare(b.name, "zh-CN");
+      case "create_time": {
+        const diff = getTime(a) - getTime(b);
+        return playlistTimeDir === "desc" ? -diff : diff;
+      }
+      case "recent_create":
+      case "recent_add":
+      default:
+        return getTime(b) - getTime(a);
+    }
+  });
 
   // 构造"最近播放"排序用的顺序映射
   const playHistoryOrder = useCallback(() => {
@@ -1001,7 +1041,7 @@ export default function MusicLibrary() {
 
       // ---------- 渲染 ----------
   return (
-    <div style={styles.container}>
+    <div style={styles.container} className="app-root">
             
 
             {/* ============================================================ */}
@@ -1023,38 +1063,39 @@ export default function MusicLibrary() {
               {/* 右侧主区域 */}
               <div style={styles.rightArea}>
                 {/* 顶部功能条 */}
-                <header style={styles.topBar}>
+                <header style={styles.topBar} className="app-topbar">
                   {/* 左侧：LOGO / 标题 */}
                   <div style={styles.logoArea}>
                     <span style={styles.logoIcon}>🎵</span>
                     <h1 style={styles.logoTitle}>音乐资料库</h1>
                   </div>
 
-                  {/* 右侧：导入按钮 */}
-                  <div style={{ position: "relative", marginLeft: "auto" }}>
-                    <button
-                      className="upload-btn"
-                      style={styles.importBtn}
-                      onClick={() => setShowImportMenu(!showImportMenu)}
-                      title="添加"
-                    >
-                      <FiPlus size={18} />
-                    </button>
-                    {showImportMenu && (
-                      <>
-                        <div style={styles.menuOverlay} onClick={() => setShowImportMenu(false)} />
-                        <div style={styles.importDropdown}>
-                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => { setShowImportMenu(false); fileInputRef.current?.click(); }}>
-                            <FaMusic size={14} style={{ marginRight: "10px" }} />
-                            <span>添加歌曲</span>
+                  {/* 右侧：导入按钮 + 设置按钮 */}
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px", marginLeft: "auto" }}>
+                    <div style={{ position: "relative" }}>
+                      <button
+                        className="upload-btn"
+                        style={styles.importBtn}
+                        onClick={() => setShowImportMenu(!showImportMenu)}
+                        title="添加"
+                      >
+                        <FiPlus size={18} />
+                      </button>
+                      {showImportMenu && (
+                        <>
+                          <div style={styles.menuOverlay} onClick={() => setShowImportMenu(false)} />
+                          <div style={styles.importDropdown}>
+                            <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => { setShowImportMenu(false); fileInputRef.current?.click(); }}>
+                              <FaMusic size={14} style={{ marginRight: "10px" }} />
+                              <span>添加歌曲</span>
+                            </div>
+                            <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => { setShowImportMenu(false); setShowCreatePlaylist(true); }}>
+                              <FaPlus size={14} style={{ marginRight: "10px" }} />
+                              <span>新建播放列表</span>
+                            </div>
                           </div>
-                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => { setShowImportMenu(false); setShowCreatePlaylist(true); }}>
-                            <FaPlus size={14} style={{ marginRight: "10px" }} />
-                            <span>新建播放列表</span>
-                          </div>
-                        </div>
-                      </>
-                    )}
+                        </>
+                      )}
                     <input
                       ref={fileInputRef}
                       type="file"
@@ -1076,6 +1117,16 @@ export default function MusicLibrary() {
                         reader.readAsDataURL(file);
                       }}
                     />
+                  </div>
+                  {/* 设置按钮 */}
+                  <button
+                    className="upload-btn"
+                    style={styles.importBtn}
+                    onClick={() => setShowSettings(true)}
+                    title="设置"
+                  >
+                    <FaCog size={18} />
+                  </button>
                   </div>
 
                 </header>
@@ -1708,13 +1759,90 @@ export default function MusicLibrary() {
                       </div>
                     )}
                   </main>
+                                ) : activeNav === "playlists" ? (
+                                  /* ================================================================ */
+                                  /* 全部播放列表视图                                                */
+                                  /* ================================================================ */
+                                  <main style={styles.mainArea}>
+                                    <div style={styles.playlistHeader}>
+                                      <h2 style={styles.playlistHeaderTitle}>全部播放列表</h2>
+                                    </div>
+                                    <div style={styles.sortBar}>
+                                      <span style={styles.sortLabel}>排序：</span>
+                                      {[
+                                        { id: "recent_add", label: "最近添加" },
+                                        { id: "recent_create", label: "最近创建" },
+                                        { id: "create_time", label: "创建时间" },
+                                        { id: "a-z", label: "A-Z" },
+                                      ].map((opt) => (
+                                        <button
+                                          key={opt.id}
+                                          style={{
+                                            ...styles.sortBtn,
+                                            ...(playlistSortMode === opt.id ? styles.sortBtnActive : {}),
+                                          }}
+                                          onClick={() => {
+                                            if (opt.id === "create_time") {
+                                              if (playlistSortMode === "create_time") {
+                                                setPlaylistTimeDir((d) => (d === "desc" ? "asc" : "desc"));
+                                              } else {
+                                                setPlaylistSortMode("create_time");
+                                              }
+                                            } else {
+                                              setPlaylistSortMode(opt.id);
+                                            }
+                                          }}
+                                        >
+                                          {opt.label}
+                                        </button>
+                                      ))}
+                                    </div>
+                                    {sortedPlaylists.length === 0 ? (
+                                      <div style={styles.emptyState}>
+                                        <span style={styles.emptyIcon}>📋</span>
+                                        <p style={styles.emptyText}>还没有任何播放列表</p>
+                                      </div>
+                                    ) : (
+                                      <div style={styles.libraryGrid}>
+                                        {sortedPlaylists.map((pl) => (
+                                          <div
+                                            key={pl.id}
+                                            className="album-card"
+                                            style={styles.libraryCard}
+                                            onClick={() => handleOpenPlaylistDetail(pl.id)}
+                                          >
+                                            <div style={styles.coverWrapper}>
+                                              {pl.coverURL ? (
+                                                <img src={pl.coverURL} alt={pl.name} style={styles.coverImage} />
+                                              ) : (
+                                                <div style={styles.playlistCoverPlaceholder}>
+                                                  {pl.id === "liked" ? "❤️" : pl.id === "recent" ? "🕐" : "📋"}
+                                                </div>
+                                              )}
+                                            </div>
+                                            <div style={styles.albumTitleRow}>
+                                              <p style={styles.albumTitle}>{pl.name}</p>
+                                              <button
+                                                className="album-menu-btn"
+                                                style={styles.albumMenuBtnInline}
+                                                onClick={(e) => handleOpenPlaylistMenu(e, pl)}
+                                                title="更多操作"
+                                              >
+                                                <span style={styles.albumMenuDotsInline}>···</span>
+                                              </button>
+                                            </div>
+                                            <p style={styles.albumArtist}>{pl.songs?.length || 0} 首歌曲</p>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </main>
                                 ) : (
                                   /* ================================================================ */
                                   /* 资料库视图（默认）— 可排序的专辑卡片 + 播放列表卡片混合排列    */
                                   /* ================================================================ */
                                   <main style={styles.mainArea}>
                                     <div style={styles.sortBar}>
-                                      <span style={styles.sortLabel}>排序：</span>
                                       {/* 下拉选框：最近添加 / 最近播放 */}
                                       <select
                                         style={styles.sortSelect}
@@ -1742,15 +1870,6 @@ export default function MusicLibrary() {
                                         onClick={() => setLibrarySortMode("album")}
                                       >
                                         专辑
-                                      </button>
-                                      <button
-                                        style={{
-                                          ...styles.sortBtn,
-                                          ...(librarySortMode === "playlist" ? styles.sortBtnActive : {}),
-                                        }}
-                                        onClick={() => setLibrarySortMode("playlist")}
-                                      >
-                                        播放列表
                                       </button>
                                     </div>
 
@@ -1953,7 +2072,7 @@ export default function MusicLibrary() {
       {/* ===== 新建播放列表对话框 ===== */}
       {showCreatePlaylist && (
         <div style={styles.overlay} onClick={() => setShowCreatePlaylist(false)}>
-          <div style={{ ...styles.createDialog, ...styles.confirmDialog }} onClick={(e) => e.stopPropagation()}>
+          <div style={{ ...styles.createDialog, ...styles.confirmDialog }} className="create-dialog" onClick={(e) => e.stopPropagation()}>
             <h3 style={styles.createDialogTitle}>新建播放列表</h3>
             <div style={styles.createCoverSection}>
               {newPlaylistCover ? (
@@ -2101,6 +2220,8 @@ export default function MusicLibrary() {
         onClose={() => setEditTarget(null)}
         onSave={handleSaveEdit}
       />
+
+      <Settings show={showSettings} onClose={() => setShowSettings(false)} />
 
       {/* 单曲删除确认浮窗 */}
       {deleteSongConfirm && (
@@ -2312,6 +2433,17 @@ const styles = {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
     gap: "24px",
+  },
+  playlistHeader: {
+    display: "flex",
+    alignItems: "center",
+    marginBottom: "24px",
+  },
+  playlistHeaderTitle: {
+    fontSize: "22px",
+    fontWeight: 700,
+    color: "#1f2937",
+    margin: 0,
   },
   libraryCard: {
     borderRadius: "12px", overflow: "hidden",

@@ -343,3 +343,475 @@
   display: block;
   margin-top: 1px;
 }
+
+/* ================================================================
+   深色模式（data-theme="dark"）
+   ================================================================ */
+html[data-theme="dark"] body {
+  background: #1a1a2e;
+}
+
+html[data-theme="dark"] .app-root {
+  background: #1a1a2e !important;
+  color: #e4e4e7 !important;
+}
+
+/* 侧边栏 */
+html[data-theme="dark"] .app-sidebar {
+  background: #23233b !important;
+  border-right-color: #3a3a5c !important;
+}
+
+/* 顶部栏 */
+html[data-theme="dark"] .app-topbar {
+  background: #23233b !important;
+  border-bottom-color: #3a3a5c !important;
+}
+html[data-theme="dark"] .app-topbar h1 {
+  color: #e4e4e7 !important;
+}
+
+/* 主内容区文字 */
+html[data-theme="dark"] .app-root main {
+  color: #e4e4e7 !important;
+}
+html[data-theme="dark"] .app-root h1,
+html[data-theme="dark"] .app-root h2,
+html[data-theme="dark"] .app-root h3,
+html[data-theme="dark"] .app-root p {
+  color: #e4e4e7 !important;
+}
+html[data-theme="dark"] .app-root .albumTitle,
+html[data-theme="dark"] .app-root .albumArtist {
+  color: #e4e4e7 !important;
+}
+
+/* 卡片 */
+html[data-theme="dark"] .album-card {
+  background: #23233b !important;
+  border-color: #3a3a5c !important;
+}
+
+/* 侧边栏项 */
+html[data-theme="dark"] .app-sidebar .sidebar-item {
+  color: #cbd5e1 !important;
+}
+html[data-theme="dark"] .app-sidebar .sidebar-item:hover {
+  background: rgba(255,255,255,0.06) !important;
+}
+
+/* 输入框 / 下拉 */
+html[data-theme="dark"] input,
+html[data-theme="dark"] select {
+  background: #2c2c4a !important;
+  color: #e4e4e7 !important;
+  border-color: #3a3a5c !important;
+}
+html[data-theme="dark"] input::placeholder {
+  color: #6b7280 !important;
+}
+
+/* 菜单 / 下拉框 */
+html[data-theme="dark"] .context-menu,
+html[data-theme="dark"] .songDropdown,
+html[data-theme="dark"] .albumDropdown,
+html[data-theme="dark"] .importDropdown,
+html[data-theme="dark"] .coverMenu {
+  background: #2c2c4a !important;
+  border-color: #3a3a5c !important;
+}
+html[data-theme="dark"] .context-menu-item {
+  color: #e4e4e7 !important;
+}
+html[data-theme="dark"] .context-menu-item:hover {
+  background: rgba(255,255,255,0.06) !important;
+}
+
+/* 设置窗口 */
+html[data-theme="dark"] .app-root [style*="background: #ffffff"],
+html[data-theme="dark"] .app-root [style*="background:#ffffff"] {
+  background: #23233b !important;
+}
+
+/* 表格 / 行 hover */
+html[data-theme="dark"] .detail-song-item:hover {
+  background: rgba(255,255,255,0.04) !important;
+}
+html[data-theme="dark"] .song-table-row:hover {
+  background: rgba(255,255,255,0.04) !important;
+}
+
+/* 滚动条 */
+html[data-theme="dark"] ::-webkit-scrollbar-track {
+  background: #1a1a2e !important;
+}
+html[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: #4a4a6e !important;
+}
+
+/* ================================================================
+   深色模式 — 专辑详情页
+   ================================================================ */
+html[data-theme="dark"] .album-detail-page {
+  background: #1a1a2e !important;
+  color: #e4e4e7 !important;
+}
+html[data-theme="dark"] .album-detail-page h1,
+html[data-theme="dark"] .album-detail-page h2,
+html[data-theme="dark"] .album-detail-page h3 {
+  color: #e4e4e7 !important;
+}
+html[data-theme="dark"] .album-detail-page p {
+  color: #cbd5e1 !important;
+}
+html[data-theme="dark"] .album-detail-page .detail-song-item:hover {
+  background: rgba(255,255,255,0.06) !important;
+}
+html[data-theme="dark"] .album-detail-page .songIndex {
+  color: #9ca3af !important;
+}
+
+/* ================================================================
+   深色模式 — 播放列表详情页
+   ================================================================ */
+html[data-theme="dark"] .playlist-detail-page {
+  background: #1a1a2e !important;
+  color: #e4e4e7 !important;
+}
+html[data-theme="dark"] .playlist-detail-page h1,
+html[data-theme="dark"] .playlist-detail-page h2,
+html[data-theme="dark"] .playlist-detail-page h3 {
+  color: #e4e4e7 !important;
+}
+html[data-theme="dark"] .playlist-detail-page p {
+  color: #cbd5e1 !important;
+}
+html[data-theme="dark"] .playlist-detail-page .detail-song-item:hover {
+  background: rgba(255,255,255,0.06) !important;
+}
+html[data-theme="dark"] .playlist-detail-page .songIndex {
+  color: #9ca3af !important;
+}
+html[data-theme="dark"] .playlist-detail-page .detail-song-title,
+html[data-theme="dark"] .playlist-detail-page .detail-song-artist {
+  color: #ffffff !important;
+}
+html[data-theme="dark"] .playlist-detail-page .songCount {
+  color: #ffffff !important;
+}
+html[data-theme="dark"] .playlist-detail-page .detail-song-item .songTitle,
+html[data-theme="dark"] .playlist-detail-page .songTitle {
+  color: #e4e4e7 !important;
+}
+html[data-theme="dark"] .playlist-detail-page .songArtist {
+  color: #9ca3af !important;
+}
+
+/* ================================================================
+   深色模式 — 播放器详情页
+   ================================================================ */
+html[data-theme="dark"] .player-detail-overlay {
+  background: #1a1a2e !important;
+  color: #e4e4e7 !important;
+}
+html[data-theme="dark"] .player-detail-overlay h1,
+html[data-theme="dark"] .player-detail-overlay h2,
+html[data-theme="dark"] .player-detail-overlay h3,
+html[data-theme="dark"] .player-detail-overlay p {
+  color: #e4e4e7 !important;
+}
+html[data-theme="dark"] .player-detail-overlay .detailSongItem,
+html[data-theme="dark"] .player-detail-overlay .detail-song-item {
+  color: #cbd5e1 !important;
+}
+html[data-theme="dark"] .player-detail-overlay .detailSongItem:hover,
+html[data-theme="dark"] .player-detail-overlay .detail-song-item:hover {
+  background: rgba(255,255,255,0.06) !important;
+}
+html[data-theme="dark"] .player-detail-overlay .detailSongIdx,
+html[data-theme="dark"] .player-detail-overlay .songIndex {
+  color: #9ca3af !important;
+}
+html[data-theme="dark"] .player-detail-overlay .detailSongName {
+  color: #e4e4e7 !important;
+}
+html[data-theme="dark"] .player-detail-overlay .detailSongArtist {
+  color: #9ca3af !important;
+}
+html[data-theme="dark"] .player-detail-overlay .playModeBar {
+  background: #23233b !important;
+  border-color: #3a3a5c !important;
+}
+html[data-theme="dark"] .player-detail-overlay .infoList {
+  border-color: #3a3a5c !important;
+}
+html[data-theme="dark"] .player-detail-overlay .infoRow {
+  border-bottom-color: #2c2c4a !important;
+}
+html[data-theme="dark"] .player-detail-overlay .infoLabel {
+  color: #9ca3af !important;
+}
+html[data-theme="dark"] .player-detail-overlay .infoValue {
+  color: #e4e4e7 !important;
+}
+html[data-theme="dark"] .player-detail-overlay .infoHeaderText,
+html[data-theme="dark"] .player-detail-overlay .infoSongTitle,
+html[data-theme="dark"] .player-detail-overlay .infoSongArtist {
+  color: #e4e4e7 !important;
+}
+
+/* ================================================================
+   深色模式 — 设置窗口
+   ================================================================ */
+html[data-theme="dark"] .app-root [style*="background: #ffffff"],
+html[data-theme="dark"] .app-root [style*="background:#ffffff"] {
+  background: #23233b !important;
+}
+html[data-theme="dark"] .settingsWindow,
+html[data-theme="dark"] [style*="border: 2px dashed"] {
+  background: #23233b !important;
+  border-color: #3a3a5c !important;
+}
+
+/* ================================================================
+   深色模式 — 下拉菜单 & 对话框
+   ================================================================ */
+html[data-theme="dark"] .importDropdown {
+  background: #2c2c4a !important;
+  border-color: #3a3a5c !important;
+}
+html[data-theme="dark"] .context-menu-item:hover,
+html[data-theme="dark"] .importDropdown .context-menu-item:hover,
+html[data-theme="dark"] .song-dropdown-item:hover {
+  background: rgba(255,255,255,0.06) !important;
+}
+
+/* 确认删除等对话框 */
+html[data-theme="dark"] [style*="confirmDialog"],
+html[data-theme="dark"] [style*="confirmIcon"] {
+  color: #e4e4e7 !important;
+}
+
+/* 按钮 */
+html[data-theme="dark"] .ctrl-btn {
+  background: #2c2c4a !important;
+  color: #cbd5e1 !important;
+}
+html[data-theme="dark"] .ctrl-btn:hover {
+  background: #3a3a5c !important;
+}
+
+/* 搜索框 */
+html[data-theme="dark"] .search-box {
+  background: #2c2c4a !important;
+  border-color: #3a3a5c !important;
+}
+html[data-theme="dark"] .search-box-input {
+  color: #e4e4e7 !important;
+  background: transparent !important;
+}
+
+/* 搜索结果页文字 */
+html[data-theme="dark"] .search-results h2 {
+  color: #e4e4e7 !important;
+}
+html[data-theme="dark"] .search-results .search-section-header h2 {
+  color: #e4e4e7 !important;
+}
+html[data-theme="dark"] .search-results .search-song-card-title,
+html[data-theme="dark"] .search-results .search-album-title,
+html[data-theme="dark"] .search-results .search-pl-name,
+html[data-theme="dark"] .search-results .search-artist-name {
+  color: #e4e4e7 !important;
+}
+html[data-theme="dark"] .search-results .search-song-card-meta,
+html[data-theme="dark"] .search-results .search-album-artist,
+html[data-theme="dark"] .search-results .search-pl-count {
+  color: #9ca3af !important;
+}
+html[data-theme="dark"] .search-results .search-song-card:hover {
+  background: rgba(255,255,255,0.06) !important;
+}
+html[data-theme="dark"] .search-results .search-result-card:hover {
+  background: rgba(255,255,255,0.06) !important;
+}
+html[data-theme="dark"] .search-results .search-artist-avatar,
+html[data-theme="dark"] .search-results .search-song-thumb-placeholder,
+html[data-theme="dark"] .search-results .search-result-card-placeholder {
+  background: #2c2c4a !important;
+  color: #9ca3af !important;
+}
+
+/* ================================================================
+   深色模式 — 设置窗口
+   ================================================================ */
+html[data-theme="dark"] .settings-window {
+  background: #23233b !important;
+  color: #e4e4e7 !important;
+}
+html[data-theme="dark"] .settings-window [style*="background: #f3f4f6"],
+html[data-theme="dark"] .settings-window [style*="background:#f3f4f6"] {
+  background: #2c2c4a !important;
+}
+html[data-theme="dark"] .settings-window [style*="border: 1px solid #e5e7eb"],
+html[data-theme="dark"] .settings-window [style*="border:1px solid #e5e7eb"],
+html[data-theme="dark"] .settings-window [style*="border: 2px dashed #e5e7eb"] {
+  border-color: #3a3a5c !important;
+}
+html[data-theme="dark"] .settings-window h3 {
+  color: #e4e4e7 !important;
+}
+html[data-theme="dark"] .settings-window p {
+  color: #cbd5e1 !important;
+}
+html[data-theme="dark"] .settings-window .infoRow {
+  border-bottom-color: #2c2c4a !important;
+}
+
+/* ================================================================
+   深色模式 — 对话框（新建播放列表 / 确认删除 / 更多）
+   ================================================================ */
+html[data-theme="dark"] .create-dialog,
+html[data-theme="dark"] [class*="confirmDialog"],
+html[data-theme="dark"] [style*="confirmDialog"] {
+  background: #23233b !important;
+}
+html[data-theme="dark"] .create-dialog input,
+html[data-theme="dark"] .create-dialog textarea {
+  background: #2c2c4a !important;
+  color: #e4e4e7 !important;
+  border-color: #3a3a5c !important;
+}
+html[data-theme="dark"] .create-dialog h3,
+html[data-theme="dark"] .create-dialog label,
+html[data-theme="dark"] .create-dialog p {
+  color: #e4e4e7 !important;
+}
+html[data-theme="dark"] [class*="overlay"] [class*="confirmTitle"],
+html[data-theme="dark"] [class*="overlay"] [class*="confirmText"] {
+  color: #e4e4e7 !important;
+}
+html[data-theme="dark"] button[style*="background: rgba(233,69,96"],
+html[data-theme="dark"] [class*="confirmDeleteBtn"] {
+  background: #e94560 !important;
+}
+
+/* ================================================================
+   深色模式 — 专辑/播放列表详情页补充
+   ================================================================ */
+html[data-theme="dark"] .album-detail-page .detail-song-title,
+html[data-theme="dark"] .album-detail-page .detail-song-artist {
+  color: #ffffff !important;
+}
+html[data-theme="dark"] .album-detail-page .songCount {
+  color: #ffffff !important;
+}
+html[data-theme="dark"] .album-detail-page .coverPlaceholder,
+html[data-theme="dark"] .album-detail-page .songButton,
+html[data-theme="dark"] .album-detail-page .editButton,
+html[data-theme="dark"] .album-detail-page .menuTriggerBtn {
+  background: #2c2c4a !important;
+  color: #cbd5e1 !important;
+  border-color: #3a3a5c !important;
+}
+html[data-theme="dark"] .album-detail-page .actionRow button,
+html[data-theme="dark"] .playlist-detail-page .actionRow button {
+  background: #2c2c4a !important;
+  color: #cbd5e1 !important;
+  border-color: #3a3a5c !important;
+}
+html[data-theme="dark"] .album-detail-page .detail-back-btn,
+html[data-theme="dark"] .playlist-detail-page .detail-back-btn {
+  background: #2c2c4a !important;
+  border-color: #3a3a5c !important;
+  color: #cbd5e1 !important;
+}
+html[data-theme="dark"] .album-detail-page input,
+html[data-theme="dark"] .playlist-detail-page input,
+html[data-theme="dark"] .playlist-detail-page textarea {
+  background: #2c2c4a !important;
+  color: #e4e4e7 !important;
+  border-color: #3a3a5c !important;
+}
+
+/* ================================================================
+   深色模式 — 艺人详情页
+   ================================================================ */
+html[data-theme="dark"] .app-root [style*="background: linear-gradient"] {
+  /* 保持渐变，只改文字 */ }
+html[data-theme="dark"] [style*="artistName"] {
+  color: #ffffff !important;
+}
+
+/* ================================================================
+   深色模式 — MusicEdit 弹窗
+   ================================================================ */
+html[data-theme="dark"] .MusicEditDialog,
+html[data-theme="dark"] [class*="MusicEdit"] {
+  color: #e4e4e7 !important;
+}
+
+/* ================================================================
+   深色模式 — MusicEdit 弹窗
+   ================================================================ */
+html[data-theme="dark"] .music-edit-dialog {
+  background: #23233b !important;
+}
+html[data-theme="dark"] .music-edit-dialog input {
+  background: #2c2c4a !important;
+  color: #e4e4e7 !important;
+  border-color: #3a3a5c !important;
+}
+html[data-theme="dark"] .music-edit-dialog label {
+  color: #9ca3af !important;
+}
+html[data-theme="dark"] .music-edit-dialog h3 {
+  color: #e4e4e7 !important;
+}
+html[data-theme="dark"] .music-edit-dialog [style*="borderBottom: 1px solid"],
+html[data-theme="dark"] .music-edit-dialog [style*="borderTop: 1px solid"] {
+  border-color: #3a3a5c !important;
+}
+html[data-theme="dark"] .music-edit-dialog .tabBtn {
+  color: #9ca3af !important;
+}
+html[data-theme="dark"] .music-edit-dialog .tabBtnActive {
+  color: #e94560 !important;
+}
+
+/* ================================================================
+   深色模式 — 杂项（面板 / 排序栏 / 播放器控制）
+   ================================================================ */
+html[data-theme="dark"] .app-root [style*="playlistPanel"],
+html[data-theme="dark"] .app-root [style*="panelItem"] {
+  background: #2c2c4a !important;
+}
+
+html[data-theme="dark"] .sortBar,
+html[data-theme="dark"] [class*="sortBar"] {
+  color: #cbd5e1 !important;
+}
+html[data-theme="dark"] .sortBtn {
+  background: #2c2c4a !important;
+  color: #cbd5e1 !important;
+  border-color: #3a3a5c !important;
+}
+html[data-theme="dark"] .sortBtnActive {
+  background: rgba(233,69,96,0.2) !important;
+  color: #e94560 !important;
+}
+
+html[data-theme="dark"] .sortSelect,
+html[data-theme="dark"] select.sortSelect {
+  background: #2c2c4a !important;
+  color: #cbd5e1 !important;
+  border-color: #3a3a5c !important;
+}
+
+html[data-theme="dark"] .player-detail-overlay .coverActionBtn {
+  color: #cbd5e1 !important;
+}
+html[data-theme="dark"] .player-detail-overlay .detailBackBtn {
+  background: #2c2c4a !important;
+  color: #cbd5e1 !important;
+}

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { FaPlay, FaPause, FaArrowLeft, FaEllipsisH, FaHeart, FaStepForward, FaClock, FaPlus, FaTrash, FaInfoCircle } from "react-icons/fa";
 import PlayingAnimation from "./PlayingAnimation";
+import useCoverColor from "./CoverColor";
 
 /* ================================================================
    📀 AlbumDetail — 专辑详情页
@@ -28,15 +29,28 @@ export default function AlbumDetail({
   const [panelSearch, setPanelSearch] = useState("");
   const [showAlbumMenu, setShowAlbumMenu] = useState(false);
 
+  const palette = useCoverColor(album?.coverURL || null);
+
   if (!album) return null;
 
     const yearText = album.year ? `${album.year}` : "未知年份";
   const genreText = album.genre || null;
 
+  // 从封面提取动态主题色（用于封面光晕）
+  const themeSwatch = palette?.Vibrant || palette?.Muted || palette?.DarkVibrant || palette?.LightVibrant || null;
+  const themeColor = themeSwatch ? themeSwatch.hex : null;
+  // 仅围绕封面：模糊实心方块向外扩散，颜色逐渐消失
+  const coverGlowStyle = themeColor
+    ? {
+        background: themeColor,
+        filter: "blur(60px)",
+      }
+    : {};
+
   function closeMenu() { setMenuSongIdx(null); }
 
   return (
-    <div style={styles.container}>
+    <div style={styles.container} className="album-detail-page">
       <button style={styles.backBtn} onClick={onBack} title="返回">
         <FaArrowLeft size={18} />
       </button>
@@ -45,6 +59,7 @@ export default function AlbumDetail({
       <div style={styles.topSection}>
         {/* 左：封面图（独立，不受右侧影响） */}
         <div style={styles.coverColumn}>
+          {themeColor && <div style={{ ...styles.coverGlowLayer, ...coverGlowStyle }} />}
           <div style={styles.coverWrapper}>
             {album.coverURL ? (
               <img src={album.coverURL} alt={album.title} style={styles.cover} />
@@ -166,13 +181,16 @@ export default function AlbumDetail({
                   </span>
 
                 <div style={styles.songInfo}>
-                  <span style={{
-                    ...styles.songTitle,
-                    ...(isActive ? styles.songTitleActive : {}),
-                  }}>
+                  <span
+                    className="detail-song-title"
+                    style={{
+                      ...styles.songTitle,
+                      ...(isActive ? styles.songTitleActive : {}),
+                    }}
+                  >
                     {song.title}
                   </span>
-                  <span style={styles.songArtist}>{song.artist}</span>
+                  <span className="detail-song-artist" style={styles.songArtist}>{song.artist}</span>
                 </div>
 
                 <div style={styles.songActions}>
@@ -361,8 +379,24 @@ const styles = {
     coverColumn: {
       flex: "0 0 260px",
       alignSelf: "flex-start",
+      position: "relative",
+    },
+    // 封面光晕层（模糊实心方块向外扩散）
+    coverGlowLayer: {
+      position: "absolute",
+      top: "50%",
+      left: "50%",
+      transform: "translate(-50%, -50%)",
+      width: "220px",
+      height: "220px",
+      borderRadius: "12px",
+      opacity: 0.9,
+      pointerEvents: "none",
+      zIndex: 0,
     },
     coverWrapper: {
+      position: "relative",
+      zIndex: 1,
       width: "260px",
       height: "260px",
       borderRadius: "12px",

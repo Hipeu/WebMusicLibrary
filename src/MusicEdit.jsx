@@ -64,7 +64,7 @@ export default function MusicEdit({ target, onClose, onSave }) {
 
   return (
     <div style={styles.overlay}>
-      <div style={styles.dialog} onClick={(e) => e.stopPropagation()}>
+      <div style={styles.dialog} className="music-edit-dialog" onClick={(e) => e.stopPropagation()}>
         {/* 上半部分：封面 + 标题 + 艺人 */}
         <div style={styles.topSection}>
           <div style={styles.topCover}>

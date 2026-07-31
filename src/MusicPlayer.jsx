@@ -3,6 +3,7 @@ import { FaChevronDown, FaList, FaMusic, FaHeart, FaRegHeart, FaEllipsisH, FaInf
 import Lyrics from "./Lyrics";
 import { parseLRC } from "./LyricsParser";
 import PlayerControls from "./PlayerControls";
+import useCoverColor from "./CoverColor";
 
 /* ================================================================
    🎵 MusicPlayer — 播放控制器
@@ -92,6 +93,18 @@ export default function MusicPlayer({
   const displayCurrentIdx = playMode === "shuffle" && shuffledOrder.length > 0
     ? shuffledOrder.indexOf(currentSongIndex)
     : currentSongIndex;
+
+  // 封面动态主题色（模糊实心方块光晕）
+  const palette = useCoverColor((currentSong?.coverURL || displayAlbum?.coverURL) || null);
+  const themeSwatch = palette?.Vibrant || palette?.Muted || palette?.DarkVibrant || palette?.LightVibrant || null;
+  const themeColor = themeSwatch ? themeSwatch.hex : null;
+  const coverGlowStyle = themeColor
+    ? {
+        background: themeColor,
+        filter: "blur(60px)",
+      }
+    : {};
+  const coverGlowDisplay = themeColor ? {} : { display: "none" };
 
   function formatTime(seconds) {
     if (isNaN(seconds)) return "00:00";
@@ -423,14 +436,15 @@ export default function MusicPlayer({
       {/* 播放详情页 — 全屏弹窗                                           */}
       {/* ================================================================ */}
             {showDetail && displayAlbum && currentSong && (
-              <div style={styles.detailOverlay}>
+              <div style={styles.detailOverlay} className="player-detail-overlay">
                 <button className="detail-back-btn" style={styles.detailBackBtn} onClick={() => setShowDetail(false)}>
                   <FaChevronDown />
                 </button>
 
                                                                 <div style={styles.detailContent}>
                                   {/* ===== 左侧：封面 ===== */}
-                                  <div style={styles.detailLeft}>
+                                   <div style={styles.detailLeft}>
+                                    <div style={{ ...styles.coverGlowLayer, ...coverGlowStyle, ...coverGlowDisplay }} />
                                     <div style={styles.coverContainer}>
                                       {(displayAlbum.coverURL || currentSong?.coverURL) ? (
                                         <img src={displayAlbum.coverURL || currentSong?.coverURL} alt={displayAlbum.title} style={styles.detailCover} />
@@ -512,7 +526,7 @@ export default function MusicPlayer({
                                             </button>
                                             <button
                                               style={styles.coverMenuItem}
-                                              onClick={() => { setShowMenu(false); }}
+                                              onClick={() => { setShowMenu(false); switchTab("info"); }}
                                             >
                                               <FaInfoCircle size={14} style={{ marginRight: "10px" }} />
                                               详细信息
@@ -603,10 +617,17 @@ export default function MusicPlayer({
                                         <input
                                           ref={lrcInputRef}
                                           type="file"
-                                          accept=".lrc,.txt"
+                                          accept=".lrc,text/plain"
                                           style={{ display: "none" }}
                                           onChange={handleImportLRC}
                                         />
+                                      </div>
+                                    )}
+                                    {detailTab === "info" && (
+                                      <div style={styles.playModeBar}>
+                                        <span style={styles.sourceLabel}>
+                                          歌曲信息
+                                        </span>
                                       </div>
                                     )}
 
@@ -665,6 +686,49 @@ export default function MusicPlayer({
                                           />
                                         </div>
                                       )}
+
+                                      {detailTab === "info" && currentSong && (
+                                        <div style={styles.detailInfoArea}>
+                                          <div style={styles.infoList}>
+                                            <div style={styles.infoRow}>
+                                              <span style={styles.infoLabel}>流派</span>
+                                              <span style={styles.infoValue}>{currentSong.genre || displayAlbum?.genre || "未知"}</span>
+                                            </div>
+                                            <div style={styles.infoRow}>
+                                              <span style={styles.infoLabel}>年份</span>
+                                              <span style={styles.infoValue}>{displayAlbum?.year || "未知"}</span>
+                                            </div>
+                                            <div style={styles.infoRow}>
+                                              <span style={styles.infoLabel}>时长</span>
+                                              <span style={styles.infoValue}>{currentSong.duration ? formatDuration(currentSong.duration) : "未知"}</span>
+                                            </div>
+                                            <div style={styles.infoRow}>
+                                              <span style={styles.infoLabel}>种类</span>
+                                              <span style={styles.infoValue}>{currentSong.codec || currentSong.container || "未知"}</span>
+                                            </div>
+                                            <div style={styles.infoRow}>
+                                              <span style={styles.infoLabel}>码率</span>
+                                              <span style={styles.infoValue}>{currentSong.bitrate ? `${Math.round(currentSong.bitrate / 1000)} kbps` : "未知"}</span>
+                                            </div>
+                                            <div style={styles.infoRow}>
+                                              <span style={styles.infoLabel}>作曲</span>
+                                              <span style={styles.infoValue}>{currentSong.composer || "未知"}</span>
+                                            </div>
+                                            <div style={styles.infoRow}>
+                                              <span style={styles.infoLabel}>作词</span>
+                                              <span style={styles.infoValue}>{currentSong.lyricist || "未知"}</span>
+                                            </div>
+                                            <div style={styles.infoRow}>
+                                              <span style={styles.infoLabel}>发布者</span>
+                                              <span style={styles.infoValue}>{currentSong.publisher || displayAlbum?.publisher || "未知"}</span>
+                                            </div>
+                                            <div style={styles.infoRow}>
+                                              <span style={styles.infoLabel}>添加时间</span>
+                                              <span style={styles.infoValue}>{currentSong.importTime ? formatTimestamp(currentSong.importTime) : "未知"}</span>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      )}
                                     </div>
 
                                     {/* 底部胶囊 */}
@@ -689,6 +753,16 @@ export default function MusicPlayer({
                                         >
                                           <FaMusic size={13} style={{ marginRight: "6px" }} />
                                           歌词
+                                        </button>
+                                        <button
+                                          style={{
+                                            ...styles.capsuleBtn,
+                                            ...(detailTab === "info" ? styles.capsuleBtnActive : {}),
+                                          }}
+                                          onClick={() => switchTab("info")}
+                                        >
+                                          <FaInfoCircle size={13} style={{ marginRight: "6px" }} />
+                                          详细信息
                                         </button>
                                       </div>
                                     </div>
@@ -752,6 +826,28 @@ export default function MusicPlayer({
 }
 
 /* ================================================================
+   🎨 工具函数
+   ================================================================ */
+function formatDuration(seconds) {
+  if (!seconds || isNaN(seconds)) return "--:--";
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+function formatTimestamp(ts) {
+  if (!ts) return "未知";
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return "未知";
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  const h = String(d.getHours()).padStart(2, "0");
+  const min = String(d.getMinutes()).padStart(2, "0");
+  return `${y}-${m}-${day} ${h}:${min}`;
+}
+
+/* ================================================================
    🎨 样式
    ================================================================ */
 const styles = {
@@ -792,6 +888,20 @@ const styles = {
     flexDirection: "column",
     alignItems: "center",
     gap: "16px",
+    position: "relative",
+  },
+  // 封面光晕层（模糊实心方块向外扩散）
+  coverGlowLayer: {
+    position: "absolute",
+    top: "180px",
+    left: "50%",
+    transform: "translate(-50%, -50%)",
+    width: "300px",
+    height: "300px",
+    borderRadius: "16px",
+    opacity: 0.9,
+    pointerEvents: "none",
+    zIndex: 0,
   },
   coverActions: {
     display: "flex",
@@ -1042,6 +1152,87 @@ const styles = {
       display: "flex",
       flexDirection: "column",
     },
+
+    // ===== 详细信息 =====
+    detailInfoArea: {
+      width: "100%",
+      display: "flex",
+      flexDirection: "column",
+      gap: "16px",
+      padding: "0 24px",
+    },
+    infoHeader: {
+      display: "flex",
+      alignItems: "center",
+      gap: "14px",
+    },
+    infoCover: {
+      width: "56px",
+      height: "56px",
+      borderRadius: "8px",
+      objectFit: "cover",
+      flexShrink: 0,
+    },
+    infoCoverPlaceholder: {
+      width: "56px",
+      height: "56px",
+      borderRadius: "8px",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      background: "#f3f4f6",
+      color: "#9ca3af",
+      flexShrink: 0,
+    },
+    infoHeaderText: {
+      flex: 1,
+      minWidth: 0,
+    },
+    infoSongTitle: {
+      fontSize: "16px",
+      fontWeight: 700,
+      color: "#1f2937",
+      margin: 0,
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap",
+    },
+    infoSongArtist: {
+      fontSize: "13px",
+      color: "#6b7280",
+      margin: "4px 0 0",
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap",
+    },
+    infoList: {
+      display: "flex",
+      flexDirection: "column",
+      border: "1px solid #e5e7eb",
+      borderRadius: "10px",
+      overflow: "hidden",
+    },
+    infoRow: {
+      display: "flex",
+      alignItems: "center",
+      padding: "10px 14px",
+      borderBottom: "1px solid #f3f4f6",
+      fontSize: "13px",
+    },
+    infoLabel: {
+      width: "80px",
+      flexShrink: 0,
+      color: "#6b7280",
+      fontWeight: 500,
+    },
+    infoValue: {
+      flex: 1,
+      color: "#1f2937",
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap",
+    },
+
     lyricsToolbar: {
     display: "flex",
     alignItems: "center",

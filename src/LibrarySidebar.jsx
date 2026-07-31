@@ -8,6 +8,7 @@ import {
   FaTrash,
   FaHeart,
   FaHeadphones,
+  FaFolder,
 } from "react-icons/fa";
 
 /* ================================================================
@@ -70,7 +71,7 @@ export default function Sidebar({
   };
 
   return (
-    <div style={styles.sidebar}>
+    <div style={styles.sidebar} className="app-sidebar">
       {/* ===== 搜索 ===== */}
       <div style={styles.searchSection}>
         <Search filterText={filterText} setFilterText={setFilterText} activeNav={activeNav} onNavChange={onNavChange} />
@@ -111,16 +112,35 @@ export default function Sidebar({
       {/* ===== 播放列表 ===== */}
       <div style={styles.section}>
         <div style={styles.sectionTitle}>播放列表</div>
+
+        {/* 全部播放列表 */}
+        <div
+          className="sidebar-item"
+          style={{
+            ...styles.item,
+            ...(activeNav === "playlists" ? styles.itemActive : {}),
+          }}
+          onClick={() => onNavChange("playlists")}
+        >
+          <span style={{ ...styles.icon, ...(activeNav === "playlists" ? styles.iconActive : {}) }}>
+            <FaFolder />
+          </span>
+          <span style={{ ...styles.label, ...(activeNav === "playlists" ? styles.labelActive : {}) }}>
+            全部播放列表
+          </span>
+        </div>
+
         {playlists.map((pl) => (
-          <div
-            key={pl.id}
-            className="sidebar-item"
-            style={{
-              ...styles.item,
-              ...(activeNav === pl.id ? styles.itemActive : {}),
-            }}
-            onClick={() => onNavChange(pl.id)}
-          >
+          <>
+            <div
+              key={pl.id}
+              className="sidebar-item"
+              style={{
+                ...styles.item,
+                ...(activeNav === pl.id ? styles.itemActive : {}),
+              }}
+              onClick={() => onNavChange(pl.id)}
+            >
             <span
               style={{
                 ...styles.icon,
@@ -166,6 +186,8 @@ export default function Sidebar({
               </span>
             )}
           </div>
+          {pl.id === "recent" && <div style={styles.sectionDivider} />}
+          </>
         ))}
 
       </div>
@@ -211,6 +233,11 @@ const styles = {
     textTransform: "uppercase",
     letterSpacing: "1.5px",
     fontWeight: 600,
+  },
+  sectionDivider: {
+    height: "1px",
+    background: "#e5e7eb",
+    margin: "6px 8px",
   },
 
   item: {

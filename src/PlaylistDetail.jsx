@@ -78,7 +78,7 @@ export default function PlaylistDetail({
   const songs = playlist.songs || [];
 
   return (
-    <div style={styles.container}>
+    <div style={styles.container} className="playlist-detail-page">
       <button style={styles.backBtn} onClick={onBack} title="返回">
         <FaArrowLeft size={18} />
       </button>
@@ -214,13 +214,16 @@ export default function PlaylistDetail({
                   </span>
 
                   <div style={styles.songInfo}>
-                    <span style={{
-                      ...styles.songTitle,
-                      ...(isActive ? styles.songTitleActive : {}),
-                    }}>
+                    <span
+                      className="detail-song-title"
+                      style={{
+                        ...styles.songTitle,
+                        ...(isActive ? styles.songTitleActive : {}),
+                      }}
+                    >
                       {song.title}
                     </span>
-                    <span style={styles.songArtist}>{song.artist}</span>
+                    <span className="detail-song-artist" style={styles.songArtist}>{song.artist}</span>
                   </div>
 
                   <div style={styles.songActions}>
