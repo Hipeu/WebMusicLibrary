@@ -23,6 +23,8 @@ export default function AlbumDetail({
   onDeleteAlbum,
   onEditInfo,
   onDeleteSong,
+  missingSongs,
+  onMissingSongClick,
 }) {
   const [menuSongIdx, setMenuSongIdx] = useState(null);
   const [panelSong, setPanelSong] = useState(null);
@@ -39,6 +41,9 @@ export default function AlbumDetail({
   // 从封面提取动态主题色（用于封面光晕）
   const themeSwatch = palette?.Vibrant || palette?.Muted || palette?.DarkVibrant || palette?.LightVibrant || null;
   const themeColor = themeSwatch ? themeSwatch.hex : null;
+  // 整张专辑是否全部缺失
+  const albumAllMissing = (album.songs || []).length > 0 &&
+    (album.songs || []).every((s) => s.file_path && missingSongs?.has(s.file_path));
   // 仅围绕封面：模糊实心方块向外扩散，颜色逐渐消失
   const coverGlowStyle = themeColor
     ? {
@@ -68,6 +73,7 @@ export default function AlbumDetail({
                 <span style={styles.coverPlaceholderIcon}>🎶</span>
               </div>
             )}
+            {albumAllMissing && <div style={styles.coverMissingOverlay} />}
           </div>
         </div>
 
@@ -156,6 +162,7 @@ export default function AlbumDetail({
               const isActive = originalIndex === currentSongIndex;
               const isMenuOpen = menuSongIdx === originalIndex;
               const isLiked = likedUrls.includes(song.url);
+              const isMissing = song.file_path && missingSongs?.has(song.file_path);
               return (
                 <div
                   key={originalIndex}
@@ -163,7 +170,14 @@ export default function AlbumDetail({
                     ...styles.songItem,
                     ...(isActive ? styles.songItemActive : {}),
                   }}
-                  onClick={() => { closeMenu(); onPlaySong(originalIndex); }}
+                  onClick={() => {
+                    closeMenu();
+                    if (isMissing) {
+                      onMissingSongClick?.(song);
+                    } else {
+                      onPlaySong(originalIndex);
+                    }
+                  }}
                   className="detail-song-item"
                   onMouseLeave={() => isMenuOpen && setMenuSongIdx(null)}
                 >
@@ -186,11 +200,20 @@ export default function AlbumDetail({
                     style={{
                       ...styles.songTitle,
                       ...(isActive ? styles.songTitleActive : {}),
+                      ...(isMissing ? styles.songTitleMissing : {}),
                     }}
                   >
                     {song.title}
                   </span>
-                  <span className="detail-song-artist" style={styles.songArtist}>{song.artist}</span>
+                  <span
+                    className="detail-song-artist"
+                    style={{
+                      ...styles.songArtist,
+                      ...(isMissing ? styles.songArtistMissing : {}),
+                    }}
+                  >
+                    {song.artist}
+                  </span>
                 </div>
 
                 <div style={styles.songActions}>
@@ -564,9 +587,18 @@ const styles = {
     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
   },
   songTitleActive: { color: "#1f2937", fontWeight: 600 },
+  songTitleMissing: { color: "#9ca3af" },
     songArtist: {
     fontSize: "12px", color: "#6b7280",
     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+  },
+  songArtistMissing: { color: "#b0b7c3" },
+  coverMissingOverlay: {
+    position: "absolute",
+    inset: 0,
+    background: "rgba(128,128,128,0.55)",
+    zIndex: 2,
+    pointerEvents: "none",
   },
   songActions: {
     position: "relative",

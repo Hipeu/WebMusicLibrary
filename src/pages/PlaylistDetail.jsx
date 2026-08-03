@@ -24,6 +24,8 @@ export default function PlaylistDetail({
   onRemoveFromPlaylist,
   onDeleteSong,
   onEditInfo,
+  missingSongs,
+  onMissingSongClick,
 }) {
   const [editing, setEditing] = useState(false);
   const [editCover, setEditCover] = useState(null);
@@ -183,6 +185,7 @@ export default function PlaylistDetail({
             {songs.map((song, idx) => {
               const isActive = idx === currentSongIndex;
               const isMenuOpen = menuSongIdx === idx;
+              const isMissing = song.file_path && missingSongs?.has(song.file_path);
               return (
                 <div
                   key={idx}
@@ -190,7 +193,14 @@ export default function PlaylistDetail({
                     ...styles.songItem,
                     ...(isActive ? styles.songItemActive : {}),
                   }}
-                  onClick={() => { setMenuSongIdx(null); onPlaySong(idx); }}
+                  onClick={() => {
+                    setMenuSongIdx(null);
+                    if (isMissing) {
+                      onMissingSongClick?.(song);
+                    } else {
+                      onPlaySong(idx);
+                    }
+                  }}
                   className="detail-song-item"
                   onMouseLeave={() => isMenuOpen && setMenuSongIdx(null)}
                 >
@@ -219,11 +229,20 @@ export default function PlaylistDetail({
                       style={{
                         ...styles.songTitle,
                         ...(isActive ? styles.songTitleActive : {}),
+                        ...(isMissing ? styles.songTitleMissing : {}),
                       }}
                     >
                       {song.title}
                     </span>
-                    <span className="detail-song-artist" style={styles.songArtist}>{song.artist}</span>
+                    <span
+                      className="detail-song-artist"
+                      style={{
+                        ...styles.songArtist,
+                        ...(isMissing ? styles.songArtistMissing : {}),
+                      }}
+                    >
+                      {song.artist}
+                    </span>
                   </div>
 
                   <div style={styles.songActions}>
@@ -601,10 +620,12 @@ const styles = {
     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
   },
   songTitleActive: { color: "#1f2937", fontWeight: 600 },
+  songTitleMissing: { color: "#9ca3af" },
   songArtist: {
     fontSize: "12px", color: "#6b7280",
     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
   },
+  songArtistMissing: { color: "#b0b7c3" },
   songActions: {
     position: "relative",
     flexShrink: 0,

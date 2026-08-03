@@ -2,7 +2,8 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { FiPlus } from "react-icons/fi";
 import { FaEllipsisH, FaCompactDisc, FaUser, FaHeart, FaStepForward, FaClock, FaPlus, FaSortAmountDown, FaArrowUp, FaTrash, FaMusic, FaInfoCircle, FaCog } from "react-icons/fa";
 import { readMetadata } from "../utils/MetadataReader";
-import { uploadMusic, getMusicList, getAssetUrl, deleteMusic } from "../services/api";
+import { uploadMusic, getMusicList, getAssetUrl, deleteMusic, checkMusicFiles } from "../services/api";
+import { saveSongToIndex, removeSongFromIndex, loadMusicIndex } from "../utils/musicIndex";
 import MusicPlayer from "../components/MusicPlayer";
 import AlbumDetail from "./AlbumDetail";
 import ArtistsDetail from "./ArtistsDetail";
@@ -13,6 +14,116 @@ import MusicEdit from "./MusicEdit";
 import Sidebar from "../components/LibrarySidebar";
 import Settings, { applyTheme } from "../components/Settings";
 import "../styles/music-library.css";
+
+
+/* ======================================================
+   工具函数：专辑 / 歌曲构建与合并
+   ====================================================== */
+function buildAlbumsFromIndex(index) {
+  const albumMap = new Map();
+  Object.entries(index).forEach(([file_path, s]) => {
+    const key = s.album || "未知专辑";
+    // 规范化封面路径（兼容旧数据：可能缺少 picture/ 前缀）
+    const coverPath = s.cover_path
+      ? (s.cover_path.startsWith("picture/") ? s.cover_path : `picture/${s.cover_path}`)
+      : null;
+    if (!albumMap.has(key)) {
+      albumMap.set(key, {
+        id: `server-${s.artist || "未知艺术家"}-${key}`,
+        title: key,
+        artist: s.artist || "未知艺术家",
+        year: s.year || null,
+        genre: s.genre || null,
+        publisher: s.publisher || null,
+        coverURL: coverPath ? getAssetUrl(`/data/${coverPath}`) : null,
+        importTime: s.importTime || Date.now(),
+        songs: [],
+      });
+    }
+    albumMap.get(key).songs.push({
+      title: s.title,
+      artist: s.artist || "未知艺术家",
+      album: s.album || key,
+      genre: s.genre,
+      duration: s.duration,
+      url: getAssetUrl(`/library/${file_path}`),
+      file_path,
+      coverURL: coverPath ? getAssetUrl(`/data/${coverPath}`) : null,
+      trackNo: s.trackNo,
+      composer: s.composer,
+      lyricist: s.lyricist,
+      publisher: s.publisher,
+      comment: s.comment,
+      bitrate: s.bitrate,
+      codec: s.codec,
+      year: s.year,
+      importTime: s.importTime || Date.now(),
+    });
+  });
+  return Array.from(albumMap.values());
+}
+
+function buildAlbumsFromServer(data) {
+  const loadedAlbums = [];
+  for (const artistEntry of data || []) {
+    for (const albumEntry of artistEntry.albums || []) {
+      const albumId = `server-${artistEntry.artist}-${albumEntry.album}`;
+      const albumCover = getAssetUrl(albumEntry.cover_url);
+      const songs = (albumEntry.songs || []).map((s) => ({
+        title: s.title,
+        artist: s.artist || artistEntry.artist,
+        album: s.album || albumEntry.album,
+        genre: s.genre,
+        duration: s.duration,
+        url: getAssetUrl(s.file_url),
+        file_path: s.file_path,
+        coverURL: getAssetUrl(s.cover_url) || albumCover,
+        trackNo: s.trackNo,
+        composer: s.composer,
+        lyricist: s.lyricist,
+        publisher: s.publisher,
+        comment: s.comment,
+        bitrate: s.bitrate,
+        codec: s.codec,
+        year: s.year,
+        importTime: Date.now(),
+      }));
+      if (songs.length === 0) continue;
+      loadedAlbums.push({
+        id: albumId,
+        title: albumEntry.album,
+        artist: artistEntry.artist,
+        year: songs[0].year || null,
+        genre: songs[0].genre || null,
+        publisher: songs[0].publisher || null,
+        coverURL: albumCover,
+        importTime: Date.now(),
+        songs,
+      });
+    }
+  }
+  return loadedAlbums;
+}
+
+function mergeAlbumsByTitle(prev, newAlbums) {
+  const merged = new Map();
+  for (const a of prev) merged.set(a.title, { ...a, songs: [...a.songs] });
+  for (const a of newAlbums) {
+    if (merged.has(a.title)) {
+      const existing = merged.get(a.title);
+      const existingPaths = new Set(existing.songs.map((s) => s.file_path).filter(Boolean));
+      for (const s of a.songs) {
+        if (!s.file_path || !existingPaths.has(s.file_path)) {
+          existing.songs.push(s);
+        }
+      }
+      if (!existing.coverURL && a.coverURL) existing.coverURL = a.coverURL;
+    } else {
+      merged.set(a.title, { ...a, songs: [...a.songs] });
+    }
+  }
+  return Array.from(merged.values());
+}
 
 
 /* ======================================================
@@ -129,7 +240,7 @@ export default function MusicLibrary() {
           const res = await uploadMusic(f);
           if (res.status === "ok") {
             const m = res.meta || {};
-            return {
+            const entry = {
               title: res.title,
               artist: res.artist || "未知艺术家",
               album: res.album || "未知专辑",
@@ -137,7 +248,9 @@ export default function MusicLibrary() {
               genre: m.genre || null,
               duration: m.duration || null,
               url: getAssetUrl(res.file_path ? `/library/${res.file_path}` : null),
+              file_path: res.file_path || null,
               coverURL: res.cover_url ? getAssetUrl(res.cover_url) : null,
+              cover_path: (m && m.cover_path) || null,
               trackNo: m.trackNo || null,
               composer: m.composer || null,
               lyricist: m.lyricist || null,
@@ -148,6 +261,9 @@ export default function MusicLibrary() {
               container: m.codec || null,
               importTime: Date.now(),
             };
+            // 写入本地索引，保证服务未启动时也能展示
+            saveSongToIndex(entry);
+            return entry;
           }
         } catch (err) {
           console.warn("后端上传失败，使用本地导入:", err);
@@ -594,6 +710,10 @@ export default function MusicLibrary() {
     } catch (err) {
       console.warn("后端删除失败:", err);
     }
+    // 从本地索引移除
+    if (deleteSongConfirm.file_path) {
+      removeSongFromIndex(deleteSongConfirm.file_path);
+    }
 
     // 如果是最后一首歌 → 整张专辑删除
     if (isLastSong) {
@@ -809,6 +929,9 @@ export default function MusicLibrary() {
         } catch (err) {
           console.warn("后端删除失败:", err);
         }
+        if (s.file_path) {
+          removeSongFromIndex(s.file_path);
+        }
       }
     }
 
@@ -970,76 +1093,87 @@ export default function MusicLibrary() {
     return () => mediaQuery.removeEventListener("change", handleSystemThemeChange);
   }, []);
 
-  // ---------- 启动时从后端加载已持久化的音乐 ----------
+  // ---------- 启动时加载已导入的音乐（本地索引优先，后端用于校验缺失） ----------
   useEffect(() => {
-    async function loadPersistedMusic() {
+    // 1. 从本地索引构建专辑（即使服务未启动也能展示已导入内容）
+    const index = loadMusicIndex();
+    const idxEntries = Object.entries(index);
+    if (idxEntries.length > 0) {
+      const idxAlbums = buildAlbumsFromIndex(index);
+      setAlbums((prev) => mergeAlbumsByTitle(prev, idxAlbums));
+    }
+
+    // 2. 后端可用时：刷新已存在歌曲的 URL / 封面，并检测缺失文件
+    async function reconcile() {
       try {
         const data = await getMusicList();
-        if (!Array.isArray(data) || data.length === 0) return;
+        if (Array.isArray(data)) {
+          const serverAlbums = buildAlbumsFromServer(data);
+          setAlbums((prev) => mergeAlbumsByTitle(prev, serverAlbums));
 
-        const loadedAlbums = [];
-        for (const artistEntry of data) {
-          for (const albumEntry of artistEntry.albums || []) {
-            const albumId = `server-${artistEntry.artist}-${albumEntry.album}`;
-            const albumCover = getAssetUrl(albumEntry.cover_url);
-            const songs = (albumEntry.songs || []).map((s) => ({
-              title: s.title,
-              artist: s.artist || artistEntry.artist,
-              album: s.album || albumEntry.album,
-              genre: s.genre,
-              duration: s.duration,
-              url: getAssetUrl(s.file_url),
-              coverURL: getAssetUrl(s.cover_url) || albumCover,
-              trackNo: s.trackNo,
-              composer: s.composer,
-              lyricist: s.lyricist,
-              publisher: s.publisher,
-              comment: s.comment,
-              bitrate: s.bitrate,
-              codec: s.codec,
-              year: s.year,
-              importTime: Date.now(),
-            }));
-            if (songs.length === 0) continue;
-            loadedAlbums.push({
-              id: albumId,
-              title: albumEntry.album,
-              artist: artistEntry.artist,
-              year: songs[0].year || null,
-              genre: songs[0].genre || null,
-              publisher: songs[0].publisher || null,
-              coverURL: albumCover,
-              importTime: Date.now(),
-              songs,
-            });
+          // 从清单响应中收集缺失文件（file_exists=false）
+          const missingFromServer = new Set();
+          data.forEach((artistEntry) =>
+            (artistEntry.albums || []).forEach((albumEntry) =>
+              (albumEntry.songs || []).forEach((s) => {
+                if (s.file_exists === false && s.file_path) missingFromServer.add(s.file_path);
+              })
+            )
+          );
+          setMissingSongs(missingFromServer);
+        }
+
+        // 额外用 checkMusicFiles 校验本地索引中的路径（兼容未在清单中的情况）
+        const paths = Object.keys(index);
+        if (paths.length > 0) {
+          const res = await checkMusicFiles(paths);
+          const missing = new Set();
+          Object.entries(res.exists || {}).forEach(([p, exists]) => {
+            if (!exists) missing.add(p);
+          });
+          if (missing.size > 0) {
+            setMissingSongs((prev) => new Set([...prev, ...missing]));
           }
         }
-
-        if (loadedAlbums.length > 0) {
-          setAlbums((prev) => {
-            const merged = new Map();
-            for (const a of prev) merged.set(a.title, { ...a, songs: [...a.songs] });
-            for (const a of loadedAlbums) {
-              if (merged.has(a.title)) {
-                const existing = merged.get(a.title);
-                const existingUrls = new Set(existing.songs.map((s) => s.url));
-                for (const s of a.songs) {
-                  if (!existingUrls.has(s.url)) existing.songs.push(s);
-                }
-                if (!existing.coverURL && a.coverURL) existing.coverURL = a.coverURL;
-              } else {
-                merged.set(a.title, { ...a, songs: [...a.songs] });
-              }
-            }
-            return Array.from(merged.values());
-          });
-        }
       } catch (err) {
-        console.warn("加载后端音乐库失败（后端可能未启动）:", err);
+        console.warn("后端不可用，仅展示本地索引歌曲:", err);
       }
     }
-    loadPersistedMusic();
+    reconcile();
   }, []);
+
+  // ---------- 定期检测缺失的音乐文件（用户可能在资源管理器删除） ----------
+  useEffect(() => {
+    let timer;
+    async function checkMissing() {
+      // 收集所有带 file_path 的歌曲
+      const paths = [];
+      const seen = new Set();
+      albums.forEach((a) =>
+        a.songs.forEach((s) => {
+          if (s.file_path && !seen.has(s.file_path)) {
+            seen.add(s.file_path);
+            paths.push(s.file_path);
+          }
+        })
+      );
+      if (paths.length === 0) return;
+      try {
+        const res = await checkMusicFiles(paths);
+        const missing = new Set();
+        Object.entries(res.exists || {}).forEach(([p, exists]) => {
+          if (!exists) missing.add(p);
+        });
+        setMissingSongs(missing);
+      } catch (err) {
+        // 后端不可用时不标记缺失
+        console.warn("文件存在性检测失败:", err);
+      }
+    }
+    checkMissing();
+    timer = setInterval(checkMissing, 10000);
+    return () => clearInterval(timer);
+  }, [albums]);
   useEffect(() => {
     if (currentAlbumId && isPlaying && currentAlbumId !== prevAlbumIdRef.current) {
       prevAlbumIdRef.current = currentAlbumId;
@@ -1135,6 +1269,14 @@ export default function MusicLibrary() {
 
         // ---------- 编辑元信息 ----------
         const [editTarget, setEditTarget] = useState(null); // { type: "album"|"song", data } 或 null
+
+        // ---------- 文件缺失检测 ----------
+        const [missingSongs, setMissingSongs] = useState(new Set()); // 缺失歌曲的 file_path 集合
+        const [missingDialogSong, setMissingDialogSong] = useState(null); // 点击缺失歌曲时弹出的提示
+        // 判断专辑是否全部缺失
+        const isAlbumAllMissing = (album) =>
+          (album?.songs || []).length > 0 &&
+          album.songs.every((s) => s.file_path && missingSongs.has(s.file_path));
 
     // ---------- 艺人视图排序 ----------
     const [artistSortMode, setArtistSortMode] = useState("a-z"); // "a-z" | "z-a"
@@ -1258,10 +1400,12 @@ export default function MusicLibrary() {
                                 {detailAlbumId ? (
                   /* ----- 专辑详情页（从专辑网格点进去） ----- */
                   <div style={styles.detailPageArea}>
-                                          <AlbumDetail
+                                           <AlbumDetail
                       album={albums.find((a) => a.id === detailAlbumId)}
                       playlists={playlists}
                       setPlaylists={setPlaylists}
+                      missingSongs={missingSongs}
+                      onMissingSongClick={(song) => setMissingDialogSong(song)}
                       currentSongIndex={
                         detailAlbumId === currentAlbumId ? currentSongIndex : -1
                       }
@@ -1298,6 +1442,8 @@ export default function MusicLibrary() {
                       playlist={playlists.find((p) => p.id === detailPlaylistId)}
                       playlists={playlists}
                       onUpdatePlaylist={handleUpdatePlaylist}
+                      missingSongs={missingSongs}
+                      onMissingSongClick={(song) => setMissingDialogSong(song)}
                       currentSongIndex={
                         detailPlaylistId === currentPlaylistId ? currentSongIndex : -1
                       }
@@ -1446,6 +1592,7 @@ export default function MusicLibrary() {
                                 {album.id === currentAlbumId && (
                                   <div style={styles.playingBadge}>▶ 正在播放</div>
                                 )}
+                                {isAlbumAllMissing(album) && <div style={styles.albumCoverMissingOverlay} />}
                                                             </div>
                               <div style={styles.albumTitleRow}>
                                 <p style={styles.albumTitle}>{album.title}</p>
@@ -1713,10 +1860,11 @@ export default function MusicLibrary() {
                             const albumLocalIdx = albums.find((a) => a.id === song.albumId)?.songs.findIndex((s) => s.url === song.url) ?? idx;
                             const songKey = `${song.albumId}-${albumLocalIdx}`;
                             const isChecked = selectedSongs.has(songKey);
+                            const isMissing = song.file_path && missingSongs.has(song.file_path);
                             return (
                                                             <div
                                 key={`${song.albumId}-${idx}`}
-                                className={`song-table-row${isActive ? " song-row-active" : ""}${isChecked ? " is-checked" : ""}`}
+                                className={`song-table-row${isActive ? " song-row-active" : ""}${isChecked ? " is-checked" : ""}${isMissing ? " song-row-missing" : ""}`}
                                 style={{
                                   ...styles.songTableRow,
                                   ...(isActive ? styles.songTableRowActive : {}),
@@ -1726,6 +1874,8 @@ export default function MusicLibrary() {
                                                                     if (isSelecting) {
                                                                       // 多选模式下，点击行切换复选框
                                                                       handleCheckboxChange(songKey, e);
+                                                                    } else if (isMissing) {
+                                                                      setMissingDialogSong(song);
                                                                     } else {
                                                                       // 歌曲视图：只播放当前这一首，不自动切歌
                                                                       setCurrentAlbumId(null);
@@ -1761,6 +1911,7 @@ export default function MusicLibrary() {
                                                                     <span style={{
                                                                       ...styles.songCellTitle,
                                                                       ...(isActive ? styles.songCellTitleActive : {}),
+                                                                      ...(isMissing ? styles.songCellTextMissing : {}),
                                                                       minWidth: 0,
                                                                     }}>
                                                                       {song.title}
@@ -1769,7 +1920,11 @@ export default function MusicLibrary() {
                                                                 </div>
                                 <div style={styles.songColArtist}>
                                   <span
-                                    style={{ ...styles.songCellText, ...styles.clickableCellText }}
+                                    style={{
+                                      ...styles.songCellText,
+                                      ...styles.clickableCellText,
+                                      ...(isMissing ? styles.songCellTextMissing : {}),
+                                    }}
                                     onClick={(e) => { e.stopPropagation(); handleOpenArtistDetail(song.artist || "未知艺术家"); }}
                                   >
                                     {song.artist || "未知"}
@@ -2031,6 +2186,7 @@ export default function MusicLibrary() {
                                                 {album.id === currentAlbumId && (
                                                   <div style={styles.playingBadge}>▶ 正在播放</div>
                                                 )}
+                                                {isAlbumAllMissing(album) && <div style={styles.albumCoverMissingOverlay} />}
                                               </div>
                                               <div style={styles.albumTitleRow}>
                                                 <p style={styles.albumTitle}>{album.title}</p>
@@ -2344,6 +2500,21 @@ export default function MusicLibrary() {
 
       <Settings show={showSettings} onClose={() => setShowSettings(false)} />
 
+      {/* 缺失文件提示浮窗 */}
+      {missingDialogSong && (
+        <div style={styles.overlay} onClick={() => setMissingDialogSong(null)}>
+          <div style={styles.confirmDialog} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.confirmIcon}>⚠️</div>
+            <h3 style={styles.confirmTitle}>项目不可用</h3>
+            <p style={styles.confirmText}>该歌曲已经被删除或移动至其他地方，是否要查找这首音乐？</p>
+            <div style={styles.confirmActions}>
+              <button style={styles.confirmDeleteBtn} onClick={() => setMissingDialogSong(null)}>查找</button>
+              <button style={styles.confirmCancelBtn} onClick={() => setMissingDialogSong(null)}>取消</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 单曲删除确认浮窗 */}
       {deleteSongConfirm && (
         <div style={styles.overlay} onClick={() => setDeleteSongConfirm(null)}>
@@ -2514,6 +2685,13 @@ const styles = {
     overflow: "hidden", background: "#f3f4f6",
   },
   coverImage: { width: "100%", height: "100%", objectFit: "cover", display: "block" },
+  albumCoverMissingOverlay: {
+    position: "absolute",
+    inset: 0,
+    background: "rgba(128,128,128,0.55)",
+    zIndex: 2,
+    pointerEvents: "none",
+  },
   coverPlaceholder: {
     width: "100%", height: "100%", display: "flex",
     alignItems: "center", justifyContent: "center",
@@ -2660,6 +2838,7 @@ const styles = {
     fontSize: "13px", color: "#6b7280",
     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
   },
+  songCellTextMissing: { color: "#9ca3af", textDecoration: "line-through" },
   clickableCellText: {
     color: "#e94560",
     cursor: "pointer",

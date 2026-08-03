@@ -10,16 +10,25 @@ export default function useCoverColor(coverUrl) {
   const [palette, setPalette] = useState(null);
 
   useEffect(() => {
-    if (!coverUrl) return;
+    if (!coverUrl) {
+      setPalette(null);
+      return;
+    }
 
     let cancelled = false;
     Vibrant.from(coverUrl)
       .getPalette()
       .then((result) => {
-        if (!cancelled) setPalette(result);
+        if (!cancelled) {
+          setPalette(result);
+          console.log("[CoverColor] 提取成功:", coverUrl, !!result?.Vibrant?.hex);
+        }
       })
-      .catch(() => {
-        if (!cancelled) setPalette(null);
+      .catch((err) => {
+        if (!cancelled) {
+          setPalette(null);
+          console.warn("[CoverColor] 提取失败:", coverUrl, err);
+        }
       });
 
     return () => {

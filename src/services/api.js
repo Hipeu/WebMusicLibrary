@@ -41,10 +41,21 @@ export async function testConnection() {
   return res.json();
 }
 
+/** 批量检查音乐文件是否存在（paths 为相对音乐库根目录的路径数组） */
+export async function checkMusicFiles(paths) {
+  const res = await fetch(`${BASE_URL}/api/music/check`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ paths }),
+  });
+  return res.json();
+}
+
 export default {
   uploadMusic,
   getMusicList,
   deleteMusic,
   testConnection,
+  checkMusicFiles,
   getAssetUrl,
 };

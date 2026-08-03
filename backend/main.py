@@ -21,12 +21,19 @@ app.include_router(music_router)
 MUSIC_LIBRARY = os.path.join(os.path.expanduser("~"), "Music", "Music_Library")
 os.makedirs(MUSIC_LIBRARY, exist_ok=True)
 
+# 数据备份目录（封面 / 歌词 / 元信息）
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_DIR = os.path.join(PROJECT_ROOT, "data")
+os.makedirs(DATA_DIR, exist_ok=True)
+
 @app.on_event("startup")
 def startup():
     os.makedirs(MUSIC_LIBRARY, exist_ok=True)
+    os.makedirs(DATA_DIR, exist_ok=True)
 
 # 挂载静态文件目录（用于前端播放音频 / 加载封面）
 app.mount("/library", StaticFiles(directory=MUSIC_LIBRARY), name="library")
+app.mount("/data", StaticFiles(directory=DATA_DIR), name="data")
 
 @app.get("/api/hello")
 def hello():
