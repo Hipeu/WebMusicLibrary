@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { FaPlay, FaPause, FaArrowLeft, FaEllipsisH, FaHeart, FaStepForward, FaClock, FaPlus, FaTrash, FaInfoCircle } from "react-icons/fa";
-import PlayingAnimation from "./PlayingAnimation";
-import useCoverColor from "./CoverColor";
+import PlayingAnimation from "../components/PlayingAnimation";
+import useCoverColor from "../components/CoverColor";
 
 /* ================================================================
    📀 AlbumDetail — 专辑详情页
@@ -393,6 +393,7 @@ const styles = {
       opacity: 0.9,
       pointerEvents: "none",
       zIndex: 0,
+      animation: "glowFadeIn 0.8s ease",
     },
     coverWrapper: {
       position: "relative",

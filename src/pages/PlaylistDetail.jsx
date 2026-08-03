@@ -1,6 +1,6 @@
 import { useState, useRef } from "react";
 import { FaPlay, FaPause, FaArrowLeft, FaEdit, FaEllipsisH, FaHeart, FaPlus, FaStepForward, FaClock, FaCompactDisc, FaUser, FaTrash, FaInfoCircle, FaTimes, FaMusic } from "react-icons/fa";
-import PlayingAnimation from "./PlayingAnimation";
+import PlayingAnimation from "../components/PlayingAnimation";
 
 /* ================================================================
    📋 PlaylistDetail — 播放列表详情页

@@ -43,6 +43,10 @@
   from { opacity: 0; transform: scale(0.97); }
   to { opacity: 1; transform: scale(1); }
 }
+@keyframes glowFadeIn {
+  from { opacity: 0; }
+  to { opacity: 0.9; }
+}
 .mini-cover-hover:hover {
   transform: scale(1.08);
   box-shadow: 0 4px 16px rgba(233,69,96,0.4);

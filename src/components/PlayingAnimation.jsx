@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import lottie from "lottie-web";
-import animationData from "./assets/Audio playing animation.json";
+import animationData from "../assets/Audio playing animation.json";
 
 export default function PlayingAnimation() {
   const containerRef = useRef(null);

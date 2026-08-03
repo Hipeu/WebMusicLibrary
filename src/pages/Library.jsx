@@ -1,17 +1,19 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { FiPlus } from "react-icons/fi";
 import { FaEllipsisH, FaCompactDisc, FaUser, FaHeart, FaStepForward, FaClock, FaPlus, FaSortAmountDown, FaArrowUp, FaTrash, FaMusic, FaInfoCircle, FaCog } from "react-icons/fa";
-import { readMetadata } from "./MetadataReader";
-import MusicPlayer from "./MusicPlayer";
+import { readMetadata } from "../utils/MetadataReader";
+import { uploadMusic, getMusicList, getAssetUrl, deleteMusic } from "../services/api";
+import MusicPlayer from "../components/MusicPlayer";
 import AlbumDetail from "./AlbumDetail";
 import ArtistsDetail from "./ArtistsDetail";
 import PlaylistDetail from "./PlaylistDetail";
-import { SearchResults } from "./Search";
-import CoverPlayButton from "./CoverPlayButton";
+import { SearchResults } from "../components/Search";
+import CoverPlayButton from "../components/CoverPlayButton";
 import MusicEdit from "./MusicEdit";
-import Sidebar from "./LibrarySidebar";
-import Settings, { applyTheme } from "./Settings";
-import "./music-library.css";
+import Sidebar from "../components/LibrarySidebar";
+import Settings, { applyTheme } from "../components/Settings";
+import "../styles/music-library.css";
+
 
 /* ======================================================
    🎵 MusicLibrary — 音乐资料库主应用
@@ -120,9 +122,37 @@ export default function MusicLibrary() {
     const selectedFiles = Array.from(e.target.files);
     if (selectedFiles.length === 0) return;
 
-    // 读取所有文件的元数据
+    // 读取所有文件的元数据（优先上传到后端持久化，失败则回退本地导入）
     const entries = await Promise.all(
       selectedFiles.map(async (f) => {
+        try {
+          const res = await uploadMusic(f);
+          if (res.status === "ok") {
+            const m = res.meta || {};
+            return {
+              title: res.title,
+              artist: res.artist || "未知艺术家",
+              album: res.album || "未知专辑",
+              year: m.year || null,
+              genre: m.genre || null,
+              duration: m.duration || null,
+              url: getAssetUrl(res.file_path ? `/library/${res.file_path}` : null),
+              coverURL: res.cover_url ? getAssetUrl(res.cover_url) : null,
+              trackNo: m.trackNo || null,
+              composer: m.composer || null,
+              lyricist: m.lyricist || null,
+              publisher: m.publisher || null,
+              comment: m.comment || null,
+              bitrate: m.bitrate || null,
+              codec: m.codec || null,
+              container: m.codec || null,
+              importTime: Date.now(),
+            };
+          }
+        } catch (err) {
+          console.warn("后端上传失败，使用本地导入:", err);
+        }
+        // 后端不可用 → 本地导入（blob URL）
         const meta = await readMetadata(f);
         return {
           ...meta,
@@ -558,6 +588,13 @@ export default function MusicLibrary() {
     const album = albums.find((a) => a.id === albumId);
     const isLastSong = album && album.songs.length <= 1;
 
+    // 同步删除后端文件（尽力而为，失败不阻塞）
+    try {
+      deleteMusic(deleteSongConfirm.artist, deleteSongConfirm.album, deleteSongConfirm.title);
+    } catch (err) {
+      console.warn("后端删除失败:", err);
+    }
+
     // 如果是最后一首歌 → 整张专辑删除
     if (isLastSong) {
       if (currentAlbumId === albumId) {
@@ -761,7 +798,20 @@ export default function MusicLibrary() {
   function handleConfirmDeleteAlbum() {
     const albumId = deleteAlbumConfirm;
     if (!albumId) return;
-    
+
+    const album = albums.find((a) => a.id === albumId);
+
+    // 同步删除后端的专辑内所有歌曲（尽力而为）
+    if (album) {
+      for (const s of album.songs) {
+        try {
+          deleteMusic(s.artist, s.album, s.title);
+        } catch (err) {
+          console.warn("后端删除失败:", err);
+        }
+      }
+    }
+
     // 如果正在播放该专辑，停止播放
     if (currentAlbumId === albumId) {
       setIsPlaying(false);
@@ -918,6 +968,77 @@ export default function MusicLibrary() {
     };
     mediaQuery.addEventListener("change", handleSystemThemeChange);
     return () => mediaQuery.removeEventListener("change", handleSystemThemeChange);
+  }, []);
+
+  // ---------- 启动时从后端加载已持久化的音乐 ----------
+  useEffect(() => {
+    async function loadPersistedMusic() {
+      try {
+        const data = await getMusicList();
+        if (!Array.isArray(data) || data.length === 0) return;
+
+        const loadedAlbums = [];
+        for (const artistEntry of data) {
+          for (const albumEntry of artistEntry.albums || []) {
+            const albumId = `server-${artistEntry.artist}-${albumEntry.album}`;
+            const albumCover = getAssetUrl(albumEntry.cover_url);
+            const songs = (albumEntry.songs || []).map((s) => ({
+              title: s.title,
+              artist: s.artist || artistEntry.artist,
+              album: s.album || albumEntry.album,
+              genre: s.genre,
+              duration: s.duration,
+              url: getAssetUrl(s.file_url),
+              coverURL: getAssetUrl(s.cover_url) || albumCover,
+              trackNo: s.trackNo,
+              composer: s.composer,
+              lyricist: s.lyricist,
+              publisher: s.publisher,
+              comment: s.comment,
+              bitrate: s.bitrate,
+              codec: s.codec,
+              year: s.year,
+              importTime: Date.now(),
+            }));
+            if (songs.length === 0) continue;
+            loadedAlbums.push({
+              id: albumId,
+              title: albumEntry.album,
+              artist: artistEntry.artist,
+              year: songs[0].year || null,
+              genre: songs[0].genre || null,
+              publisher: songs[0].publisher || null,
+              coverURL: albumCover,
+              importTime: Date.now(),
+              songs,
+            });
+          }
+        }
+
+        if (loadedAlbums.length > 0) {
+          setAlbums((prev) => {
+            const merged = new Map();
+            for (const a of prev) merged.set(a.title, { ...a, songs: [...a.songs] });
+            for (const a of loadedAlbums) {
+              if (merged.has(a.title)) {
+                const existing = merged.get(a.title);
+                const existingUrls = new Set(existing.songs.map((s) => s.url));
+                for (const s of a.songs) {
+                  if (!existingUrls.has(s.url)) existing.songs.push(s);
+                }
+                if (!existing.coverURL && a.coverURL) existing.coverURL = a.coverURL;
+              } else {
+                merged.set(a.title, { ...a, songs: [...a.songs] });
+              }
+            }
+            return Array.from(merged.values());
+          });
+        }
+      } catch (err) {
+        console.warn("加载后端音乐库失败（后端可能未启动）:", err);
+      }
+    }
+    loadPersistedMusic();
   }, []);
   useEffect(() => {
     if (currentAlbumId && isPlaying && currentAlbumId !== prevAlbumIdRef.current) {

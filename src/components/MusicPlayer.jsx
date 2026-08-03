@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { FaChevronDown, FaList, FaMusic, FaHeart, FaRegHeart, FaEllipsisH, FaInfoCircle, FaPlus, FaCompactDisc, FaUser, FaStepForward, FaRedo, FaRandom } from "react-icons/fa";
 import Lyrics from "./Lyrics";
-import { parseLRC } from "./LyricsParser";
+import { parseLRC } from "../utils/LyricsParser";
 import PlayerControls from "./PlayerControls";
 import useCoverColor from "./CoverColor";
 
@@ -902,6 +902,7 @@ const styles = {
     opacity: 0.9,
     pointerEvents: "none",
     zIndex: 0,
+    animation: "glowFadeIn 0.8s ease",
   },
   coverActions: {
     display: "flex",

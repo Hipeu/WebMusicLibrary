@@ -1,5 +1,5 @@
 import { FaArrowLeft } from "react-icons/fa";
-import CoverPlayButton from "./CoverPlayButton";
+import CoverPlayButton from "../components/CoverPlayButton";
 
 /* ================================================================
    🎤 ArtistsDetail — 艺人详情页
