@@ -819,3 +819,26 @@ html[data-theme="dark"] .player-detail-overlay .detailBackBtn {
   background: #2c2c4a !important;
   color: #cbd5e1 !important;
 }
+
+/* ================================================================
+   专辑详情页 — 小屏响应式（减小固定内边距，避免上下区域挤压）
+   ================================================================ */
+@media (max-height: 800px) {
+  .album-top {
+    padding: 40px 40px 10px 150px !important;
+    gap: 40px !important;
+  }
+  .album-bottom {
+    padding: 60px 80px 60px !important;
+  }
+}
+@media (max-height: 640px) {
+  .album-top {
+    padding: 20px 24px 8px 100px !important;
+    gap: 24px !important;
+  }
+  .album-bottom {
+    padding: 30px 40px 40px !important;
+  }
+}
+

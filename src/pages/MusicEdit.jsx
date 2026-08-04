@@ -7,6 +7,7 @@ import { FaTimes, FaImage, FaMusic, FaPlus, FaClock, FaCodeBranch, FaCalendarAlt
 export default function MusicEdit({ target, onClose, onSave }) {
   const [form, setForm] = useState({});
   const [editCover, setEditCover] = useState(null);
+  const [editCoverFile, setEditCoverFile] = useState(null);
   const [activeTab, setActiveTab] = useState("details");
   const coverInputRef = useRef(null);
   const isAlbum = target?.type === "album";
@@ -18,6 +19,7 @@ export default function MusicEdit({ target, onClose, onSave }) {
       setForm({
         title: data.title || "",
         artist: data.artist || "",
+        album_artist: data.album_artist ?? "",
         year: data.year ?? "",
         genre: data.genre || "",
         publisher: data.publisher || "",
@@ -27,12 +29,14 @@ export default function MusicEdit({ target, onClose, onSave }) {
         title: data.title || "",
         artist: data.artist || "",
         album: data.album || "",
+        album_artist: data.album_artist ?? "",
         genre: data.genre || "",
         trackNo: data.trackNo ?? "",
         composer: data.composer || "",
         lyricist: data.lyricist || "",
         publisher: data.publisher || "",
         comment: data.comment || "",
+        lyrics: data.lyrics ?? "",
       });
     }
   }, [target]);
@@ -46,13 +50,14 @@ export default function MusicEdit({ target, onClose, onSave }) {
   function handleCoverSelect(e) {
     const file = e.target.files?.[0];
     if (!file) return;
+    setEditCoverFile(file);
     const reader = new FileReader();
     reader.onload = (ev) => setEditCover(ev.target.result);
     reader.readAsDataURL(file);
   }
 
   function handleSave() {
-    onSave?.(target, form, editCover);
+    onSave?.(target, form, editCoverFile);
     onClose();
   }
 
@@ -60,6 +65,7 @@ export default function MusicEdit({ target, onClose, onSave }) {
     { id: "details", label: "详细信息" },
     { id: "cover", label: "封面" },
     { id: "type", label: "类型" },
+    ...(isAlbum ? [] : [{ id: "lyrics", label: "歌词" }]),
   ];
 
   return (
@@ -118,6 +124,10 @@ export default function MusicEdit({ target, onClose, onSave }) {
               {isAlbum ? (
                 <>
                   <div style={styles.field}>
+                    <label style={styles.label}>专辑艺人</label>
+                    <input style={styles.input} value={form.album_artist ?? ""} onChange={(e) => handleChange("album_artist", e.target.value)} />
+                  </div>
+                  <div style={styles.field}>
                     <label style={styles.label}>年份</label>
                     <input style={styles.input} value={form.year} onChange={(e) => handleChange("year", e.target.value)} />
                   </div>
@@ -135,6 +145,10 @@ export default function MusicEdit({ target, onClose, onSave }) {
                   <div style={styles.field}>
                     <label style={styles.label}>专辑</label>
                     <input style={styles.input} value={form.album || ""} onChange={(e) => handleChange("album", e.target.value)} />
+                  </div>
+                  <div style={styles.field}>
+                    <label style={styles.label}>专辑艺人</label>
+                    <input style={styles.input} value={form.album_artist ?? ""} onChange={(e) => handleChange("album_artist", e.target.value)} />
                   </div>
                   <div style={styles.field}>
                     <label style={styles.label}>流派</label>
@@ -205,8 +219,7 @@ export default function MusicEdit({ target, onClose, onSave }) {
                   <span style={styles.typeLabel}>种类</span>
                   <span style={styles.typeValue}>{data?.codec || data?.container || "未知"}</span>
                 </div>
-              )}
-              {!isAlbum && (
+              )}              {!isAlbum && (
                 <>
                   <div style={styles.typeRow}>
                     <span style={styles.typeIcon}><FaClock size={13} /></span>
@@ -232,11 +245,26 @@ export default function MusicEdit({ target, onClose, onSave }) {
                 <span style={styles.typeLabel}>添加时间</span>
                 <span style={styles.typeValue}>{formatTimestamp(data?.importTime)}</span>
               </div>
-              <div style={styles.typeRow}>
-                <span style={styles.typeIcon}><FaCalendarAlt size={13} /></span>
-                <span style={styles.typeLabel}>修改时间</span>
-                <span style={styles.typeValue}>{formatTimestamp(data?.modificationTime || data?.creationTime)}</span>
-              </div>
+              {data?.modification_time && (
+                <div style={styles.typeRow}>
+                  <span style={styles.typeIcon}><FaCalendarAlt size={13} /></span>
+                  <span style={styles.typeLabel}>修改时间</span>
+                  <span style={styles.typeValue}>{formatTimestamp(data?.modification_time)}</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === "lyrics" && !isAlbum && (
+            <div style={styles.lyricsTab}>
+              <textarea
+                style={styles.lyricsTextarea}
+                value={form.lyrics ?? ""}
+                onChange={(e) => handleChange("lyrics", e.target.value)}
+                placeholder="在此输入 / 编辑歌词（支持 .lrc 时间轴格式或纯文本）"
+                spellCheck={false}
+              />
+              <p style={styles.lyricsHint}>保存后会同时写入音乐文件内嵌标签与系统歌词备份</p>
             </div>
           )}
         </div>
@@ -356,6 +384,27 @@ const styles = {
     padding: "8px 16px", borderRadius: "6px", border: "1px solid #e5e7eb",
     background: "#ffffff", color: "#374151", fontSize: "13px",
     cursor: "pointer", fontFamily: "inherit",
+  },
+
+  /* 歌词标签 */
+  lyricsTab: {
+    display: "flex", flexDirection: "column", gap: "8px", padding: "4px 0",
+  },
+  lyricsTextarea: {
+    minHeight: "220px",
+    padding: "12px",
+    borderRadius: "8px",
+    border: "1px solid #e5e7eb",
+    background: "#f9fafb",
+    fontSize: "13px",
+    lineHeight: 1.7,
+    color: "#1f2937",
+    fontFamily: "'Segoe UI', sans-serif",
+    resize: "vertical",
+    outline: "none",
+  },
+  lyricsHint: {
+    fontSize: "12px", color: "#9ca3af", margin: 0,
   },
 
   /* 类型标签 */

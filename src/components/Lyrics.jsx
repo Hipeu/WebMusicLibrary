@@ -78,7 +78,7 @@ export default function Lyrics({ lyricsData, currentTime, onSeek }) {
   // ========== 无数据 ==========
   return (
     <div style={styles.container}>
-      <p style={styles.emptyHint}>请导入 .lrc 或 .txt 歌词文件</p>
+      <p style={styles.emptyHint}>暂无歌词，可导入 .lrc 文件</p>
     </div>
   );
 }

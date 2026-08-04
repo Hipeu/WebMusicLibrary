@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { FiPlus } from "react-icons/fi";
 import { FaEllipsisH, FaCompactDisc, FaUser, FaHeart, FaStepForward, FaClock, FaPlus, FaSortAmountDown, FaArrowUp, FaTrash, FaMusic, FaInfoCircle, FaCog } from "react-icons/fa";
 import { readMetadata } from "../utils/MetadataReader";
-import { uploadMusic, getMusicList, getAssetUrl, deleteMusic, checkMusicFiles } from "../services/api";
+import { uploadMusic, getMusicList, getAssetUrl, deleteMusic, checkMusicFiles, updateMusicMetadata, getLyrics } from "../services/api";
 import { saveSongToIndex, removeSongFromIndex, loadMusicIndex } from "../utils/musicIndex";
 import MusicPlayer from "../components/MusicPlayer";
 import AlbumDetail from "./AlbumDetail";
@@ -22,16 +22,19 @@ import "../styles/music-library.css";
 function buildAlbumsFromIndex(index) {
   const albumMap = new Map();
   Object.entries(index).forEach(([file_path, s]) => {
-    const key = s.album || "未知专辑";
+    const title = s.album || "未知专辑";
+    // 专辑归属键：专辑艺人 + 专辑名（无专辑艺人回退为曲目艺人），与后端 /list 一致
+    const key = `${s.album_artist || s.artist || "未知艺术家"}|${title}`;
     // 规范化封面路径（兼容旧数据：可能缺少 picture/ 前缀）
     const coverPath = s.cover_path
       ? (s.cover_path.startsWith("picture/") ? s.cover_path : `picture/${s.cover_path}`)
       : null;
     if (!albumMap.has(key)) {
       albumMap.set(key, {
-        id: `server-${s.artist || "未知艺术家"}-${key}`,
-        title: key,
-        artist: s.artist || "未知艺术家",
+        id: `server-${s.album_artist || s.artist || "未知艺术家"}-${title}`,
+        title,
+        artist: s.album_artist || s.artist || "未知艺术家",
+        album_artist: s.album_artist || null,
         year: s.year || null,
         genre: s.genre || null,
         publisher: s.publisher || null,
@@ -43,7 +46,8 @@ function buildAlbumsFromIndex(index) {
     albumMap.get(key).songs.push({
       title: s.title,
       artist: s.artist || "未知艺术家",
-      album: s.album || key,
+      album: s.album || title,
+      album_artist: s.album_artist,
       genre: s.genre,
       duration: s.duration,
       url: getAssetUrl(`/library/${file_path}`),
@@ -58,6 +62,7 @@ function buildAlbumsFromIndex(index) {
       codec: s.codec,
       year: s.year,
       importTime: s.importTime || Date.now(),
+      modification_time: s.modification_time,
     });
   });
   return Array.from(albumMap.values());
@@ -73,6 +78,7 @@ function buildAlbumsFromServer(data) {
         title: s.title,
         artist: s.artist || artistEntry.artist,
         album: s.album || albumEntry.album,
+        album_artist: s.album_artist,
         genre: s.genre,
         duration: s.duration,
         url: getAssetUrl(s.file_url),
@@ -87,15 +93,18 @@ function buildAlbumsFromServer(data) {
         codec: s.codec,
         year: s.year,
         importTime: Date.now(),
+        modification_time: s.modification_time,
       }));
       if (songs.length === 0) continue;
+      const firstSong = songs[0];
       loadedAlbums.push({
         id: albumId,
         title: albumEntry.album,
         artist: artistEntry.artist,
-        year: songs[0].year || null,
-        genre: songs[0].genre || null,
-        publisher: songs[0].publisher || null,
+        album_artist: firstSong.album_artist || null,
+        year: firstSong.year || null,
+        genre: firstSong.genre || null,
+        publisher: firstSong.publisher || null,
         coverURL: albumCover,
         importTime: Date.now(),
         songs,
@@ -106,11 +115,14 @@ function buildAlbumsFromServer(data) {
 }
 
 function mergeAlbumsByTitle(prev, newAlbums) {
+  // 合并键 = 专辑艺人 + 专辑名，避免同名不同专辑艺人的专辑被错误合并
+  const keyOf = (a) => `${a.album_artist || a.artist || ""}|${a.title}`;
   const merged = new Map();
-  for (const a of prev) merged.set(a.title, { ...a, songs: [...a.songs] });
+  for (const a of prev) merged.set(keyOf(a), { ...a, songs: [...a.songs] });
   for (const a of newAlbums) {
-    if (merged.has(a.title)) {
-      const existing = merged.get(a.title);
+    const k = keyOf(a);
+    if (merged.has(k)) {
+      const existing = merged.get(k);
       const existingPaths = new Set(existing.songs.map((s) => s.file_path).filter(Boolean));
       for (const s of a.songs) {
         if (!s.file_path || !existingPaths.has(s.file_path)) {
@@ -119,10 +131,29 @@ function mergeAlbumsByTitle(prev, newAlbums) {
       }
       if (!existing.coverURL && a.coverURL) existing.coverURL = a.coverURL;
     } else {
-      merged.set(a.title, { ...a, songs: [...a.songs] });
+      merged.set(k, { ...a, songs: [...a.songs] });
     }
   }
   return Array.from(merged.values());
+}
+
+/** 根据编辑返回的歌曲信息构建本地索引条目（保留 duration/bitrate 等只读字段） */
+function buildIndexSong(original, updated) {
+  let cover_path = original?.cover_path || null;
+  if (updated.cover_url) {
+    const p = updated.cover_url.replace(/^\/data\//, "");
+    if (p) cover_path = p;
+  }
+  return {
+    ...(original || {}),
+    ...updated,
+    file_path: updated.file_path,
+    album_artist: updated.album_artist !== undefined ? updated.album_artist : original?.album_artist,
+    cover_path,
+    coverURL: getAssetUrl(updated.cover_url),
+    url: getAssetUrl(updated.file_url),
+    importTime: Date.now(),
+  };
 }
 
 
@@ -244,6 +275,7 @@ export default function MusicLibrary() {
               title: res.title,
               artist: res.artist || "未知艺术家",
               album: res.album || "未知专辑",
+              album_artist: m.album_artist || null,
               year: m.year || null,
               genre: m.genre || null,
               duration: m.duration || null,
@@ -280,12 +312,15 @@ export default function MusicLibrary() {
     // 按专辑名分组
     const albumMap = new Map();
     for (const entry of entries) {
-      const key = entry.album || "未知专辑";
+      const title = entry.album || "未知专辑";
+      // 专辑归属键：专辑艺人 + 专辑名（无专辑艺人回退为曲目艺人）
+      const key = `${entry.album_artist || entry.artist || "未知艺术家"}|${title}`;
       if (!albumMap.has(key)) {
         albumMap.set(key, {
                         id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
-            title: key,
-            artist: entry.artist || "未知艺术家",
+            title,
+            artist: entry.album_artist || entry.artist || "未知艺术家",
+            album_artist: entry.album_artist || null,
             year: entry.year || null,
             genre: entry.genre || null,
             publisher: entry.publisher || null,
@@ -299,9 +334,11 @@ export default function MusicLibrary() {
         title: entry.title,
         artist: entry.artist,
         album: entry.album,
+        album_artist: entry.album_artist,
         genre: entry.genre,
         duration: entry.duration,
         url: entry.url,
+        file_path: entry.file_path,
         coverURL: entry.coverURL,
         trackNo: entry.trackNo,
         composer: entry.composer,
@@ -953,30 +990,135 @@ export default function MusicLibrary() {
   }
 
     // ---------- 编辑元信息 ----------
-    function handleOpenMusicEdit(target) {
+    async function handleOpenMusicEdit(target) {
+      // 打开歌曲编辑时预取歌词（含文件内嵌歌词），便于在歌词 Tab 中查看 / 修改
+      if (target.type === "song" && target.data?.file_path) {
+        try {
+          const res = await getLyrics(target.data.file_path);
+          if (res?.status === "ok") {
+            target = { ...target, data: { ...target.data, lyrics: res.lyrics || "" } };
+          }
+        } catch (err) {
+          console.warn("获取歌词失败:", err);
+        }
+      }
       setEditTarget(target);
     }
 
-    function handleSaveEdit(target, form, editCover) {
-      if (target.type === "album") {
-        setAlbums((prev) =>
-          prev.map((a) =>
-            a.id === target.data.id
-              ? { ...a, title: form.title, artist: form.artist, year: form.year ? parseInt(form.year) : null, genre: form.genre, publisher: form.publisher, ...(editCover ? { coverURL: editCover } : {}) }
-              : a
-          )
-        );
-      } else if (target.type === "song") {
-        setAlbums((prev) =>
-          prev.map((a) => ({
-            ...a,
-            songs: a.songs.map((s) =>
-              s.url === target.data.url && a.id === target.data.albumId
-                ? { ...s, title: form.title, artist: form.artist, album: form.album, genre: form.genre, trackNo: form.trackNo, composer: form.composer, lyricist: form.lyricist, publisher: form.publisher, comment: form.comment, ...(editCover ? { coverURL: editCover } : {}) }
-                : s
-            ),
-          }))
-        );
+    async function refreshFromServer() {
+      try {
+        const data = await getMusicList();
+        if (!Array.isArray(data)) return;
+        const serverAlbums = buildAlbumsFromServer(data);
+        setAlbums((prev) => {
+          // 服务端专辑整体以最新结果替换（移除已改名/已删除的旧歌曲、同步最新音轨号）
+          const localOnly = prev.filter((a) => !a.id.startsWith("server-"));
+          return [...localOnly.map((a) => ({ ...a, songs: [...a.songs] })), ...serverAlbums];
+        });
+      } catch (err) {
+        console.warn("刷新服务端专辑失败:", err);
+      }
+    }
+
+    async function handleSaveEdit(target, form, editCoverFile) {
+      const removedPaths = [];
+      const addedSongs = [];
+      try {
+        // 用于导航策略：找到所属专辑，判定是单曲专辑还是多曲专辑
+        const album = target.type === "song"
+          ? albums.find((a) => a.id === target.data.albumId)
+          : (target.type === "album" ? target.data : null);
+        const isSingleSong = album ? (album.songs || []).length === 1 : false;
+        const albumAlbumArtist = album?.album_artist;
+        const origArtist = target.data?.artist;
+        const origAlbumArtist = target.data?.album_artist;
+
+        if (target.type === "album") {
+          const albumData = target.data;
+          const common = {
+            artist: form.artist || undefined,
+            album_artist: form.album_artist !== undefined && form.album_artist !== null
+              ? (String(form.album_artist).trim() === "" ? " " : String(form.album_artist))
+              : undefined,
+            genre: form.genre || undefined,
+            year: form.year ? String(form.year) : undefined,
+            publisher: form.publisher || undefined,
+            ...(editCoverFile ? { cover: editCoverFile } : {}),
+          };
+          for (const song of albumData.songs || []) {
+            if (!song.file_path) continue;
+            const res = await updateMusicMetadata({
+              file_path: song.file_path,
+              album: form.title || undefined,
+              ...common,
+            });
+            if (res?.status === "ok" && res.song) {
+              removedPaths.push(song.file_path);
+              addedSongs.push(buildIndexSong(song, res.song));
+            }
+          }
+        } else if (target.type === "song") {
+          const res = await updateMusicMetadata({
+            file_path: target.data.file_path,
+            title: form.title || undefined,
+            artist: form.artist || undefined,
+            album: form.album || undefined,
+            album_artist: form.album_artist !== undefined && form.album_artist !== null
+              ? (String(form.album_artist).trim() === "" ? " " : String(form.album_artist))
+              : undefined,
+            genre: form.genre || undefined,
+            year: form.year ? String(form.year) : undefined,
+            trackNo:
+              form.trackNo !== undefined && form.trackNo !== null
+                ? (String(form.trackNo).trim() === "" ? " " : String(form.trackNo))
+                : undefined,
+            composer: form.composer || undefined,
+            lyricist: form.lyricist || undefined,
+            publisher: form.publisher || undefined,
+            comment: form.comment || undefined,
+            lyrics: form.lyrics || undefined,
+            ...(editCoverFile ? { cover: editCoverFile } : {}),
+          });
+          if (res?.status === "ok" && res.song) {
+            removedPaths.push(target.data.file_path);
+            addedSongs.push(buildIndexSong(target.data, res.song));
+          }
+        }
+
+        if (removedPaths.length > 0) {
+          removedPaths.forEach((p) => removeSongFromIndex(p));
+          addedSongs.forEach((s) => saveSongToIndex(s));
+          await refreshFromServer();
+
+          // ---- 导航策略 ----
+          let navigateHome = false;
+          if (target.type === "album") {
+            // 专辑级编辑始终返回资料库
+            navigateHome = true;
+          } else if (target.type === "song") {
+            const artistChanged = origArtist !== form.artist;
+            const albumArtistChanged = origAlbumArtist !== form.album_artist;
+
+            if (isSingleSong) {
+              // 单曲专辑：改艺人 / 专辑艺人 → 返回资料库；改歌名 → 留在原位
+              if (artistChanged || albumArtistChanged) navigateHome = true;
+            } else {
+              // 多曲专辑单曲编辑：仅当专辑艺人与该专辑不一致时搬家 → 返回资料库
+              if (albumArtistChanged && form.album_artist && form.album_artist !== albumAlbumArtist) {
+                navigateHome = true;
+              }
+            }
+          }
+
+          if (navigateHome) {
+            setDetailAlbumId(null);
+            setDetailArtistName(null);
+            setDetailPlaylistId(null);
+            setActiveNav("library");
+          }
+        }
+      } catch (err) {
+        console.warn("保存元信息失败:", err);
       }
     }
 

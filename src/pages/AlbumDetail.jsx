@@ -61,7 +61,7 @@ export default function AlbumDetail({
       </button>
 
             {/* 上半部分：左=封面 | 右=信息 */}
-      <div style={styles.topSection}>
+      <div style={styles.topSection} className="album-top">
         {/* 左：封面图（独立，不受右侧影响） */}
         <div style={styles.coverColumn}>
           {themeColor && <div style={{ ...styles.coverGlowLayer, ...coverGlowStyle }} />}
@@ -146,7 +146,7 @@ export default function AlbumDetail({
 
 
       {/* 下半部分：歌曲列表 */}
-      <div style={styles.bottomSection}>
+      <div style={styles.bottomSection} className="album-bottom">
         <div style={styles.songList}>
           {(() => {
             // 按音轨号排序，无音轨号排最后
@@ -362,6 +362,7 @@ const styles = {
       height: "100%",
       display: "flex",
       flexDirection: "column",
+      gap: "5px",
           background: "#ffffff",
       color: "#1f2937",
       fontFamily: "'Segoe UI', system-ui, -apple-system, sans-serif",
@@ -389,7 +390,7 @@ const styles = {
   },
 
     topSection: {
-    flex: "0 0 40%",
+    flex: "0 0 auto",
     display: "flex",
     flexDirection: "row",
     alignItems: "center",
@@ -400,7 +401,7 @@ const styles = {
 
     // 左列：封面（固定宽高，不受右侧影响）
     coverColumn: {
-      flex: "0 0 260px",
+      flex: "0 0 300px",
       alignSelf: "flex-start",
       position: "relative",
     },
@@ -410,8 +411,8 @@ const styles = {
       top: "50%",
       left: "50%",
       transform: "translate(-50%, -50%)",
-      width: "220px",
-      height: "220px",
+      width: "260px",
+      height: "260px",
       borderRadius: "12px",
       opacity: 0.9,
       pointerEvents: "none",
@@ -421,8 +422,8 @@ const styles = {
     coverWrapper: {
       position: "relative",
       zIndex: 1,
-      width: "260px",
-      height: "260px",
+      width: "300px",
+      height: "300px",
       borderRadius: "12px",
       overflow: "hidden",
       boxShadow: "0 16px 48px rgba(0,0,0,0.5), 0 0 30px rgba(233,69,96,0.08)",
@@ -438,14 +439,16 @@ const styles = {
   coverPlaceholderIcon: { fontSize: "64px", opacity: 0.3 },
 
     // 右列：信息区（纵向排列，后续新增内容直接往里加）
-  infoColumn: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "15px",
-    minWidth: 0,
-    alignSelf: "center",
-    marginTop:"85px"
-  },
+infoColumn: {
+  display: "flex",
+  flexDirection: "column",
+  gap: "15px",
+  minWidth: 0,
+  alignSelf: "flex-start",
+  position: "relative",
+  top: "90px",     
+  left: "5px",    
+},
   albumTitle: {
         fontSize: "32px", fontWeight: 700, color: "#1f2937",
     margin: 0, lineHeight: 1.2,
@@ -533,7 +536,7 @@ const styles = {
   },
 
     bottomSection: {
-    flex: 1, padding: "130px 170px 120px",
+    flex: "0 0 auto", padding: "60px 170px 120px",
     display: "flex", flexDirection: "column", minHeight: 0, overflow: "visible",
   },
     songListHeader: {

@@ -51,11 +51,38 @@ export async function checkMusicFiles(paths) {
   return res.json();
 }
 
+/** 编辑歌曲元信息（写入音乐文件内部标签 + data 备份 + manifest）
+ *  payload: { file_path, title?, artist?, album?, genre?, year?, trackNo?,
+ *             composer?, lyricist?, publisher?, comment?, lyrics?, cover?(File) }
+ *  注意：trackNo 传空字符串表示清除音轨号
+ */
+export async function updateMusicMetadata(payload) {
+  const form = new FormData();
+  for (const [k, v] of Object.entries(payload)) {
+    if (v === undefined || v === null) continue;
+    form.append(k, v);
+  }
+  const res = await fetch(`${BASE_URL}/api/music/edit`, {
+    method: "POST",
+    body: form,
+  });
+  return res.json();
+}
+
+/** 获取歌曲歌词（优先 data/Lyrics 备份，否则解析文件内嵌歌词） */
+export async function getLyrics(filePath) {
+  const params = new URLSearchParams({ file_path: filePath });
+  const res = await fetch(`${BASE_URL}/api/music/lyrics?${params}`);
+  return res.json();
+}
+
 export default {
   uploadMusic,
   getMusicList,
   deleteMusic,
   testConnection,
   checkMusicFiles,
+  updateMusicMetadata,
+  getLyrics,
   getAssetUrl,
 };

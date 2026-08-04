@@ -2,15 +2,15 @@ import os
 import re
 from mutagen import File
 from mutagen.mp3 import MP3
-from mutagen.flac import FLAC
+from mutagen.flac import FLAC, Picture
 from mutagen.oggvorbis import OggVorbis
 from mutagen.oggopus import OggOpus
 from mutagen.oggflac import OggFLAC
-from mutagen.mp4 import MP4
+from mutagen.mp4 import MP4, MP4Cover
 from mutagen.wave import WAVE
 from mutagen.aiff import AIFF
 from mutagen.asf import ASF
-from mutagen.id3 import ID3, APIC, USLT
+from mutagen.id3 import ID3, APIC, USLT, TIT2, TPE1, TPE2, TALB, TCON, TCOM, TEXT, TPUB, COMM, TDRC, TRCK
 
 
 def _first(val):
@@ -163,7 +163,7 @@ def _detect_and_extract(audio):
     meta = {
         "title": None, "artist": None, "album": None, "genre": None,
         "composer": None, "lyricist": None, "publisher": None, "comment": None,
-        "year": None, "trackNo": None,
+        "year": None, "trackNo": None, "album_artist": None,
     }
 
     # 1. MP3 → ID3
@@ -171,6 +171,7 @@ def _detect_and_extract(audio):
         tags = audio.tags
         meta["title"] = _get_id3(tags, "TIT2")
         meta["artist"] = _get_id3(tags, "TPE1")
+        meta["album_artist"] = _get_id3(tags, "TPE2")
         meta["album"] = _get_id3(tags, "TALB")
         meta["genre"] = _get_id3(tags, "TCON")
         meta["composer"] = _get_id3(tags, "TCOM")
@@ -184,7 +185,8 @@ def _detect_and_extract(audio):
     elif isinstance(audio, MP4):
         tags = audio.tags
         meta["title"] = _get_mp4(tags, "\xa9nam")
-        meta["artist"] = _get_mp4(tags, "\xa9ART") or _get_mp4(tags, "aART")
+        meta["artist"] = _get_mp4(tags, "\xa9ART")
+        meta["album_artist"] = _get_mp4(tags, "aART")
         meta["album"] = _get_mp4(tags, "\xa9alb")
         meta["genre"] = _get_mp4(tags, "\xa9gen")
         meta["composer"] = _get_mp4(tags, "\xa9wrt")
@@ -199,6 +201,7 @@ def _detect_and_extract(audio):
         tags = getattr(audio, "tags", None)
         meta["title"] = _get_vorbis(tags, "title")
         meta["artist"] = _get_vorbis(tags, "artist")
+        meta["album_artist"] = _get_vorbis(tags, "albumartist")
         meta["album"] = _get_vorbis(tags, "album")
         meta["genre"] = _get_vorbis(tags, "genre")
         meta["composer"] = _get_vorbis(tags, "composer")
@@ -227,6 +230,7 @@ def _detect_and_extract(audio):
         tags = audio.tags
         meta["title"] = _get_id3(tags, "TIT2")
         meta["artist"] = _get_id3(tags, "TPE1")
+        meta["album_artist"] = _get_id3(tags, "TPE2")
         meta["album"] = _get_id3(tags, "TALB")
         meta["genre"] = _get_id3(tags, "TCON")
         meta["composer"] = _get_id3(tags, "TCOM")
@@ -239,6 +243,7 @@ def _detect_and_extract(audio):
         tags = audio.tags
         meta["title"] = _get_asf(tags, "Title")
         meta["artist"] = _get_asf(tags, "Author")
+        meta["album_artist"] = _get_asf(tags, "WM/AlbumArtist")
         meta["album"] = _get_asf(tags, "WM/AlbumTitle")
         meta["genre"] = _get_asf(tags, "WM/Genre")
         meta["composer"] = _get_asf(tags, "WM/Composer")
@@ -265,7 +270,7 @@ def parse_metadata(file_path):
               lyrics, cover_data, cover_mime
     """
     meta = {
-        "title": None, "artist": None, "album": None,
+        "title": None, "artist": None, "album": None, "album_artist": None,
         "year": None, "genre": None, "trackNo": None,
         "composer": None, "lyricist": None, "publisher": None,
         "comment": None, "duration": None, "bitrate": None,
@@ -312,3 +317,211 @@ def parse_metadata(file_path):
     meta["lyrics"] = _extract_lyrics(audio)
 
     return meta
+
+
+# ================================================================
+# 写入元信息（编辑）
+# ================================================================
+
+ID3_MAPPING = {
+    "title": TIT2, "artist": TPE1, "album_artist": TPE2, "album": TALB, "genre": TCON,
+    "composer": TCOM, "lyricist": TEXT, "publisher": TPUB,
+}
+
+VORBIS_MAPPING = {
+    "title": "title", "artist": "artist", "album_artist": "albumartist",
+    "album": "album", "genre": "genre",
+    "composer": "composer", "lyricist": "lyricist", "publisher": "publisher",
+    "comment": "comment", "year": "date", "trackNo": "tracknumber",
+}
+
+ASF_MAPPING = {
+    "title": "Title", "artist": "Author", "album_artist": "WM/AlbumArtist",
+    "album": "WM/AlbumTitle",
+    "genre": "WM/Genre", "composer": "WM/Composer", "comment": "Description",
+    "year": "WM/Year", "trackNo": "WM/TrackNumber",
+}
+
+MP4_MAPPING = {
+    "title": "\xa9nam", "artist": "\xa9ART", "album_artist": "aART",
+    "album": "\xa9alb",
+    "genre": "\xa9gen", "composer": "\xa9wrt", "comment": "\xa9cmt",
+    "publisher": "cprt", "year": "\xa9day",
+}
+
+
+def _set_id3_frame(tags, cls, value):
+    """写入一个 ID3 帧（先删除同名帧再添加）"""
+    name = cls.__name__
+    try:
+        tags.delall(name)
+    except Exception:
+        pass
+    tags.add(cls(encoding=3, text=[str(value)]))
+
+
+def _write_id3(audio, meta, cover_data, cover_mime, lyrics, clear_fields=None):
+    tags = audio.tags
+    if tags is None:
+        audio.add_tags()
+        tags = audio.tags
+    for key, cls in ID3_MAPPING.items():
+        if meta.get(key) is not None:
+            _set_id3_frame(tags, cls, meta[key])
+    if meta.get("year") is not None:
+        _set_id3_frame(tags, TDRC, meta["year"])
+    if clear_fields and "trackNo" in clear_fields:
+        try:
+            tags.delall("TRCK")
+        except Exception:
+            pass
+    elif meta.get("trackNo") is not None:
+        _set_id3_frame(tags, TRCK, int(meta["trackNo"]))
+    if clear_fields and "album_artist" in clear_fields:
+        try:
+            tags.delall("TPE2")
+        except Exception:
+            pass
+    if lyrics is not None:
+        try:
+            tags.delall("USLT")
+        except Exception:
+            pass
+        tags.add(USLT(encoding=3, lang="eng", desc="", text=str(lyrics)))
+    if cover_data is not None:
+        try:
+            tags.delall("APIC")
+        except Exception:
+            pass
+        tags.add(APIC(encoding=3, mime=cover_mime or "image/jpeg", type=3, desc="cover", data=cover_data))
+    audio.save()
+
+
+def _write_vorbis(audio, meta, cover_data, cover_mime, lyrics, clear_fields=None):
+    tags = audio.tags
+    if tags is None:
+        audio.add_tags()
+        tags = audio.tags
+    for key, vkey in VORBIS_MAPPING.items():
+        if meta.get(key) is not None:
+            tags[vkey] = [str(meta[key])]
+    if clear_fields and "trackNo" in clear_fields:
+        for k in ("tracknumber", "track"):
+            try:
+                tags.pop(k, None)
+            except Exception:
+                pass
+    if clear_fields and "album_artist" in clear_fields:
+        try:
+            tags.pop("albumartist", None)
+        except Exception:
+            pass
+    if lyrics is not None:
+        tags["lyrics"] = [str(lyrics)]
+    if cover_data is not None and isinstance(audio, FLAC):
+        pic = Picture()
+        pic.type = 3
+        pic.mime = cover_mime or "image/jpeg"
+        pic.data = cover_data
+        try:
+            audio.clear_pictures()
+        except Exception:
+            pass
+        audio.add_picture(pic)
+    audio.save()
+
+
+def _write_mp4(audio, meta, cover_data, cover_mime, lyrics, clear_fields=None):
+    tags = audio.tags
+    if tags is None:
+        audio.add_tags()
+        tags = audio.tags
+    for key, atom in MP4_MAPPING.items():
+        if meta.get(key) is not None:
+            tags[atom] = [str(meta[key])]
+    if clear_fields and "trackNo" in clear_fields:
+        try:
+            tags.pop("trkn", None)
+        except Exception:
+            pass
+    elif meta.get("trackNo") is not None:
+        try:
+            total = tags["trkn"][0][1]
+        except Exception:
+            total = 0
+        tags["trkn"] = [(int(meta["trackNo"]), total)]
+    if clear_fields and "album_artist" in clear_fields:
+        try:
+            tags.pop("aART", None)
+        except Exception:
+            pass
+    if lyrics is not None:
+        tags["\xa9lyr"] = [str(lyrics)]
+    if cover_data is not None:
+        fmt = MP4Cover.FORMAT_PNG if (cover_mime or "").startswith("image/png") else MP4Cover.FORMAT_JPEG
+        tags["covr"] = [MP4Cover(cover_data, imageformat=fmt)]
+    audio.save()
+
+
+def _write_asf(audio, meta, cover_data, cover_mime, lyrics, clear_fields=None):
+    tags = audio.tags
+    if tags is None:
+        audio.add_tags()
+        tags = audio.tags
+    for key, akey in ASF_MAPPING.items():
+        if meta.get(key) is not None:
+            tags[akey] = [str(meta[key])]
+    if clear_fields and "trackNo" in clear_fields:
+        try:
+            del tags["WM/TrackNumber"]
+        except Exception:
+            pass
+    if clear_fields and "album_artist" in clear_fields:
+        try:
+            del tags["WM/AlbumArtist"]
+        except Exception:
+            pass
+    if lyrics is not None:
+        tags["Lyrics"] = [str(lyrics)]
+    audio.save()
+
+
+def write_metadata(file_path, meta=None, cover_data=None, cover_mime=None, lyrics=None, clear_fields=None):
+    """将元信息写入音频文件内部标签（编辑保存用）
+
+    参数：
+      meta         — dict，可含 title/artist/album/genre/year/trackNo/composer/
+                      lyricist/publisher/comment；值为 None 的字段跳过不写入
+      cover_data   — 封面二进制（可选，传入则写入内嵌封面）
+      cover_mime   — 封面 MIME（可选）
+      lyrics       — 歌词文本（可选，传入则写入内嵌歌词）
+      clear_fields — 需从文件标签中删除的字段名集合（如 {"trackNo"}），
+                     传入后对应字段会被移除而非写入
+
+    支持：MP3/AIFF(ID3)、M4A/MP4、FLAC/OGG/Opus(Vorbis)、WMA(ASF)。
+    其他格式尽力而为，失败返回 False。
+    """
+    if not os.path.exists(file_path):
+        return False
+    try:
+        audio = File(file_path)
+    except Exception:
+        return False
+    if audio is None:
+        return False
+
+    meta = meta or {}
+    try:
+        if isinstance(audio, MP4):
+            _write_mp4(audio, meta, cover_data, cover_mime, lyrics, clear_fields)
+        elif isinstance(audio, (FLAC, OggVorbis, OggOpus, OggFLAC)):
+            _write_vorbis(audio, meta, cover_data, cover_mime, lyrics, clear_fields)
+        elif isinstance(audio, (MP3, AIFF, WAVE)):
+            _write_id3(audio, meta, cover_data, cover_mime, lyrics, clear_fields)
+        elif isinstance(audio, ASF):
+            _write_asf(audio, meta, cover_data, cover_mime, lyrics, clear_fields)
+        else:
+            return False
+        return True
+    except Exception:
+        return False

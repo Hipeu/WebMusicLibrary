@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { FaChevronDown, FaList, FaMusic, FaHeart, FaRegHeart, FaEllipsisH, FaInfoCircle, FaPlus, FaCompactDisc, FaUser, FaStepForward, FaRedo, FaRandom } from "react-icons/fa";
 import Lyrics from "./Lyrics";
 import { parseLRC } from "../utils/LyricsParser";
+import { getLyrics } from "../services/api";
 import PlayerControls from "./PlayerControls";
 import useCoverColor from "./CoverColor";
 
@@ -310,10 +311,26 @@ export default function MusicPlayer({
     }
   }, [currentAlbumId, currentPlaylistId, currentSongIndex, currentSong?.url]);
 
+  // 自动加载歌词：优先后端备份，否则直接解析音乐文件内嵌歌词
+  useEffect(() => {
+    if (!currentSong?.file_path) return;
+    let cancelled = false;
+    getLyrics(currentSong.file_path)
+      .then((res) => {
+        if (cancelled) return;
+        if (res?.lyrics) {
+          setLyricsData(parseLRC(res.lyrics));
+        }
+      })
+      .catch((err) => console.warn("加载歌词失败:", err));
+    return () => {
+      cancelled = true;
+    };
+  }, [currentSong?.file_path]);
+
   // 切换播放模式或歌曲源时重置随机顺序
   useEffect(() => {
-    if (playMode !== "shuffle" || allSongs.length === 0) return;
-    const indices = Array.from({ length: allSongs.length }, (_, i) => i);
+    if (playMode !== "shuffle" || allSongs.length === 0) return;    const indices = Array.from({ length: allSongs.length }, (_, i) => i);
     for (let i = indices.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [indices[i], indices[j]] = [indices[j], indices[i]];

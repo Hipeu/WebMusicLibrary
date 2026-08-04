@@ -215,6 +215,7 @@ async def upload_music(file: UploadFile = File(...)):
         "title": title,
         "artist": artist,
         "album": album,
+        "album_artist": meta.get("album_artist"),
         "genre": meta.get("genre"),
         "year": meta.get("year"),
         "duration": meta.get("duration"),
@@ -261,9 +262,11 @@ def list_music():
     # 1. 从清单构建（含缺失文件，标记 file_exists）
     for file_path, s in manifest.items():
         exists = os.path.exists(os.path.join(MUSIC_LIBRARY, file_path))
-        artist = s.get("artist") or "Various Artists"
+        track_artist = s.get("artist") or "Various Artists"
         album = s.get("album") or "Unknown Album"
-        g = ensure_group(artist, album)
+        # 专辑归属由「专辑艺人」决定，无专辑艺人则回退为曲目艺人
+        group_artist = s.get("album_artist") or track_artist
+        g = ensure_group(group_artist, album)
         cover_path = s.get("cover_path")
         if cover_path and os.path.exists(os.path.join(DATA_DIR, cover_path)):
             g["cover_url"] = f"/data/{cover_path}"
@@ -281,8 +284,9 @@ def list_music():
         song_cover_url = f"/data/{cover_path}" if cover_path and os.path.exists(os.path.join(DATA_DIR, cover_path)) else None
         g["songs"].append({
             "title": meta.get("title") or s.get("title") or os.path.splitext(os.path.basename(file_path))[0],
-            "artist": meta.get("artist") or s.get("artist") or artist,
+            "artist": meta.get("artist") or s.get("artist") or track_artist,
             "album": meta.get("album") or s.get("album") or album,
+            "album_artist": meta.get("album_artist") if meta.get("album_artist") is not None else s.get("album_artist"),
             "genre": meta.get("genre") if meta.get("genre") is not None else s.get("genre"),
             "duration": meta.get("duration") if meta.get("duration") is not None else s.get("duration"),
             "trackNo": meta.get("trackNo") if meta.get("trackNo") is not None else s.get("trackNo"),
@@ -293,6 +297,7 @@ def list_music():
             "comment": meta.get("comment") if meta.get("comment") is not None else s.get("comment"),
             "bitrate": meta.get("bitrate") if meta.get("bitrate") is not None else s.get("bitrate"),
             "codec": meta.get("codec") if meta.get("codec") is not None else s.get("codec"),
+            "modification_time": meta.get("modification_time") if meta.get("modification_time") is not None else s.get("modification_time"),
             "file_path": file_path,
             "file_url": f"/library/{file_path}",
             "cover_url": song_cover_url,
@@ -328,7 +333,7 @@ def list_music():
                                 meta = json.load(jf)
                         except Exception:
                             pass
-                    g = ensure_group(artist_name, album_name)
+                    g = ensure_group(meta.get("album_artist") or artist_name, album_name)
                     # 封面优先从 data/picture 读取
                     data_cover = find_cover_in_dir(os.path.join(PICTURE_DIR, artist_name, album_name))
                     if data_cover and not g["cover_url"]:
@@ -337,6 +342,7 @@ def list_music():
                         "title": meta.get("title") or base,
                         "artist": meta.get("artist") or artist_name,
                         "album": meta.get("album") or album_name,
+                        "album_artist": meta.get("album_artist"),
                         "genre": meta.get("genre"),
                         "duration": meta.get("duration"),
                         "trackNo": meta.get("trackNo"),
@@ -347,6 +353,7 @@ def list_music():
                         "comment": meta.get("comment"),
                         "bitrate": meta.get("bitrate"),
                         "codec": meta.get("codec"),
+                        "modification_time": meta.get("modification_time"),
                         "file_path": rel_path,
                         "file_url": f"/library/{rel_path}",
                         "cover_url": f"/data/picture/{artist_name}/{album_name}/{data_cover}" if data_cover else None,
