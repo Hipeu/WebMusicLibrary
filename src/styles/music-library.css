@@ -78,6 +78,9 @@
 .sidebar-item:hover .sidebar-delete-btn {
   opacity: 1 !important;
 }
+.sidebar-item:hover .sidebar-more-btn {
+  opacity: 1 !important;
+}
 
 /* 歌曲表格行 - 复选框默认隐藏，hover 时显示，
    但选中的行(isSelecting模式下)或已被勾选的行始终显示 */

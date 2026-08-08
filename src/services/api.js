@@ -76,6 +76,22 @@ export async function getLyrics(filePath) {
   return res.json();
 }
 
+/** 获取播放列表（后端 data/playlists.json，跨浏览器一致） */
+export async function getPlaylists() {
+  const res = await fetch(`${BASE_URL}/api/playlists`);
+  return res.json();
+}
+
+/** 整体覆盖保存播放列表到后端 */
+export async function savePlaylists(list) {
+  const res = await fetch(`${BASE_URL}/api/playlists`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(list),
+  });
+  return res.json();
+}
+
 export default {
   uploadMusic,
   getMusicList,
@@ -84,5 +100,7 @@ export default {
   checkMusicFiles,
   updateMusicMetadata,
   getLyrics,
+  getPlaylists,
+  savePlaylists,
   getAssetUrl,
 };

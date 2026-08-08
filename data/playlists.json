@@ -1,0 +1,91 @@
+[
+  {
+    "id": "liked",
+    "name": "我喜欢的音乐",
+    "description": "",
+    "coverURL": null,
+    "pinned": false,
+    "songs": []
+  },
+  {
+    "id": "recent",
+    "name": "最近播放",
+    "description": "最近播放的歌曲",
+    "coverURL": null,
+    "pinned": false,
+    "songs": [
+      {
+        "file_path": "洛天依/有兽焉/有兽焉.flac",
+        "title": "有兽焉",
+        "artist": "洛天依",
+        "album": "有兽焉",
+        "coverURL": "http://127.0.0.1:8000/data/picture/洛天依/有兽焉/cover.jpg",
+        "duration": 255.2
+      },
+      {
+        "file_path": "成龙&周华健&王力宏&谢霆锋&张杰/恭喜自己/恭喜自己.flac",
+        "title": "恭喜自己",
+        "artist": "成龙&周华健&王力宏&谢霆锋&张杰",
+        "album": "恭喜自己",
+        "coverURL": "http://127.0.0.1:8000/data/picture/成龙&周华健&王力宏&谢霆锋&张杰/恭喜自己/cover.jpg",
+        "duration": 283.2
+      },
+      {
+        "file_path": "潘修宇/大理寺日志第二季动画原声带/逐流.flac",
+        "title": "逐流",
+        "artist": "潘修宇",
+        "album": "大理寺日志第二季动画原声带",
+        "coverURL": "http://127.0.0.1:8000/data/picture/潘修宇/大理寺日志第二季动画原声带/cover.jpg",
+        "duration": 149.7
+      },
+      {
+        "file_path": "方大同/爱爱爱/爱爱爱.flac",
+        "title": "爱爱爱",
+        "artist": "方大同",
+        "album": "爱爱爱",
+        "coverURL": "http://127.0.0.1:8000/data/picture/方大同/爱爱爱/cover.jpg",
+        "duration": 213.3
+      },
+      {
+        "file_path": "王心凌/像我们从前/像我们从前.flac",
+        "title": "像我们从前",
+        "artist": "王心凌",
+        "album": "像我们从前",
+        "coverURL": "http://127.0.0.1:8000/data/picture/王心凌/像我们从前/cover.jpg",
+        "duration": 211.7
+      },
+      {
+        "file_path": "张碧晨/在故事的最终/在故事的最终.m4a",
+        "title": "在故事的最终",
+        "artist": "张碧晨",
+        "album": "在故事的最终",
+        "coverURL": "http://127.0.0.1:8000/data/picture/张碧晨/在故事的最终/cover.jpg",
+        "duration": 246.7
+      },
+      {
+        "file_path": "方大同/梦想家 The Dreamer/回留.flac",
+        "title": "回留",
+        "artist": "方大同",
+        "album": "梦想家 The Dreamer",
+        "coverURL": "http://127.0.0.1:8000/data/picture/方大同/梦想家 The Dreamer/cover.jpg",
+        "duration": 236.3
+      },
+      {
+        "file_path": "魯士郎/《喜羊羊與灰太狼之筐出未來》大電影原聲帶 - EP/灌籃青春 (《喜羊羊與灰太狼之筐出未來》大電影插曲).m4a",
+        "title": "灌籃青春 (《喜羊羊與灰太狼之筐出未來》大電影插曲)",
+        "artist": "魯士郎",
+        "album": "《喜羊羊與灰太狼之筐出未來》大電影原聲帶 - EP",
+        "coverURL": "http://127.0.0.1:8000/data/picture/魯士郎/《喜羊羊與灰太狼之筐出未來》大電影原聲帶 - EP/cover.jpg",
+        "duration": 183.6
+      },
+      {
+        "file_path": "Tank/月如歌/月如歌.flac",
+        "title": "月如歌",
+        "artist": "Tank",
+        "album": "月如歌",
+        "coverURL": "http://127.0.0.1:8000/data/picture/Tank/月如歌/cover.jpg",
+        "duration": 235
+      }
+    ]
+  }
+]

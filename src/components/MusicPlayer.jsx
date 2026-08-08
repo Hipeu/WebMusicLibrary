@@ -463,12 +463,16 @@ export default function MusicPlayer({
                                    <div style={styles.detailLeft}>
                                     <div style={{ ...styles.coverGlowLayer, ...coverGlowStyle, ...coverGlowDisplay }} />
                                     <div style={styles.coverContainer}>
-                                      {(displayAlbum.coverURL || currentSong?.coverURL) ? (
-                                        <img src={displayAlbum.coverURL || currentSong?.coverURL} alt={displayAlbum.title} style={styles.detailCover} />
-                                      ) : (
-                                        <div style={styles.detailCoverPlaceholder}>
-                                          <span style={styles.detailCoverPlaceholderIcon}>🎵</span>
-                                        </div>
+                                      <div style={styles.detailCoverPlaceholder}>
+                                        <span style={styles.detailCoverPlaceholderIcon}>🎵</span>
+                                      </div>
+                                      {(displayAlbum.coverURL || currentSong?.coverURL) && (
+                                        <img
+                                          src={displayAlbum.coverURL || currentSong?.coverURL}
+                                          alt={displayAlbum.title}
+                                          onError={(e) => { e.currentTarget.style.display = "none"; }}
+                                          style={{ ...styles.detailCover, position: "absolute", inset: 0 }}
+                                        />
                                       )}
                                     </div>
 

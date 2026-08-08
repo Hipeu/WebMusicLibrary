@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from routers.musicload import router as music_router
 from routers.MusicEdit import router as music_edit_router
+from routers.Playlists import router as playlists_router
 
 app = FastAPI()
 
@@ -18,6 +19,7 @@ app.add_middleware(
 # 注册音乐管理路由
 app.include_router(music_router)
 app.include_router(music_edit_router)
+app.include_router(playlists_router)
 
 # 静态文件服务 — 让前端可以通过 URL 直接访问音乐库文件
 MUSIC_LIBRARY = os.path.join(os.path.expanduser("~"), "Music", "Music_Library")

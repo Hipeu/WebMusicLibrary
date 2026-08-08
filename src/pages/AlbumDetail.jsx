@@ -66,12 +66,16 @@ export default function AlbumDetail({
         <div style={styles.coverColumn}>
           {themeColor && <div style={{ ...styles.coverGlowLayer, ...coverGlowStyle }} />}
           <div style={styles.coverWrapper}>
-            {album.coverURL ? (
-              <img src={album.coverURL} alt={album.title} style={styles.cover} />
-            ) : (
-              <div style={styles.coverPlaceholder}>
-                <span style={styles.coverPlaceholderIcon}>🎶</span>
-              </div>
+            <div style={styles.coverPlaceholder}>
+              <span style={styles.coverPlaceholderIcon}>🎶</span>
+            </div>
+            {album.coverURL && (
+              <img
+                src={album.coverURL}
+                alt={album.title}
+                onError={(e) => { e.currentTarget.style.display = "none"; }}
+                style={{ ...styles.cover, position: "absolute", inset: 0 }}
+              />
             )}
             {albumAllMissing && <div style={styles.coverMissingOverlay} />}
           </div>

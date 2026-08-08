@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { FiPlus } from "react-icons/fi";
-import { FaEllipsisH, FaCompactDisc, FaUser, FaHeart, FaStepForward, FaClock, FaPlus, FaSortAmountDown, FaArrowUp, FaTrash, FaMusic, FaInfoCircle, FaCog } from "react-icons/fa";
+import { FaEllipsisH, FaCompactDisc, FaUser, FaHeart, FaStepForward, FaClock, FaPlus, FaSortAmountDown, FaArrowUp, FaTrash, FaMusic, FaInfoCircle, FaCog, FaPlay } from "react-icons/fa";
 import { readMetadata } from "../utils/MetadataReader";
-import { uploadMusic, getMusicList, getAssetUrl, deleteMusic, checkMusicFiles, updateMusicMetadata, getLyrics } from "../services/api";
+import { uploadMusic, getMusicList, getAssetUrl, deleteMusic, checkMusicFiles, updateMusicMetadata, getLyrics, getPlaylists, savePlaylists } from "../services/api";
 import { saveSongToIndex, removeSongFromIndex, loadMusicIndex } from "../utils/musicIndex";
+import { normalizePlaylists, loadPlaylistCache, savePlaylistCache } from "../utils/playlistStore";
 import MusicPlayer from "../components/MusicPlayer";
 import AlbumDetail from "./AlbumDetail";
 import ArtistsDetail from "./ArtistsDetail";
@@ -156,6 +157,20 @@ function buildIndexSong(original, updated) {
   };
 }
 
+const DEFAULT_PLAYLISTS = [
+  { id: "liked", name: "我喜欢的音乐", songs: [], description: "" },
+  { id: "recent", name: "最近播放", songs: [], description: "最近播放的歌曲" },
+];
+
+/** 保证 liked / recent 始终存在 */
+function ensureDefaultPlaylists(playlists) {
+  const ids = new Set((playlists || []).map((p) => p.id));
+  const base = [...(playlists || [])];
+  if (!ids.has("liked")) base.push({ id: "liked", name: "我喜欢的音乐", songs: [], description: "" });
+  if (!ids.has("recent")) base.push({ id: "recent", name: "最近播放", songs: [], description: "最近播放的歌曲" });
+  return base;
+}
+
 
 /* ======================================================
    🎵 MusicLibrary — 音乐资料库主应用
@@ -183,6 +198,7 @@ export default function MusicLibrary() {
   const [newPlaylistCover, setNewPlaylistCover] = useState(null);
   const [newPlaylistName, setNewPlaylistName] = useState("");
   const [newPlaylistDesc, setNewPlaylistDesc] = useState("");
+  const [editingPlaylistId, setEditingPlaylistId] = useState(null); // null=新建，有值=编辑该播放列表
   const coverInputRef = useRef(null);
   const [panelTarget, setPanelTarget] = useState(null); // {type:"song",data} | {type:"album",data}
   const [panelSearch, setPanelSearch] = useState("");
@@ -201,10 +217,11 @@ export default function MusicLibrary() {
     const [activeNav, setActiveNav] = useState("library");
 
     // ---------- 播放列表（与侧边栏共享） ----------
-    const [playlists, setPlaylists] = useState([
-    { id: "liked", name: "我喜欢的音乐", songs: [], description: "" },
-    { id: "recent", name: "最近播放", songs: [], description: "最近播放的歌曲" },
-  ]);
+    const [playlists, setPlaylists] = useState(() => {
+      // 优先读本地缓存实现首屏秒出，否则用默认
+      const cached = loadPlaylistCache();
+      return ensureDefaultPlaylists(cached && cached.length > 0 ? cached : DEFAULT_PLAYLISTS);
+    });
 
                 // ---------- 播放队列（插播/稍后播放） ----------
         const [playQueue, setPlayQueue] = useState([]); // 额外播放队列，插播插入到下一首，稍后播放追加到末尾
@@ -240,6 +257,53 @@ export default function MusicLibrary() {
     setNewPlaylistCover(null);
     setNewPlaylistName("");
     setNewPlaylistDesc("");
+  }
+
+  // ---------- 打开新建播放列表弹窗（复位为新建模式） ----------
+  function handleOpenCreatePlaylist() {
+    setEditingPlaylistId(null);
+    setNewPlaylistCover(null);
+    setNewPlaylistName("");
+    setNewPlaylistDesc("");
+    setShowCreatePlaylist(true);
+  }
+
+  // ---------- 打开编辑播放列表弹窗（复用新建弹窗，预填当前内容） ----------
+  function handleOpenPlaylistEdit(playlist) {
+    if (!playlist) return;
+    setNewPlaylistName(playlist.name || "");
+    setNewPlaylistDesc(playlist.description || "");
+    setNewPlaylistCover(playlist.coverURL || null);
+    setEditingPlaylistId(playlist.id);
+    setShowCreatePlaylist(true);
+  }
+
+  // ---------- 关闭弹窗（复位） ----------
+  function handleCloseCreatePlaylist() {
+    setShowCreatePlaylist(false);
+    setEditingPlaylistId(null);
+    setNewPlaylistCover(null);
+    setNewPlaylistName("");
+    setNewPlaylistDesc("");
+  }
+
+  // ---------- 弹窗提交：编辑则更新，新建则创建 ----------
+  function handlePlaylistFormSubmit() {
+    if (editingPlaylistId) {
+      const target = playlists.find((p) => p.id === editingPlaylistId);
+      if (target) {
+        const updated = {
+          ...target,
+          name: newPlaylistName.trim() || target.name,
+          description: newPlaylistDesc.trim(),
+        };
+        if (newPlaylistCover) updated.coverURL = newPlaylistCover;
+        handleUpdatePlaylist(editingPlaylistId, updated);
+      }
+      handleCloseCreatePlaylist();
+    } else {
+      handleCreatePlaylistWithDetails();
+    }
   }
 
   function handleDeletePlaylist(id) {
@@ -365,14 +429,16 @@ export default function MusicLibrary() {
     const newAlbums = Array.from(albumMap.values());
 
         setAlbums((prev) => {
-      // 合并到已有专辑中（按专辑名匹配）
+      // 合并到已有专辑中（按「专辑艺人/艺人 + 专辑名」匹配，与分组键一致）
+      const albumKey = (a) => `${a.album_artist || a.artist || "未知艺术家"}|${a.title}`;
       const merged = new Map();
       for (const a of prev) {
-        merged.set(a.title, { ...a, songs: [...a.songs] });
+        merged.set(albumKey(a), { ...a, songs: [...a.songs] });
       }
       for (const a of newAlbums) {
-        if (merged.has(a.title)) {
-          const existing = merged.get(a.title);
+        const k = albumKey(a);
+        if (merged.has(k)) {
+          const existing = merged.get(k);
           // 合并歌曲，去重
           const existingUrls = new Set(existing.songs.map((s) => s.url));
           for (const s of a.songs) {
@@ -397,7 +463,7 @@ export default function MusicLibrary() {
             existing.genre = a.genre;
           }
         } else {
-          merged.set(a.title, { ...a, songs: [...a.songs] });
+          merged.set(k, { ...a, songs: [...a.songs] });
         }
       }
       return Array.from(merged.values());
@@ -1156,6 +1222,20 @@ export default function MusicLibrary() {
         arr.splice(1, 0, item);
         return arr;
       });
+    } else if (action === "play") {
+      const songs = (playlist.songs || []).map(s => ({ ...s, albumId: playlist.id }));
+      if (songs.length === 0) return;
+      if (currentPlaylistId === playlist.id) {
+        togglePlay();
+      } else {
+        setCurrentAlbumId(null);
+        setCurrentPlaylistId(playlist.id);
+        setPlayQueue([]);
+        setCurrentSongIndex(0);
+        setIsPlaying(true);
+      }
+    } else if (action === "edit") {
+      handleOpenPlaylistEdit(playlist);
     } else if (action === "playNext") {
       const songs = playlist.songs.map(s => ({ ...s, albumId: playlist.id }));
       if (songs.length === 0) return;
@@ -1284,6 +1364,64 @@ export default function MusicLibrary() {
     reconcile();
   }, []);
 
+  // ---------- 播放列表：后端合并（后端为准，空则用本地缓存做种子） ----------
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const server = await getPlaylists();
+        if (cancelled) return;
+        if (Array.isArray(server) && server.length > 0) {
+          // 后端有数据 → 以它为准，并同步本地缓存
+          setPlaylists(ensureDefaultPlaylists(server));
+          savePlaylistCache(server);
+        } else {
+          // 后端空 → 把本地缓存的播放列表推上去作为种子
+          setPlaylists((prev) => {
+            if (prev.length > 0) savePlaylists(normalizePlaylists(prev)).catch(() => {});
+            return prev;
+          });
+        }
+      } catch {
+        // 后端不可用：保持本地缓存
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // ---------- 播放列表：防抖双写（localStorage 缓存 + 后端文件） ----------
+  useEffect(() => {
+    const t = setTimeout(() => {
+      savePlaylistCache(playlists);
+      savePlaylists(normalizePlaylists(playlists)).catch(() => {});
+    }, 500);
+    return () => clearTimeout(t);
+  }, [playlists]);
+
+  // ---------- 播放列表：专辑就绪后，用 file_path 把快照替换为最新歌曲对象 ----------
+  useEffect(() => {
+    const lookup = new Map();
+    for (const a of albums) {
+      for (const s of a.songs || []) {
+        if (s.file_path && !lookup.has(s.file_path)) lookup.set(s.file_path, s);
+      }
+    }
+    setPlaylists((prev) =>
+      prev.map((pl) => {
+        let changed = false;
+        const songs = (pl.songs || []).map((s) => {
+          const live = s.file_path ? lookup.get(s.file_path) : null;
+          if (live && (s.url !== live.url || s.title !== live.title)) {
+            changed = true;
+            return live;
+          }
+          return s;
+        });
+        return changed ? { ...pl, songs } : pl;
+      })
+    );
+  }, [albums]);
+
   // ---------- 定期检测缺失的音乐文件（用户可能在资源管理器删除） ----------
   useEffect(() => {
     let timer;
@@ -1380,8 +1518,8 @@ export default function MusicLibrary() {
         return (b.songs?.length || 0) - (a.songs?.length || 0);
       case "recent_add":
       default:
-        // 按 id（含时间戳）降序，最新的在前
-        return b.id.localeCompare(a.id);
+        // 按导入时间降序，最新导入的在前（立即展示新导入的音乐）
+        return (b.importTime || 0) - (a.importTime || 0);
     }
   });
 
@@ -1440,8 +1578,8 @@ export default function MusicLibrary() {
       const yearB = b.year || 9999;
       return yearA - yearB;
     }
-    // "recent_add" — 按 id（含时间戳）降序，最新的在前
-    return b.id.localeCompare(a.id);
+    // "recent_add" — 按导入时间降序，最新导入的在前
+    return (b.importTime || 0) - (a.importTime || 0);
   });
 
       // ---------- 渲染 ----------
@@ -1459,7 +1597,7 @@ export default function MusicLibrary() {
                               onNavChange={handleNavChange}
                               playlists={playlists}
                               onCreatePlaylist={handleCreatePlaylist}
-                              onDeletePlaylist={handleDeletePlaylist}
+                              onOpenPlaylistMenu={handleOpenPlaylistMenu}
                               onRenamePlaylist={handleRenamePlaylist}
                               filterText={filterText}
                               setFilterText={setFilterText}
@@ -1494,7 +1632,7 @@ export default function MusicLibrary() {
                               <FaMusic size={14} style={{ marginRight: "10px" }} />
                               <span>添加歌曲</span>
                             </div>
-                            <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => { setShowImportMenu(false); setShowCreatePlaylist(true); }}>
+                            <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => { setShowImportMenu(false); handleOpenCreatePlaylist(); }}>
                               <FaPlus size={14} style={{ marginRight: "10px" }} />
                               <span>新建播放列表</span>
                             </div>
@@ -1583,7 +1721,7 @@ export default function MusicLibrary() {
                     <PlaylistDetail
                       playlist={playlists.find((p) => p.id === detailPlaylistId)}
                       playlists={playlists}
-                      onUpdatePlaylist={handleUpdatePlaylist}
+                      onEditPlaylist={handleOpenPlaylistEdit}
                       missingSongs={missingSongs}
                       onMissingSongClick={(song) => setMissingDialogSong(song)}
                       currentSongIndex={
@@ -1719,12 +1857,16 @@ export default function MusicLibrary() {
                               onClick={() => handleOpenAlbumDetail(album.id)}
                             >
                               <div style={styles.coverWrapper}>
-                                {album.coverURL ? (
-                                  <img src={album.coverURL} alt={album.title} style={styles.coverImage} />
-                                ) : (
-                                  <div style={styles.coverPlaceholder}>
-                                    <span style={styles.coverPlaceholderIcon}>🎶</span>
-                                  </div>
+                                <div style={styles.coverPlaceholder}>
+                                  <span style={styles.coverPlaceholderIcon}>🎶</span>
+                                </div>
+                                {album.coverURL && (
+                                  <img
+                                    src={album.coverURL}
+                                    alt={album.title}
+                                    onError={(e) => { e.currentTarget.style.display = "none"; }}
+                                    style={{ ...styles.coverImage, position: "absolute", inset: 0 }}
+                                  />
                                 )}
                                                                 <CoverPlayButton
                                   isActive={album.id === currentAlbumId}
@@ -1833,10 +1975,20 @@ export default function MusicLibrary() {
                             return a.localeCompare(b, "zh-CN");
                           }).map((artist) => {
                             const artistAlbums = albums.filter((a) => a.artist === artist);
+                            // 无艺人形象照时，取该艺人自己专辑中一张有封面的封面作头像
+                            const artistCover = artistAlbums.find((a) => a.coverURL)?.coverURL || null;
                             return (
                               <div key={artist} style={styles.artistCard} onClick={() => handleOpenArtistDetail(artist)}>
                                 <div style={styles.artistAvatar}>
                                   <span style={styles.artistAvatarIcon}>👤</span>
+                                  {artistCover && (
+                                    <img
+                                      src={artistCover}
+                                      alt=""
+                                      onError={(e) => { e.currentTarget.style.display = "none"; }}
+                                      style={styles.artistAvatarImg}
+                                    />
+                                  )}
                                 </div>
                                 <p style={styles.artistName}>{artist}</p>
                                 <p style={styles.artistAlbumCount}>{artistAlbums.length} 个专辑</p>
@@ -2043,10 +2195,18 @@ export default function MusicLibrary() {
                                                                     <div style={styles.songCoverThumb}>
                                                                       {(() => {
                                                                         const album = albums.find((a) => a.id === song.albumId);
-                                                                        return album?.coverURL ? (
-                                                                          <img src={album.coverURL} alt="" style={styles.songCoverThumbImg} />
-                                                                        ) : (
-                                                                          <span style={styles.songCoverThumbPlaceholder}>🎶</span>
+                                                                        return (
+                                                                          <>
+                                                                            <span style={styles.songCoverThumbPlaceholder}>🎶</span>
+                                                                            {album?.coverURL && (
+                                                                              <img
+                                                                                src={album.coverURL}
+                                                                                alt=""
+                                                                                onError={(e) => { e.currentTarget.style.display = "none"; }}
+                                                                                style={{ ...styles.songCoverThumbImg, position: "absolute", inset: 0 }}
+                                                                              />
+                                                                            )}
+                                                                          </>
                                                                         );
                                                                       })()}
                                                                     </div>
@@ -2230,12 +2390,16 @@ export default function MusicLibrary() {
                                             onClick={() => handleOpenPlaylistDetail(pl.id)}
                                           >
                                             <div style={styles.coverWrapper}>
-                                              {pl.coverURL ? (
-                                                <img src={pl.coverURL} alt={pl.name} style={styles.coverImage} />
-                                              ) : (
-                                                <div style={styles.playlistCoverPlaceholder}>
-                                                  {pl.id === "liked" ? "❤️" : pl.id === "recent" ? "🕐" : "📋"}
-                                                </div>
+                                              <div style={styles.playlistCoverPlaceholder}>
+                                                {pl.id === "liked" ? "❤️" : pl.id === "recent" ? "🕐" : "📋"}
+                                              </div>
+                                              {pl.coverURL && (
+                                                <img
+                                                  src={pl.coverURL}
+                                                  alt={pl.name}
+                                                  onError={(e) => { e.currentTarget.style.display = "none"; }}
+                                                  style={{ ...styles.coverImage, position: "absolute", inset: 0 }}
+                                                />
                                               )}
                                             </div>
                                             <div style={styles.albumTitleRow}>
@@ -2313,12 +2477,16 @@ export default function MusicLibrary() {
                                               onClick={() => handleOpenAlbumDetail(album.id)}
                                             >
                                               <div style={styles.coverWrapper}>
-                                                {album.coverURL ? (
-                                                  <img src={album.coverURL} alt={album.title} style={styles.coverImage} />
-                                                ) : (
-                                                  <div style={styles.coverPlaceholder}>
-                                                    <span style={styles.coverPlaceholderIcon}>🎶</span>
-                                                  </div>
+                                                <div style={styles.coverPlaceholder}>
+                                                  <span style={styles.coverPlaceholderIcon}>🎶</span>
+                                                </div>
+                                                {album.coverURL && (
+                                                  <img
+                                                    src={album.coverURL}
+                                                    alt={album.title}
+                                                    onError={(e) => { e.currentTarget.style.display = "none"; }}
+                                                    style={{ ...styles.coverImage, position: "absolute", inset: 0 }}
+                                                  />
                                                 )}
                                                 <CoverPlayButton
                                                   isActive={album.id === currentAlbumId}
@@ -2355,12 +2523,16 @@ export default function MusicLibrary() {
                                             onClick={() => handleOpenPlaylistDetail(pl.id)}
                                           >
                                             <div style={styles.coverWrapper}>
-                                              {pl.coverURL ? (
-                                                <img src={pl.coverURL} alt={pl.name} style={styles.coverImage} />
-                                              ) : (
-                                                <div style={styles.playlistCoverPlaceholder}>
-                                                  {pl.id === "liked" ? "❤️" : pl.id === "recent" ? "🕐" : "📋"}
-                                                </div>
+                                              <div style={styles.playlistCoverPlaceholder}>
+                                                {pl.id === "liked" ? "❤️" : pl.id === "recent" ? "🕐" : "📋"}
+                                              </div>
+                                              {pl.coverURL && (
+                                                <img
+                                                  src={pl.coverURL}
+                                                  alt={pl.name}
+                                                  onError={(e) => { e.currentTarget.style.display = "none"; }}
+                                                  style={{ ...styles.coverImage, position: "absolute", inset: 0 }}
+                                                />
                                               )}
                                             </div>
                                             <div style={styles.albumTitleRow}>
@@ -2429,70 +2601,81 @@ export default function MusicLibrary() {
                                     )}
 
 
-
-                                    {/* 播放列表操作菜单 */}
-                                    {playlistMenu && (
-                                      <>
-                                        <div style={styles.contextOverlay} onClick={handleClosePlaylistMenu} />
-                                        <div
-                                          style={{
-                                            ...styles.contextMenu,
-                                            left: playlistMenu.x,
-                                            top: playlistMenu.y,
-                                          }}
-                                        >
-                                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handlePlaylistMenuAction("pin", playlistMenu.playlist)}>
-                                            <FaArrowUp size={14} style={{ marginRight: "10px" }} />
-                                            <span>置顶</span>
-                                          </div>
-                                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handlePlaylistMenuAction("playNext", playlistMenu.playlist)}>
-                                            <FaStepForward size={14} style={{ marginRight: "10px" }} />
-                                            <span>插播</span>
-                                          </div>
-                                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handlePlaylistMenuAction("playLater", playlistMenu.playlist)}>
-                                            <FaClock size={14} style={{ marginRight: "10px" }} />
-                                            <span>稍后播放</span>
-                                          </div>
-                                          {playlistMenu.playlist.id !== "liked" && playlistMenu.playlist.id !== "recent" && (
-                                            <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handlePlaylistMenuAction("delete", playlistMenu.playlist)}>
-                                              <FaTrash size={14} style={{ marginRight: "10px" }} />
-                                              <span>删除</span>
-                                            </div>
-                                          )}
-                                        </div>
-                                      </>
-                                    )}
-
-                                    {/* 播放列表删除确认浮窗 */}
-                                    {deletePlaylistConfirm && (
-                                      <div style={styles.overlay} onClick={handleCancelDeletePlaylist}>
-                                        <div style={styles.confirmDialog} onClick={(e) => e.stopPropagation()}>
-                                          <div style={styles.confirmIcon}>⚠️</div>
-                                          <h3 style={styles.confirmTitle}>确认删除</h3>
-                                          <p style={styles.confirmText}>
-                                            确定要删除播放列表「{playlists.find(p => p.id === deletePlaylistConfirm)?.name}」吗？此操作不可撤销。
-                                          </p>
-                                          <div style={styles.confirmActions}>
-                                            <button style={styles.confirmDeleteBtn} onClick={handleConfirmDeletePlaylist}>
-                                              确认删除
-                                            </button>
-                                            <button style={styles.confirmCancelBtn} onClick={handleCancelDeletePlaylist}>
-                                              取消
-                                            </button>
-                                          </div>
-                                        </div>
-                                      </div>
-                                    )}
                   </main>
                 )}
               </div>
             </div>
 
-      {/* ===== 新建播放列表对话框 ===== */}
+      {/* ===== 播放列表操作菜单（全局渲染，任意视图可用） ===== */}
+      {playlistMenu && (
+        <>
+          <div style={styles.contextOverlay} onClick={handleClosePlaylistMenu} />
+          <div
+            style={{
+              ...styles.contextMenu,
+              left: playlistMenu.x,
+              top: playlistMenu.y,
+            }}
+          >
+            <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handlePlaylistMenuAction("play", playlistMenu.playlist)}>
+              <FaPlay size={14} style={{ marginRight: "10px" }} />
+              <span>播放</span>
+            </div>
+            <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handlePlaylistMenuAction("pin", playlistMenu.playlist)}>
+              <FaArrowUp size={14} style={{ marginRight: "10px" }} />
+              <span>置顶</span>
+            </div>
+            <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handlePlaylistMenuAction("playNext", playlistMenu.playlist)}>
+              <FaStepForward size={14} style={{ marginRight: "10px" }} />
+              <span>插播</span>
+            </div>
+            <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handlePlaylistMenuAction("playLater", playlistMenu.playlist)}>
+              <FaClock size={14} style={{ marginRight: "10px" }} />
+              <span>稍后播放</span>
+            </div>
+            <div style={styles.contextMenuDivider} />
+            {playlistMenu.playlist.id !== "liked" && playlistMenu.playlist.id !== "recent" && (
+              <>
+                <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handlePlaylistMenuAction("edit", playlistMenu.playlist)}>
+                  <FaInfoCircle size={14} style={{ marginRight: "10px" }} />
+                  <span>编辑信息</span>
+                </div>
+                <div className="context-menu-item" style={{ ...styles.contextMenuItem, color: "#e94560" }} onClick={() => handlePlaylistMenuAction("delete", playlistMenu.playlist)}>
+                  <FaTrash size={14} style={{ marginRight: "10px" }} />
+                  <span>删除</span>
+                </div>
+              </>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* ===== 播放列表删除确认浮窗（全局渲染） ===== */}
+      {deletePlaylistConfirm && (
+        <div style={styles.overlay} onClick={handleCancelDeletePlaylist}>
+          <div style={styles.confirmDialog} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.confirmIcon}>⚠️</div>
+            <h3 style={styles.confirmTitle}>确认删除</h3>
+            <p style={styles.confirmText}>
+              确定要删除播放列表「{playlists.find(p => p.id === deletePlaylistConfirm)?.name}」吗？此操作不可撤销。
+            </p>
+            <div style={styles.confirmActions}>
+              <button style={styles.confirmDeleteBtn} onClick={handleConfirmDeletePlaylist}>
+                确认删除
+              </button>
+              <button style={styles.confirmCancelBtn} onClick={handleCancelDeletePlaylist}>
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== 新建 / 编辑播放列表对话框 ===== */}
       {showCreatePlaylist && (
-        <div style={styles.overlay} onClick={() => setShowCreatePlaylist(false)}>
+        <div style={styles.overlay}>
           <div style={{ ...styles.createDialog, ...styles.confirmDialog }} className="create-dialog" onClick={(e) => e.stopPropagation()}>
-            <h3 style={styles.createDialogTitle}>新建播放列表</h3>
+            <h3 style={styles.createDialogTitle}>{editingPlaylistId ? "编辑播放列表" : "新建播放列表"}</h3>
             <div style={styles.createCoverSection}>
               {newPlaylistCover ? (
                 <img src={newPlaylistCover} alt="封面" style={styles.createCover} />
@@ -2523,10 +2706,10 @@ export default function MusicLibrary() {
               rows={3}
             />
             <div style={styles.createActions}>
-              <button style={styles.confirmDeleteBtn} onClick={handleCreatePlaylistWithDetails}>
-                创建
+              <button style={styles.confirmDeleteBtn} onClick={handlePlaylistFormSubmit}>
+                {editingPlaylistId ? "保存" : "创建"}
               </button>
-              <button style={styles.confirmCancelBtn} onClick={() => setShowCreatePlaylist(false)}>
+              <button style={styles.confirmCancelBtn} onClick={handleCloseCreatePlaylist}>
                 取消
               </button>
             </div>
@@ -2913,12 +3096,19 @@ const styles = {
     transition: "transform 0.2s, box-shadow 0.2s",
   },
   artistAvatar: {
+    position: "relative",
     width: "80px", height: "80px", borderRadius: "50%",
     background: "#f3f4f6", display: "flex",
     alignItems: "center", justifyContent: "center",
     fontSize: "36px",
+    overflow: "hidden",
   },
   artistAvatarIcon: { opacity: 0.5 },
+  artistAvatarImg: {
+    position: "absolute", inset: 0,
+    width: "100%", height: "100%",
+    borderRadius: "50%", objectFit: "cover", display: "block",
+  },
   artistName: {
     fontSize: "15px", fontWeight: 600, color: "#1f2937",
     margin: 0, textAlign: "center",
@@ -2960,6 +3150,7 @@ const styles = {
     accentColor: "#e94560",
   },
   songCoverThumb: {
+    position: "relative",
     width: "32px", height: "32px", borderRadius: "4px",
     overflow: "hidden", flexShrink: 0,
     background: "#f3f4f6",
@@ -2980,7 +3171,7 @@ const styles = {
     fontSize: "13px", color: "#6b7280",
     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
   },
-  songCellTextMissing: { color: "#9ca3af", textDecoration: "line-through" },
+  songCellTextMissing: { color: "#9ca3af" },
   clickableCellText: {
     color: "#e94560",
     cursor: "pointer",

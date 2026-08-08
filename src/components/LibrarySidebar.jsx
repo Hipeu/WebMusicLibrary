@@ -5,7 +5,6 @@ import {
   FaUser,
   FaListUl,
   FaPlus,
-  FaTrash,
   FaHeart,
   FaHeadphones,
   FaFolder,
@@ -22,7 +21,7 @@ export default function Sidebar({
   onNavChange,
   playlists,
   onCreatePlaylist,
-  onDeletePlaylist,
+  onOpenPlaylistMenu,
   onRenamePlaylist,
   filterText,
   setFilterText,
@@ -36,15 +35,6 @@ export default function Sidebar({
     onCreatePlaylist(newId);
     setEditingPlaylist(newId);
     setEditName("新建播放列表");
-  }
-
-  // ---------- 删除播放列表 ----------
-  function handleDeletePlaylist(id, e) {
-    e.stopPropagation();
-    onDeletePlaylist(id);
-    if (editingPlaylist === id) {
-      setEditingPlaylist(null);
-    }
   }
 
   // ---------- 确认重命名 ----------
@@ -122,7 +112,7 @@ export default function Sidebar({
           }}
           onClick={() => onNavChange("playlists")}
         >
-          <span style={{ ...styles.icon, ...(activeNav === "playlists" ? styles.iconActive : {}) }}>
+          <span style={{ ...styles.playlistThumb, ...(activeNav === "playlists" ? styles.playlistThumbActive : {}) }}>
             <FaFolder />
           </span>
           <span style={{ ...styles.label, ...(activeNav === "playlists" ? styles.labelActive : {}) }}>
@@ -143,11 +133,19 @@ export default function Sidebar({
             >
             <span
               style={{
-                ...styles.icon,
-                ...(activeNav === pl.id ? styles.iconActive : {}),
+                ...styles.playlistThumb,
+                ...(activeNav === pl.id ? styles.playlistThumbActive : {}),
               }}
             >
               {playlistIcon(pl.id)}
+              {pl.coverURL && (
+                <img
+                  src={pl.coverURL}
+                  alt=""
+                  onError={(e) => { e.currentTarget.style.display = "none"; }}
+                  style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                />
+              )}
             </span>
 
             {editingPlaylist === pl.id ? (
@@ -177,12 +175,12 @@ export default function Sidebar({
 
             {pl.id !== "liked" && pl.id !== "recent" && (
               <span
-                className="sidebar-delete-btn"
-                style={styles.deleteBtn}
-                onClick={(e) => handleDeletePlaylist(pl.id, e)}
-                title="删除播放列表"
+                className="sidebar-more-btn"
+                style={styles.moreBtn}
+                onClick={(e) => onOpenPlaylistMenu?.(e, pl)}
+                title="更多操作"
               >
-                <FaTrash size={10} />
+                ···
               </span>
             )}
           </div>
@@ -269,6 +267,27 @@ const styles = {
     color: "#e94560",
   },
 
+  // 播放列表缩略图：等比例（正方形）专辑卡片样式
+  playlistThumb: {
+    position: "relative",
+    width: "34px",
+    height: "34px",
+    borderRadius: "8px",
+    border: "1px solid #e5e7eb",
+    background: "#f3f4f6",
+    color: "#6b7280",
+    fontSize: "15px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+    overflow: "hidden",
+  },
+  playlistThumbActive: {
+    borderColor: "#e94560",
+    color: "#e94560",
+  },
+
   label: {
     fontSize: "13px",
     fontWeight: 500,
@@ -292,12 +311,14 @@ const styles = {
     color: "#1f2937",
     fontFamily: "inherit",
   },
-  deleteBtn: {
-    fontSize: "10px",
+  moreBtn: {
+    fontSize: "18px",
+    lineHeight: 1,
+    letterSpacing: "2px",
     color: "#9ca3af",
     cursor: "pointer",
-    padding: "4px",
-    borderRadius: "4px",
+    padding: "4px 8px",
+    borderRadius: "6px",
     transition: "color 0.15s, background 0.15s",
     opacity: 0,
     flexShrink: 0,

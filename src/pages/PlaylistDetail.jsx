@@ -1,18 +1,17 @@
-import { useState, useRef } from "react";
+import { useState } from "react";
 import { FaPlay, FaPause, FaArrowLeft, FaEdit, FaEllipsisH, FaHeart, FaPlus, FaStepForward, FaClock, FaCompactDisc, FaUser, FaTrash, FaInfoCircle, FaTimes, FaMusic } from "react-icons/fa";
 import PlayingAnimation from "../components/PlayingAnimation";
 
 /* ================================================================
    📋 PlaylistDetail — 播放列表详情页
-   布局与 AlbumDetail 一致，但：
-   - 播放全部按钮旁有「编辑」按钮
-   - 封面、标题、描述均可编辑
+   布局与 AlbumDetail 一致：
+   - 播放全部按钮旁有「编辑」按钮（点击打开编辑弹窗，liked/recent 不显示）
    ================================================================ */
 export default function PlaylistDetail({
   playlist,
   playlists,
   setPlaylists,
-  onUpdatePlaylist,
+  onEditPlaylist,
   currentSongIndex,
   isPlaying,
   onPlayAll,
@@ -27,54 +26,11 @@ export default function PlaylistDetail({
   missingSongs,
   onMissingSongClick,
 }) {
-  const [editing, setEditing] = useState(false);
-  const [editCover, setEditCover] = useState(null);
-  const [editTitle, setEditTitle] = useState("");
-  const [editDesc, setEditDesc] = useState("");
-  const coverInputRef = useRef(null);
   const [menuSongIdx, setMenuSongIdx] = useState(null);
   const [panelSong, setPanelSong] = useState(null);
   const [panelSearch, setPanelSearch] = useState("");
 
   if (!playlist) return null;
-
-  // ---------- 进入编辑模式 ----------
-  function openEdit() {
-    setEditCover(null);
-    setEditTitle(playlist.name || "");
-    setEditDesc(playlist.description || "");
-    setEditing(true);
-  }
-
-  // ---------- 取消编辑 ----------
-  function cancelEdit() {
-    setEditing(false);
-  }
-
-  // ---------- 保存编辑 ----------
-  function saveEdit() {
-    const updated = {
-      ...playlist,
-      name: editTitle.trim() || playlist.name,
-      description: editDesc.trim(),
-    };
-    if (editCover) {
-      updated.coverURL = editCover;
-    }
-    onUpdatePlaylist(playlist.id, updated);
-    setEditing(false);
-  }
-
-  // ---------- 选择封面图片 ----------
-  function handleCoverSelect(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      setEditCover(ev.target.result);
-    };
-    reader.readAsDataURL(file);
-  }
 
   // ---------- 获取播放列表的歌曲 ----------
   const songs = playlist.songs || [];
@@ -90,82 +46,45 @@ export default function PlaylistDetail({
         {/* 左：封面（独立） */}
         <div style={styles.coverColumn}>
           <div style={styles.coverWrapper}>
-            {editing && editCover ? (
-              <img src={editCover} alt="封面" style={styles.cover} />
-            ) : playlist.coverURL ? (
-              <img src={playlist.coverURL} alt={playlist.name} style={styles.cover} />
-            ) : (
-              <div style={styles.coverPlaceholder}>
-                <span style={styles.coverPlaceholderIcon}>
-                  {playlist.id === "liked" ? "❤️" : playlist.id === "recent" ? "🕐" : "📋"}
-                </span>
-              </div>
+            <div style={styles.coverPlaceholder}>
+              <span style={styles.coverPlaceholderIcon}>
+                {playlist.id === "liked" ? "❤️" : playlist.id === "recent" ? "🕐" : "📋"}
+              </span>
+            </div>
+            {playlist.coverURL && (
+              <img
+                src={playlist.coverURL}
+                alt={playlist.name}
+                onError={(e) => { e.currentTarget.style.display = "none"; }}
+                style={{ ...styles.cover, position: "absolute", inset: 0 }}
+              />
             )}
-            {editing && (
-              <div style={styles.coverEditOverlay} onClick={() => coverInputRef.current?.click()}>
-                <span style={styles.coverEditText}>更换封面</span>
-              </div>
-            )}
-            <input
-              ref={coverInputRef}
-              type="file"
-              accept="image/*"
-              style={{ display: "none" }}
-              onChange={handleCoverSelect}
-            />
           </div>
         </div>
 
         {/* 右：信息区（独立，可自由增删） */}
         <div style={styles.infoColumn}>
-          {editing ? (
-            <>
-              <input
-                style={styles.editTitleInput}
-                value={editTitle}
-                onChange={(e) => setEditTitle(e.target.value)}
-                placeholder="播放列表标题"
-                autoFocus
-              />
-              <textarea
-                style={styles.editDescInput}
-                value={editDesc}
-                onChange={(e) => setEditDesc(e.target.value)}
-                placeholder="添加描述…"
-                rows={3}
-              />
-              <div style={styles.editActions}>
-                <button style={styles.saveBtn} onClick={saveEdit}>
-                  保存
-                </button>
-                <button style={styles.cancelBtn} onClick={cancelEdit}>
-                  取消
-                </button>
-              </div>
-            </>
-          ) : (
-            <>
-              <h1 style={styles.playlistTitle}>{playlist.name}</h1>
-              {playlist.description && (
-                <p style={styles.playlistDesc}>{playlist.description}</p>
-              )}
-              <p style={styles.playlistMeta}>
-                {songs.length > 0 ? `${songs.length} 首歌曲` : "暂无歌曲"}
-              </p>
-              <div style={styles.actionRow}>
-                <button style={styles.playButton} onClick={onPlayAll}>
-                  {isPlaying ? (
-                    <FaPause size={16} />
-                  ) : (
-                    <FaPlay size={16} />
-                  )}
-                </button>
-                <button style={styles.editButton} onClick={openEdit}>
-                  <FaEdit size={16} /> 编辑
-                </button>
-              </div>
-            </>
+          <h1 style={styles.playlistTitle}>{playlist.name}</h1>
+          {playlist.description && (
+            <p style={styles.playlistDesc}>{playlist.description}</p>
           )}
+          <p style={styles.playlistMeta}>
+            {songs.length > 0 ? `${songs.length} 首歌曲` : "暂无歌曲"}
+          </p>
+          <div style={styles.actionRow}>
+            <button style={styles.playButton} onClick={onPlayAll}>
+              {isPlaying ? (
+                <FaPause size={16} />
+              ) : (
+                <FaPlay size={16} />
+              )}
+            </button>
+            {playlist.id !== "liked" && playlist.id !== "recent" && (
+              <button style={styles.editButton} onClick={() => onEditPlaylist?.(playlist)}>
+                <FaEdit size={16} /> 编辑
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -214,11 +133,17 @@ export default function PlaylistDetail({
                             <FaHeart size={9} style={{ color: "#e94560", flexShrink: 0 }} />
                           )}
                         </span>
-                        {song.coverURL ? (
-                          <img src={song.coverURL} alt="" style={{ width: "36px", height: "36px", borderRadius: "4px", objectFit: "cover", display: "block" }} />
-                        ) : (
-                          <span style={{ width: "36px", height: "36px", borderRadius: "4px", display: "flex", alignItems: "center", justifyContent: "center", background: "#e5e7eb", color: "#9ca3af", fontSize: "14px" }}><FaMusic size={14} /></span>
-                        )}
+                        <span style={{ position: "relative", width: "36px", height: "36px", borderRadius: "4px", display: "inline-flex", alignItems: "center", justifyContent: "center", background: "#e5e7eb", color: "#9ca3af", fontSize: "14px" }}>
+                          <FaMusic size={14} />
+                          {song.coverURL && (
+                            <img
+                              src={song.coverURL}
+                              alt=""
+                              onError={(e) => { e.currentTarget.style.display = "none"; }}
+                              style={{ position: "absolute", inset: 0, width: "100%", height: "100%", borderRadius: "4px", objectFit: "cover", display: "block" }}
+                            />
+                          )}
+                        </span>
                       </span>
                     )}
                   </span>
@@ -466,24 +391,6 @@ const styles = {
     background: "#e5e7eb",
   },
   coverPlaceholderIcon: { fontSize: "64px", opacity: 0.3 },
-  coverEditOverlay: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: "48px",
-    background: "rgba(0,0,0,0.6)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    cursor: "pointer",
-    transition: "background 0.2s",
-  },
-  coverEditText: {
-    color: "#fff",
-    fontSize: "13px",
-    fontWeight: 500,
-  },
 
   // 右列：信息区（纵向排列，后续可自由新增内容）
     infoColumn: {
@@ -535,58 +442,6 @@ const styles = {
     cursor: "pointer",
     transition: "background 0.2s, border-color 0.2s",
     width: "fit-content",
-  },
-
-  // 编辑模式样式
-  editTitleInput: {
-    fontSize: "24px", fontWeight: 700, color: "#1f2937",
-    padding: "8px 12px",
-    border: "1px solid #d1d5db",
-    borderRadius: "8px",
-    outline: "none",
-    background: "#f9fafb",
-    fontFamily: "inherit",
-    width: "100%",
-    boxSizing: "border-box",
-  },
-  editDescInput: {
-    fontSize: "14px", color: "#374151",
-    padding: "8px 12px",
-    border: "1px solid #d1d5db",
-    borderRadius: "8px",
-    outline: "none",
-    background: "#f9fafb",
-    fontFamily: "inherit",
-    width: "100%",
-    boxSizing: "border-box",
-    resize: "vertical",
-    minHeight: "60px",
-    lineHeight: 1.5,
-  },
-  editActions: {
-    display: "flex", gap: "10px", marginTop: "4px",
-  },
-  saveBtn: {
-    padding: "8px 24px",
-    borderRadius: "20px",
-    border: "none",
-    background: "linear-gradient(135deg, #e94560, #c73e52)",
-    color: "#fff",
-    fontSize: "14px",
-    fontWeight: 600,
-    cursor: "pointer",
-    fontFamily: "inherit",
-  },
-  cancelBtn: {
-    padding: "8px 24px",
-    borderRadius: "20px",
-    border: "1px solid #d1d5db",
-    background: "#ffffff",
-    color: "#374151",
-    fontSize: "14px",
-    fontWeight: 500,
-    cursor: "pointer",
-    fontFamily: "inherit",
   },
 
         bottomSection: {

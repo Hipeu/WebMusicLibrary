@@ -51,16 +51,16 @@ export default function PlayerControls({
         >
           {!showDetail && currentSong && (
             <div style={styles.miniCoverWrapper}>
-              {(currentAlbum?.coverURL || currentSong?.coverURL) ? (
+              <div style={styles.miniCoverPlaceholder}>
+                <span style={styles.miniCoverIcon}>🎵</span>
+              </div>
+              {(currentAlbum?.coverURL || currentSong?.coverURL) && (
                 <img
                   src={currentAlbum?.coverURL || currentSong?.coverURL}
                   alt={currentAlbum?.title || currentSong?.title}
-                  style={styles.miniCover}
+                  onError={(e) => { e.currentTarget.style.display = "none"; }}
+                  style={{ ...styles.miniCover, position: "absolute", inset: 0 }}
                 />
-              ) : (
-                <div style={styles.miniCoverPlaceholder}>
-                  <span style={styles.miniCoverIcon}>🎵</span>
-                </div>
               )}
             </div>
           )}
@@ -168,6 +168,7 @@ const styles = {
   },
   nowPlayingEmpty: { fontSize: "13px", color: "#4b5563", margin: 0 },
   miniCoverWrapper: {
+    position: "relative",
     width: "42px", height: "42px", borderRadius: "6px",
     overflow: "hidden", flexShrink: 0, cursor: "pointer",
     transition: "transform 0.2s, box-shadow 0.2s",

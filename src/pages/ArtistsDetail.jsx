@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { FaArrowLeft } from "react-icons/fa";
 import CoverPlayButton from "../components/CoverPlayButton";
 
@@ -19,6 +20,7 @@ export default function ArtistsDetail({
   onBack,
   onOpenAlbum,
 }) {
+  const [bannerImgError, setBannerImgError] = useState(false);
   if (!artist) return null;
 
   // 按年份排序专辑（降序：从新到旧）
@@ -28,6 +30,11 @@ export default function ArtistsDetail({
     return yearB - yearA;
   });
 
+  // 艺人形象照数据源（现阶段无独立艺人图，先恒为 null；有艺人图后再接入）
+  const artistCover = null;
+  const showBanner = !!artistCover && !bannerImgError;
+  const songCount = albums.reduce((sum, a) => sum + (a.songs?.length || 0), 0);
+
   return (
     <div style={styles.container}>
       {/* 返回按钮 */}
@@ -36,22 +43,32 @@ export default function ArtistsDetail({
       </button>
 
       {/* ============================================================ */}
-      {/* ① 顶部：艺人照片横幅                                       */}
+      {/* ① 顶部：艺人形象照横幅（无形象照时只显示名字，位置上移）    */}
       {/* ============================================================ */}
-      <div style={styles.bannerSection}>
-        <div style={styles.bannerImageWrapper}>
-          <div style={styles.bannerPlaceholder}>
-            <span style={styles.bannerIcon}>🎤</span>
+      {showBanner ? (
+        <div style={styles.bannerSection}>
+          <div style={styles.bannerImageWrapper}>
+            <img
+              src={artistCover}
+              alt={artist}
+              style={styles.bannerImage}
+              onError={() => setBannerImgError(true)}
+            />
+            {/* 渐变遮罩，让文字更清晰 */}
+            <div style={styles.bannerOverlay} />
           </div>
-          {/* 渐变遮罩，让文字更清晰 */}
-          <div style={styles.bannerOverlay} />
+          {/* 艺人在横幅上的名字 */}
+          <div style={styles.bannerInfo}>
+            <h1 style={styles.artistName}>{artist}</h1>
+            <p style={styles.artistStats}>{albums.length} 个专辑 · {songCount} 首歌曲</p>
+          </div>
         </div>
-        {/* 艺人在横幅上的名字 */}
-        <div style={styles.bannerInfo}>
-          <h1 style={styles.artistName}>{artist}</h1>
-          <p style={styles.artistStats}>{albums.length} 个专辑 · {albums.reduce((sum, a) => sum + (a.songs?.length || 0), 0)} 首歌曲</p>
+      ) : (
+        <div style={styles.compactHeader}>
+          <h1 style={styles.compactName}>{artist}</h1>
+          <p style={styles.compactStats}>{albums.length} 个专辑 · {songCount} 首歌曲</p>
         </div>
-      </div>
+      )}
 
       {/* ============================================================ */}
       {/* ② 中部：专辑网格（和资料库一样的卡片样式）                 */}
@@ -79,12 +96,16 @@ export default function ArtistsDetail({
                                     onClick={() => onOpenAlbum && onOpenAlbum(album.id)}
                 >
                   <div style={styles.coverWrapper}>
-                    {album.coverURL ? (
-                      <img src={album.coverURL} alt={album.title} style={styles.coverImage} />
-                    ) : (
-                      <div style={styles.coverPlaceholder}>
-                        <span style={styles.coverPlaceholderIcon}>🎶</span>
-                      </div>
+                    <div style={styles.coverPlaceholder}>
+                      <span style={styles.coverPlaceholderIcon}>🎶</span>
+                    </div>
+                    {album.coverURL && (
+                      <img
+                        src={album.coverURL}
+                        alt={album.title}
+                        onError={(e) => { e.currentTarget.style.display = "none"; }}
+                        style={{ ...styles.coverImage, position: "absolute", inset: 0 }}
+                      />
                     )}
                     <CoverPlayButton
                       isActive={isActive}
@@ -175,18 +196,27 @@ const styles = {
     height: "100%",
     position: "relative",
   },
-  bannerPlaceholder: {
+  bannerImage: {
     width: "100%",
     height: "100%",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+    objectFit: "cover",
+    display: "block",
   },
-  bannerIcon: {
-    fontSize: "100px",
-    opacity: 0.3,
-    color: "#ffffff",
+  // 无形象照时的紧凑头部（名字贴近返回按钮，深色文字）
+  compactHeader: {
+    padding: "72px 48px 8px",
+    flexShrink: 0,
+  },
+  compactName: {
+    fontSize: "34px",
+    fontWeight: 800,
+    color: "#1f2937",
+    margin: 0,
+  },
+  compactStats: {
+    fontSize: "14px",
+    color: "#6b7280",
+    margin: "6px 0 0",
   },
   bannerOverlay: {
     position: "absolute",
