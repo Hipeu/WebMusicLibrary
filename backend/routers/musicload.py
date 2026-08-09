@@ -5,11 +5,12 @@ import re
 from fastapi import APIRouter, UploadFile, File
 from pydantic import BaseModel
 from services.metadata_service import parse_metadata
+from services.library_config import get_library_path
 
 router = APIRouter(prefix="/api/music")
 
-MUSIC_LIBRARY = os.path.join(os.path.expanduser("~"), "Music", "Music_Library")
-MANIFEST_FILE = os.path.join(MUSIC_LIBRARY, ".manifest.json")
+def manifest_file():
+    return os.path.join(get_library_path(), ".manifest.json")
 
 # 备份目录：封面 / 歌词 / 元信息（防止本地音乐删除后丢失）
 # musicload.py 位于 backend/routers/，需上溯三层到项目根目录
@@ -103,9 +104,9 @@ class CheckRequest(BaseModel):
 
 def load_manifest():
     """读取音乐库清单（记录所有导入过的歌曲，即使文件被外部删除）"""
-    if os.path.exists(MANIFEST_FILE):
+    if os.path.exists(manifest_file()):
         try:
-            with open(MANIFEST_FILE, "r", encoding="utf-8") as f:
+            with open(manifest_file(), "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
             return {}
@@ -114,7 +115,7 @@ def load_manifest():
 
 def save_manifest(manifest):
     try:
-        with open(MANIFEST_FILE, "w", encoding="utf-8") as f:
+        with open(manifest_file(), "w", encoding="utf-8") as f:
             json.dump(manifest, f, ensure_ascii=False, indent=2)
     except Exception:
         pass
@@ -149,7 +150,7 @@ def save_cover(meta, output_dir):
 @router.post("/upload")
 async def upload_music(file: UploadFile = File(...)):
     """上传音乐文件，按 Artist/Album 组织到 Music_Library"""
-    temp_path = os.path.join(MUSIC_LIBRARY, "_temp", file.filename)
+    temp_path = os.path.join(get_library_path(), "_temp", file.filename)
     os.makedirs(os.path.dirname(temp_path), exist_ok=True)
 
     # 保存临时文件
@@ -163,7 +164,7 @@ async def upload_music(file: UploadFile = File(...)):
     album = sanitize_name(meta["album"]) or "Unknown Album"
 
     # 创建目录结构（仅存放音频文件）
-    artist_dir = os.path.join(MUSIC_LIBRARY, artist)
+    artist_dir = os.path.join(get_library_path(), artist)
     album_dir = os.path.join(artist_dir, album)
     os.makedirs(album_dir, exist_ok=True)
 
@@ -202,12 +203,12 @@ async def upload_music(file: UploadFile = File(...)):
         json.dump(meta, f, ensure_ascii=False, indent=2)
 
     # 清理临时目录
-    temp_dir = os.path.join(MUSIC_LIBRARY, "_temp")
+    temp_dir = os.path.join(get_library_path(), "_temp")
     if os.path.exists(temp_dir) and not os.listdir(temp_dir):
         os.rmdir(temp_dir)
 
     # 返回给前端的数据
-    file_rel = final_path.replace(MUSIC_LIBRARY, "").replace("\\", "/").lstrip("/")
+    file_rel = final_path.replace(get_library_path(), "").replace("\\", "/").lstrip("/")
 
     # 记录到清单（即使文件被外部删除，清单仍保留记录）
     manifest = load_manifest()
@@ -261,7 +262,7 @@ def list_music():
 
     # 1. 从清单构建（含缺失文件，标记 file_exists）
     for file_path, s in manifest.items():
-        exists = os.path.exists(os.path.join(MUSIC_LIBRARY, file_path))
+        exists = os.path.exists(os.path.join(get_library_path(), file_path))
         track_artist = s.get("artist") or "Various Artists"
         album = s.get("album") or "Unknown Album"
         # 专辑归属由「专辑艺人」决定，无专辑艺人则回退为曲目艺人
@@ -306,11 +307,11 @@ def list_music():
         })
 
     # 2. 扫描目录中未在清单内的额外音频文件（用户手动放入）
-    if os.path.exists(MUSIC_LIBRARY):
+    if os.path.exists(get_library_path()):
         audio_exts = (".mp3", ".flac", ".ogg", ".oga", ".opus", ".m4a", ".m4b",
                       ".mp4", ".wav", ".wave", ".aiff", ".aif", ".wma", ".ape", ".wv")
-        for artist_name in sorted(os.listdir(MUSIC_LIBRARY)):
-            artist_path = os.path.join(MUSIC_LIBRARY, artist_name)
+        for artist_name in sorted(os.listdir(get_library_path())):
+            artist_path = os.path.join(get_library_path(), artist_name)
             if not os.path.isdir(artist_path) or artist_name.startswith("_"):
                 continue
             for album_name in sorted(os.listdir(artist_path)):
@@ -380,7 +381,7 @@ def delete_music(artist: str, album: str, title: str):
 
     san_artist = sanitize_name(artist) or artist
     san_album = sanitize_name(album) or album
-    album_dir = os.path.join(MUSIC_LIBRARY, san_artist, san_album)
+    album_dir = os.path.join(get_library_path(), san_artist, san_album)
 
     # 从清单中找到对应 file_path，获取精确文件名
     manifest = load_manifest()
@@ -398,7 +399,7 @@ def delete_music(artist: str, album: str, title: str):
 
     # 删除音乐库中的歌曲文件（音频 / json / lrc）
     if target_path:
-        fpath = os.path.join(MUSIC_LIBRARY, target_path)
+        fpath = os.path.join(get_library_path(), target_path)
         for p in (fpath, os.path.splitext(fpath)[0] + ".json", os.path.splitext(fpath)[0] + ".lrc"):
             if os.path.exists(p):
                 try:
@@ -457,8 +458,8 @@ def check_files(req: CheckRequest):
     result = {}
     for p in req.paths or []:
         # 防止路径穿越
-        full = os.path.normpath(os.path.join(MUSIC_LIBRARY, p))
-        if not full.startswith(MUSIC_LIBRARY):
+        full = os.path.normpath(os.path.join(get_library_path(), p))
+        if not full.startswith(get_library_path()):
             result[p] = False
             continue
         result[p] = os.path.exists(full)

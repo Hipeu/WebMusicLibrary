@@ -1,19 +1,20 @@
 import { useState } from "react";
-import { FaPaintBrush, FaSyncAlt, FaTrashAlt, FaInfoCircle, FaTimes } from "react-icons/fa";
+import { FaSlidersH, FaSyncAlt, FaTrashAlt, FaInfoCircle, FaTimes } from "react-icons/fa";
+import { saveSettings } from "../services/api";
 
 /* ================================================================
    ⚙️ Settings — 设置悬浮窗口
    左侧功能栏 + 右侧内容区
    ================================================================ */
-export default function Settings({ show, onClose }) {
+export default function Settings({ show, onClose, onReset, onSettingsSaved }) {
   const [active, setActive] = useState("appearance");
 
   if (!show) return null;
 
   const menuItems = [
-    { id: "appearance", label: "外观设置", icon: <FaPaintBrush /> },
+    { id: "appearance", label: "通用设置", icon: <FaSlidersH /> },
     { id: "sync", label: "同步设置", icon: <FaSyncAlt /> },
-    { id: "reset", label: "数据重置", icon: <FaTrashAlt /> },
+    { id: "reset", label: "重置", icon: <FaTrashAlt /> },
     { id: "about", label: "关于", icon: <FaInfoCircle /> },
   ];
 
@@ -47,9 +48,9 @@ export default function Settings({ show, onClose }) {
 
         {/* 右侧内容区 */}
         <div style={styles.content}>
-          {active === "appearance" && <AppearancePanel />}
+          {active === "appearance" && <AppearancePanel onSettingsSaved={onSettingsSaved} />}
           {active === "sync" && <PlaceholderPanel icon={<FaSyncAlt size={40} />} title="同步设置" hint="功能即将上线，敬请期待" />}
-          {active === "reset" && <PlaceholderPanel icon={<FaTrashAlt size={40} />} title="数据重置" hint="功能即将上线，敬请期待" />}
+          {active === "reset" && <ResetPanel onReset={onReset} />}
           {active === "about" && <AboutPanel />}
         </div>
       </div>
@@ -60,7 +61,7 @@ export default function Settings({ show, onClose }) {
 /* ================================================================
    📦 外观设置面板
    ================================================================ */
-function AppearancePanel() {
+function AppearancePanel({ onSettingsSaved }) {
   const [theme, setTheme] = useState(
     localStorage.getItem("app-theme") || "system"
   );
@@ -69,6 +70,7 @@ function AppearancePanel() {
     setTheme(value);
     localStorage.setItem("app-theme", value);
     applyTheme(value);
+    onSettingsSaved?.();
   }
 
   const options = [
@@ -79,7 +81,7 @@ function AppearancePanel() {
 
   return (
     <div style={panelStyles.container}>
-      <h3 style={panelStyles.title}>外观设置</h3>
+      <h3 style={panelStyles.title}>通用设置</h3>
       <p style={panelStyles.desc}>选择应用的主题模式</p>
       <div style={panelStyles.options}>
         {options.map((opt) => (
@@ -98,7 +100,77 @@ function AppearancePanel() {
           </label>
         ))}
       </div>
+
+      <ImportSettings onSettingsSaved={onSettingsSaved} />
     </div>
+  );
+}
+
+/* ================================================================
+   📂 导入设置 — 修改资料库位置
+   ================================================================ */
+function ImportSettings({ onSettingsSaved }) {
+  const [showDialog, setShowDialog] = useState(false);
+  const [pathInput, setPathInput] = useState("");
+  const [error, setError] = useState("");
+
+  async function handleConfirm() {
+    const p = pathInput.trim();
+    if (!p) {
+      setError("请输入完整绝对路径");
+      return;
+    }
+    const isAbs = /^[a-zA-Z]:[\\/]/.test(p) || p.startsWith("/");
+    if (!isAbs) {
+      setError("请输入完整绝对路径（如 D:\\Music\\Music_Library）");
+      return;
+    }
+    const res = await saveSettings(p);
+    if (res && res.status === "ok") {
+      setShowDialog(false);
+      setPathInput("");
+      setError("");
+      onSettingsSaved?.();
+    } else {
+      setError((res && res.msg) || "保存失败");
+    }
+  }
+
+  return (
+    <>
+      <div style={{ marginTop: "28px" }}>
+        <h3 style={panelStyles.title}>导入设置</h3>
+        <div style={panelStyles.locationRow}>
+          <p style={panelStyles.locationDesc}>修改音乐资料库的存放位置</p>
+          <button style={panelStyles.modifyBtn} onClick={() => setShowDialog(true)}>
+            修改
+          </button>
+        </div>
+      </div>
+
+      {showDialog && (
+        <div style={dialogStyles.overlay} onClick={() => setShowDialog(false)}>
+          <div style={dialogStyles.box} onClick={(e) => e.stopPropagation()}>
+            <h3 style={dialogStyles.title}>修改资料库位置</h3>
+            <div style={dialogStyles.divider} />
+            <p style={dialogStyles.hint}>请输入资料库的完整绝对路径（如 D:\Music\Music_Library）</p>
+            <input
+              style={dialogStyles.input}
+              value={pathInput}
+              onChange={(e) => { setPathInput(e.target.value); setError(""); }}
+              placeholder="例如 D:\Music\Music_Library"
+              autoFocus
+              spellCheck={false}
+            />
+            {error && <p style={dialogStyles.error}>{error}</p>}
+            <div style={dialogStyles.actions}>
+              <button style={dialogStyles.confirmBtn} onClick={handleConfirm}>确认</button>
+              <button style={dialogStyles.cancelBtn} onClick={() => setShowDialog(false)}>取消</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -149,6 +221,52 @@ function PlaceholderPanel({ icon, title, hint }) {
         <p style={panelStyles.placeholderText}>{hint}</p>
       </div>
     </div>
+  );
+}
+
+/* ================================================================
+   🗑️ 重置面板
+   ================================================================ */
+function ResetPanel({ onReset }) {
+  const [confirming, setConfirming] = useState(false);
+  return (
+    <>
+      <div style={panelStyles.container}>
+        <h3 style={panelStyles.title}>重置</h3>
+        <div style={panelStyles.resetBox}>
+          <p style={panelStyles.resetDesc}>重置整个资料库，会删除资料库内的所有数据和设置</p>
+          <div style={panelStyles.resetBtnWrap}>
+            <button style={panelStyles.resetBtn} onClick={() => setConfirming(true)}>
+              重置
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {confirming && (
+        <div style={resetDialogStyles.overlay} onClick={() => setConfirming(false)}>
+          <div style={resetDialogStyles.box} onClick={(e) => e.stopPropagation()}>
+            <h3 style={resetDialogStyles.title}>继续重置</h3>
+            <div style={resetDialogStyles.divider} />
+            <p style={resetDialogStyles.text}>这会删除你所有的数据，该操作不能够恢复！</p>
+            <div style={resetDialogStyles.actions}>
+              <button
+                style={resetDialogStyles.confirmBtn}
+                onClick={() => {
+                  setConfirming(false);
+                  onReset?.();
+                }}
+              >
+                确认
+              </button>
+              <button style={resetDialogStyles.cancelBtn} onClick={() => setConfirming(false)}>
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -381,5 +499,215 @@ const panelStyles = {
     fontSize: "14px",
     color: "#6b7280",
     margin: 0,
+  },
+  resetBox: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "16px",
+    padding: "18px 20px",
+    borderRadius: "10px",
+    border: "1px solid #f3f4f6",
+    background: "#fafafa",
+  },
+  resetDesc: {
+    fontSize: "14px",
+    lineHeight: 1.6,
+    color: "#6b7280",
+    margin: 0,
+  },
+  resetBtnWrap: {
+    display: "flex",
+    justifyContent: "flex-end",
+  },
+  resetBtn: {
+    padding: "9px 22px",
+    borderRadius: "8px",
+    border: "none",
+    background: "#e94560",
+    color: "#ffffff",
+    fontSize: "14px",
+    fontWeight: 600,
+    cursor: "pointer",
+    fontFamily: "inherit",
+  },
+  locationRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "16px",
+    padding: "18px 20px",
+    borderRadius: "10px",
+    border: "1px solid #f3f4f6",
+    background: "#fafafa",
+  },
+  locationDesc: {
+    flex: 1,
+    fontSize: "14px",
+    lineHeight: 1.6,
+    color: "#6b7280",
+    margin: 0,
+  },
+  modifyBtn: {
+    flexShrink: 0,
+    padding: "9px 22px",
+    borderRadius: "8px",
+    border: "1px solid #e5e7eb",
+    background: "#ffffff",
+    color: "#374151",
+    fontSize: "14px",
+    fontWeight: 600,
+    cursor: "pointer",
+    fontFamily: "inherit",
+  },
+};
+
+const resetDialogStyles = {
+  overlay: {
+    position: "fixed",
+    inset: 0,
+    background: "rgba(0,0,0,0.5)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 1001,
+    fontFamily: "'Segoe UI', sans-serif",
+  },
+  box: {
+    width: "420px",
+    padding: "28px 30px 22px",
+    background: "#ffffff",
+    borderRadius: "14px",
+    boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "stretch",
+  },
+  title: {
+    fontSize: "20px",
+    fontWeight: 700,
+    color: "#1f2937",
+    margin: "0",
+    textAlign: "left",
+  },
+  divider: {
+    height: "1px",
+    background: "#e5e7eb",
+    margin: "14px 0 4px",
+  },
+  text: {
+    fontSize: "14px",
+    lineHeight: 1.7,
+    color: "#6b7280",
+    textAlign: "left",
+    margin: "8px 0 22px",
+  },
+  actions: {
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: "12px",
+  },
+  confirmBtn: {
+    padding: "8px 20px",
+    borderRadius: "8px",
+    border: "none",
+    background: "#e94560",
+    color: "#ffffff",
+    fontSize: "14px",
+    fontWeight: 600,
+    cursor: "pointer",
+    fontFamily: "inherit",
+  },
+  cancelBtn: {
+    padding: "8px 20px",
+    borderRadius: "8px",
+    border: "1px solid #d1d5db",
+    background: "#ffffff",
+    color: "#374151",
+    fontSize: "14px",
+    cursor: "pointer",
+    fontFamily: "inherit",
+  },
+};
+
+const dialogStyles = {
+  overlay: {
+    position: "fixed",
+    inset: 0,
+    background: "rgba(0,0,0,0.5)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 1002,
+    fontFamily: "'Segoe UI', sans-serif",
+  },
+  box: {
+    width: "460px",
+    padding: "26px 30px 20px",
+    background: "#ffffff",
+    borderRadius: "14px",
+    boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "stretch",
+  },
+  title: {
+    fontSize: "20px",
+    fontWeight: 700,
+    color: "#1f2937",
+    margin: "0",
+    textAlign: "left",
+  },
+  divider: {
+    height: "1px",
+    background: "#e5e7eb",
+    margin: "14px 0 16px",
+  },
+  hint: {
+    fontSize: "13px",
+    color: "#6b7280",
+    lineHeight: 1.6,
+    margin: "0 0 12px",
+  },
+  input: {
+    padding: "10px 14px",
+    borderRadius: "8px",
+    border: "1px solid #d1d5db",
+    outline: "none",
+    fontSize: "14px",
+    fontFamily: "inherit",
+    background: "#fafafa",
+    color: "#1f2937",
+  },
+  error: {
+    fontSize: "13px",
+    color: "#e94560",
+    margin: "8px 0 0",
+  },
+  actions: {
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: "12px",
+    marginTop: "18px",
+  },
+  confirmBtn: {
+    padding: "8px 22px",
+    borderRadius: "8px",
+    border: "none",
+    background: "#e94560",
+    color: "#ffffff",
+    fontSize: "14px",
+    fontWeight: 600,
+    cursor: "pointer",
+    fontFamily: "inherit",
+  },
+  cancelBtn: {
+    padding: "8px 22px",
+    borderRadius: "8px",
+    border: "1px solid #d1d5db",
+    background: "#ffffff",
+    color: "#374151",
+    fontSize: "14px",
+    cursor: "pointer",
+    fontFamily: "inherit",
   },
 };

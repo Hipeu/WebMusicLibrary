@@ -5,11 +5,11 @@ import re
 import time
 from fastapi import APIRouter, UploadFile, File, Form
 from services.metadata_service import parse_metadata, write_metadata
+from services.library_config import get_library_path
 
 router = APIRouter(prefix="/api/music")
 
-MUSIC_LIBRARY = os.path.join(os.path.expanduser("~"), "Music", "Music_Library")
-MANIFEST_FILE = os.path.join(MUSIC_LIBRARY, ".manifest.json")
+MANIFEST_FILE = os.path.join(get_library_path(), ".manifest.json")
 
 # 备份目录：封面 / 歌词 / 元信息
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -71,7 +71,7 @@ def _remove_empty_dirs(path):
 
 def _album_has_audio_files(artist, album):
     """音乐库中该专辑文件夹是否还残留音频文件（判断专辑是否已被清空）"""
-    album_dir = os.path.join(MUSIC_LIBRARY, artist, album)
+    album_dir = os.path.join(get_library_path(), artist, album)
     if not os.path.isdir(album_dir):
         return False
     for f in os.listdir(album_dir):
@@ -154,7 +154,7 @@ def get_lyrics(file_path: str):
                     return {"status": "ok", "lyrics": f.read()}
             except Exception:
                 pass
-    abs_path = os.path.join(MUSIC_LIBRARY, file_path)
+    abs_path = os.path.join(get_library_path(), file_path)
     if os.path.exists(abs_path):
         meta = parse_metadata(abs_path)
         if meta.get("lyrics"):
@@ -191,7 +191,7 @@ async def edit_music(
     if not entry:
         return {"status": "error", "msg": f"歌曲不存在: {file_path}"}
 
-    old_abs = os.path.join(MUSIC_LIBRARY, file_path)
+    old_abs = os.path.join(get_library_path(), file_path)
     if not os.path.exists(old_abs):
         return {"status": "error", "msg": "音乐文件不存在于库中"}
 
@@ -267,7 +267,7 @@ async def edit_music(
 
     # ---- 物理移动音频文件 ----
     if new_rel != file_path:
-        new_abs = os.path.join(MUSIC_LIBRARY, new_rel)
+        new_abs = os.path.join(get_library_path(), new_rel)
         os.makedirs(os.path.dirname(new_abs), exist_ok=True)
         try:
             shutil.move(old_abs, new_abs)

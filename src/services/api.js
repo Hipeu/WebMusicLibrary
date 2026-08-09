@@ -7,14 +7,15 @@ export function getAssetUrl(path) {
   return `${BASE_URL}${path}`;
 }
 
-/** 上传音乐文件到后端音乐库 */
-export async function uploadMusic(file) {
+/** 上传音乐文件到后端音乐库（signal 用于取消导入） */
+export async function uploadMusic(file, signal) {
   const form = new FormData();
   form.append("file", file);
 
   const res = await fetch(`${BASE_URL}/api/music/upload`, {
     method: "POST",
     body: form,
+    signal,
   });
 
   return res.json();
@@ -92,6 +93,30 @@ export async function savePlaylists(list) {
   return res.json();
 }
 
+/** 重置整个资料库（清空音乐库 + data 备份） */
+export async function resetAll() {
+  const res = await fetch(`${BASE_URL}/api/reset`, {
+    method: "DELETE",
+  });
+  return res.json();
+}
+
+/** 获取设置（资料库路径等） */
+export async function getSettings() {
+  const res = await fetch(`${BASE_URL}/api/settings`);
+  return res.json();
+}
+
+/** 保存设置（更新资料库路径） */
+export async function saveSettings(libraryPath) {
+  const res = await fetch(`${BASE_URL}/api/settings`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ library_path: libraryPath }),
+  });
+  return res.json();
+}
+
 export default {
   uploadMusic,
   getMusicList,
@@ -102,5 +127,8 @@ export default {
   getLyrics,
   getPlaylists,
   savePlaylists,
+  resetAll,
+  getSettings,
+  saveSettings,
   getAssetUrl,
 };
