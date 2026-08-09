@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { FaSlidersH, FaSyncAlt, FaTrashAlt, FaInfoCircle, FaTimes } from "react-icons/fa";
-import { saveSettings } from "../services/api";
+import { saveSettings, getMigrationStatus } from "../services/api";
 
 /* ================================================================
    ⚙️ Settings — 设置悬浮窗口
@@ -113,6 +113,8 @@ function ImportSettings({ onSettingsSaved }) {
   const [showDialog, setShowDialog] = useState(false);
   const [pathInput, setPathInput] = useState("");
   const [error, setError] = useState("");
+  const [migrating, setMigrating] = useState(false);
+  const [migProgress, setMigProgress] = useState({ done: 0, total: 0 });
 
   async function handleConfirm() {
     const p = pathInput.trim();
@@ -126,15 +128,48 @@ function ImportSettings({ onSettingsSaved }) {
       return;
     }
     const res = await saveSettings(p);
-    if (res && res.status === "ok") {
-      setShowDialog(false);
-      setPathInput("");
-      setError("");
-      onSettingsSaved?.();
-    } else {
-      setError((res && res.msg) || "保存失败");
+    if (res && res.status === "error") {
+      setError(res.msg || "保存失败");
+      return;
     }
+    if (res && res.status === "ok") {
+      // 兼容：极快完成
+      onSettingsSaved?.();
+      return;
+    }
+    // 开始迁移 → 关闭输入框，显示迁移进度
+    setShowDialog(false);
+    setPathInput("");
+    setError("");
+    setMigProgress({ done: 0, total: (res && res.total) || 0 });
+    setMigrating(true);
   }
+
+  // 轮询迁移进度
+  useEffect(() => {
+    if (!migrating) return;
+    const timer = setInterval(async () => {
+      try {
+        const res = await getMigrationStatus();
+        if (res.status === "migrating") {
+          setMigProgress({ done: res.done || 0, total: res.total || 0 });
+        } else if (res.status === "done") {
+          setMigProgress({ done: res.total || 0, total: res.total || 0 });
+          setMigrating(false);
+          onSettingsSaved?.();
+        } else if (res.status === "error") {
+          setMigrating(false);
+          setError(res.msg || "迁移失败");
+        }
+      } catch (err) {
+        setMigrating(false);
+        setError("获取迁移状态失败");
+      }
+    }, 500);
+    return () => clearInterval(timer);
+  }, [migrating, onSettingsSaved]);
+
+  const migPct = migProgress.total > 0 ? Math.round((migProgress.done / migProgress.total) * 100) : 0;
 
   return (
     <>
@@ -166,6 +201,28 @@ function ImportSettings({ onSettingsSaved }) {
             <div style={dialogStyles.actions}>
               <button style={dialogStyles.confirmBtn} onClick={handleConfirm}>确认</button>
               <button style={dialogStyles.cancelBtn} onClick={() => setShowDialog(false)}>取消</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 迁移进度对话框（不允许取消） */}
+      {migrating && (
+        <div style={migrateDialogStyles.overlay}>
+          <div style={migrateDialogStyles.box} onClick={(e) => e.stopPropagation()}>
+            <div style={migrateDialogStyles.body}>
+              <h3 style={migrateDialogStyles.title}>正在迁移资料库</h3>
+              <div style={migrateDialogStyles.divider} />
+              <p style={migrateDialogStyles.warn}>迁移完成前请不要关闭窗口</p>
+              <div style={migrateDialogStyles.countRow}>
+                <span style={migrateDialogStyles.count}>
+                  已迁移：{migProgress.done}/{migProgress.total}
+                </span>
+                <span style={migrateDialogStyles.pct}>{migPct}%</span>
+              </div>
+            </div>
+            <div style={migrateDialogStyles.track}>
+              <div style={{ ...migrateDialogStyles.fill, width: `${migPct}%` }} />
             </div>
           </div>
         </div>
@@ -709,5 +766,74 @@ const dialogStyles = {
     fontSize: "14px",
     cursor: "pointer",
     fontFamily: "inherit",
+  },
+};
+
+const migrateDialogStyles = {
+  overlay: {
+    position: "fixed",
+    inset: 0,
+    background: "rgba(0,0,0,0.5)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 1003,
+    fontFamily: "'Segoe UI', sans-serif",
+  },
+  box: {
+    width: "400px",
+    background: "#ffffff",
+    borderRadius: "14px",
+    boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "stretch",
+    overflow: "hidden",
+  },
+  body: {
+    padding: "26px 28px 20px",
+  },
+  title: {
+    fontSize: "20px",
+    fontWeight: 700,
+    color: "#1f2937",
+    margin: "0",
+    textAlign: "left",
+  },
+  divider: {
+    height: "1px",
+    background: "#e5e7eb",
+    margin: "14px 0 16px",
+  },
+  warn: {
+    fontSize: "14px",
+    color: "#e94560",
+    lineHeight: 1.6,
+    margin: "0 0 18px",
+  },
+  countRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  count: {
+    fontSize: "14px",
+    color: "#6b7280",
+  },
+  pct: {
+    fontSize: "14px",
+    fontWeight: 600,
+    color: "#374151",
+  },
+  // 红色进度条（紧贴底部，满 = 到右侧）
+  track: {
+    height: "6px",
+    width: "100%",
+    background: "#f3f4f6",
+  },
+  fill: {
+    height: "100%",
+    background: "#e94560",
+    transition: "width 0.25s ease",
   },
 };

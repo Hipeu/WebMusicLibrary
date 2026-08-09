@@ -1253,6 +1253,7 @@ export default function MusicLibrary() {
     setDetailPlaylistId(null);
     setDetailArtistName(null);
     setShowSettings(false);
+    showToast("重置资料库成功", "success");
   }
 
     // ---------- 编辑元信息 ----------
@@ -3073,9 +3074,9 @@ export default function MusicLibrary() {
 
       {/* ===== 右上角通知（添加音乐功能条下方） ===== */}
       {toastMsg && (
-        <div style={styles.toastNotify}>
+        <div style={{ ...styles.toastNotify, ...(toastType === "success" ? styles.toastNotifySuccess : {}) }}>
           {toastType === "success" ? (
-            <FaCheckCircle size={24} style={{ color: "#22c55e" }} />
+            <FaCheckCircle size={24} style={{ color: "#ffffff" }} />
           ) : (
             <FaExclamationCircle size={24} style={{ color: "#f59e0b" }} />
           )}
@@ -3730,6 +3731,11 @@ const styles = {
     fontWeight: 500,
     boxShadow: "0 8px 30px rgba(0,0,0,0.18)",
     border: "1px solid #f3f4f6",
+  },
+  toastNotifySuccess: {
+    background: "#22c55e",
+    color: "#ffffff",
+    border: "1px solid #22c55e",
   },
   confirmDialog: {
     width: "420px", padding: "28px 30px 22px", borderRadius: "14px",

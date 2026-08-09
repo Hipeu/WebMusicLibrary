@@ -13,15 +13,6 @@
     "description": "最近播放的歌曲",
     "coverURL": null,
     "pinned": false,
-    "songs": [
-      {
-        "file_path": "周深/意犹在/意犹在.flac",
-        "title": "意犹在",
-        "artist": "周深",
-        "album": "意犹在",
-        "coverURL": "http://127.0.0.1:8000/data/picture/周深/意犹在/cover.jpg",
-        "duration": 156
-      }
-    ]
+    "songs": []
   }
 ]

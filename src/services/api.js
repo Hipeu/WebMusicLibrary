@@ -117,6 +117,12 @@ export async function saveSettings(libraryPath) {
   return res.json();
 }
 
+/** 获取资料库迁移进度 */
+export async function getMigrationStatus() {
+  const res = await fetch(`${BASE_URL}/api/settings/migration`);
+  return res.json();
+}
+
 export default {
   uploadMusic,
   getMusicList,
@@ -130,5 +136,6 @@ export default {
   resetAll,
   getSettings,
   saveSettings,
+  getMigrationStatus,
   getAssetUrl,
 };
