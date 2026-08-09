@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { FaPlay, FaPause, FaArrowLeft, FaEdit, FaEllipsisH, FaHeart, FaPlus, FaStepForward, FaClock, FaCompactDisc, FaUser, FaTrash, FaInfoCircle, FaTimes, FaMusic } from "react-icons/fa";
+import { FaPlay, FaPause, FaArrowLeft, FaEdit, FaEllipsisH, FaHeart, FaPlus, FaStepForward, FaClock, FaCompactDisc, FaUser, FaTrash, FaInfoCircle, FaTimes, FaMusic, FaExclamationCircle } from "react-icons/fa";
 import PlayingAnimation from "../components/PlayingAnimation";
+import { songPlayable } from "../utils/formatCheck";
 
 /* ================================================================
    📋 PlaylistDetail — 播放列表详情页
@@ -128,6 +129,9 @@ export default function PlaylistDetail({
                       <PlayingAnimation />
                     ) : (
                       <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                        {!songPlayable(song) && (
+                          <FaExclamationCircle size={12} title="该格式无法播放" style={{ color: "#f59e0b", flexShrink: 0 }} />
+                        )}
                         <span style={{ width: "10px", flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
                           {(playlists || []).find((p) => p.id === "liked")?.songs?.some((s) => s.url === song.url) && (
                             <FaHeart size={9} style={{ color: "#e94560", flexShrink: 0 }} />

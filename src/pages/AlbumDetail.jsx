@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { FaPlay, FaPause, FaArrowLeft, FaEllipsisH, FaHeart, FaStepForward, FaClock, FaPlus, FaTrash, FaInfoCircle } from "react-icons/fa";
+import { FaPlay, FaPause, FaArrowLeft, FaEllipsisH, FaHeart, FaStepForward, FaClock, FaPlus, FaTrash, FaInfoCircle, FaExclamationCircle } from "react-icons/fa";
 import PlayingAnimation from "../components/PlayingAnimation";
 import useCoverColor from "../components/CoverColor";
+import { songPlayable } from "../utils/formatCheck";
 
 /* ================================================================
    📀 AlbumDetail — 专辑详情页
@@ -190,6 +191,9 @@ export default function AlbumDetail({
                       <PlayingAnimation />
                     ) : (
                       <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                        {!songPlayable(song) && (
+                          <FaExclamationCircle size={12} title="该格式无法播放" style={{ color: "#f59e0b", flexShrink: 0 }} />
+                        )}
                         <span style={{ width: "12px", flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
                           {isLiked && <FaHeart size={10} style={{ color: "#e94560", flexShrink: 0 }} />}
                         </span>

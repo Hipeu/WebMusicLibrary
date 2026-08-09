@@ -296,6 +296,17 @@ def parse_metadata(file_path):
     }
     meta["codec"] = codec_map.get(ext, ext.replace(".", "").upper() or None)
 
+    # 精确实别真实编码（尤其 .m4a 可能是 ALAC 而非 AAC，浏览器无法播放）
+    try:
+        if isinstance(audio, MP4) and hasattr(audio.info, "codec"):
+            raw = str(audio.info.codec or "").lower()
+            if "alac" in raw:
+                meta["codec"] = "ALAC"
+            elif "mp4a" in raw or "aac" in raw:
+                meta["codec"] = "AAC"
+    except Exception:
+        pass
+
     if hasattr(audio, "info"):
         try:
             if hasattr(audio.info, "length") and audio.info.length:

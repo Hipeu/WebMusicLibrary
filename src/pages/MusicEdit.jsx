@@ -10,6 +10,7 @@ export default function MusicEdit({ target, onClose, onSave }) {
   const [editCoverFile, setEditCoverFile] = useState(null);
   const [activeTab, setActiveTab] = useState("details");
   const coverInputRef = useRef(null);
+  const lrcInputRef = useRef(null);
   const isAlbum = target?.type === "album";
   const data = target?.data;
 
@@ -30,6 +31,7 @@ export default function MusicEdit({ target, onClose, onSave }) {
         artist: data.artist || "",
         album: data.album || "",
         album_artist: data.album_artist ?? "",
+        year: data.year ?? "",
         genre: data.genre || "",
         trackNo: data.trackNo ?? "",
         composer: data.composer || "",
@@ -56,6 +58,21 @@ export default function MusicEdit({ target, onClose, onSave }) {
     reader.readAsDataURL(file);
   }
 
+  // 导入 LRC / 歌词文件，填入歌词表单
+  function handleImportLrc(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const text = evt.target?.result;
+      if (typeof text === "string") {
+        handleChange("lyrics", text);
+      }
+    };
+    reader.readAsText(file, "utf-8");
+    e.target.value = "";
+  }
+
   function handleSave() {
     onSave?.(target, form, editCoverFile);
     onClose();
@@ -64,8 +81,8 @@ export default function MusicEdit({ target, onClose, onSave }) {
   const tabs = [
     { id: "details", label: "详细信息" },
     { id: "cover", label: "封面" },
-    { id: "type", label: "类型" },
     ...(isAlbum ? [] : [{ id: "lyrics", label: "歌词" }]),
+    { id: "type", label: "类型" },
   ];
 
   return (
@@ -149,6 +166,10 @@ export default function MusicEdit({ target, onClose, onSave }) {
                   <div style={styles.field}>
                     <label style={styles.label}>专辑艺人</label>
                     <input style={styles.input} value={form.album_artist ?? ""} onChange={(e) => handleChange("album_artist", e.target.value)} />
+                  </div>
+                  <div style={styles.field}>
+                    <label style={styles.label}>年份</label>
+                    <input style={styles.input} value={form.year} onChange={(e) => handleChange("year", e.target.value)} />
                   </div>
                   <div style={styles.field}>
                     <label style={styles.label}>流派</label>
@@ -257,6 +278,18 @@ export default function MusicEdit({ target, onClose, onSave }) {
 
           {activeTab === "lyrics" && !isAlbum && (
             <div style={styles.lyricsTab}>
+              <div style={styles.lyricsToolbar}>
+                <button style={styles.importLrcBtn} onClick={() => lrcInputRef.current?.click()}>
+                  📄 导入歌词
+                </button>
+                <input
+                  ref={lrcInputRef}
+                  type="file"
+                  accept=".lrc,text/plain"
+                  style={{ display: "none" }}
+                  onChange={handleImportLrc}
+                />
+              </div>
               <textarea
                 style={styles.lyricsTextarea}
                 value={form.lyrics ?? ""}
@@ -264,7 +297,6 @@ export default function MusicEdit({ target, onClose, onSave }) {
                 placeholder="在此输入 / 编辑歌词（支持 .lrc 时间轴格式或纯文本）"
                 spellCheck={false}
               />
-              <p style={styles.lyricsHint}>保存后会同时写入音乐文件内嵌标签与系统歌词备份</p>
             </div>
           )}
         </div>
@@ -308,7 +340,7 @@ const styles = {
     zIndex: 1000,
   },
   dialog: {
-    background: "#ffffff", borderRadius: "12px", width: "500px",
+    background: "#ffffff", borderRadius: "14px", width: "580px",
     maxHeight: "85vh", display: "flex", flexDirection: "column",
     fontFamily: "'Segoe UI', sans-serif",
     boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
@@ -320,15 +352,15 @@ const styles = {
     padding: "20px 24px 16px",
     borderBottom: "1px solid #e5e7eb",
   },
-  topCover: { width: "64px", height: "64px", borderRadius: "8px", overflow: "hidden", flexShrink: 0 },
+  topCover: { width: "80px", height: "80px", borderRadius: "8px", overflow: "hidden", flexShrink: 0 },
   topCoverImg: { width: "100%", height: "100%", objectFit: "cover", display: "block" },
   topCoverPlaceholder: {
     width: "100%", height: "100%", display: "flex", alignItems: "center",
     justifyContent: "center", background: "#e5e7eb", color: "#9ca3af",
   },
   topInfo: { minWidth: 0, flex: 1 },
-  topTitle: { fontSize: "16px", fontWeight: 700, color: "#1f2937", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
-  topArtist: { fontSize: "13px", color: "#6b7280", margin: "4px 0 0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  topTitle: { fontSize: "18px", fontWeight: 700, color: "#1f2937", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  topArtist: { fontSize: "14px", color: "#6b7280", margin: "4px 0 0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
 
   /* 标签栏 */
   tabBar: {
@@ -370,7 +402,7 @@ const styles = {
     display: "flex", flexDirection: "column", alignItems: "center",
     gap: "12px", padding: "20px 0",
   },
-  coverPreview: { width: "180px", height: "180px", borderRadius: "10px", overflow: "hidden" },
+  coverPreview: { width: "220px", height: "220px", borderRadius: "10px", overflow: "hidden" },
   coverPreviewImg: { width: "100%", height: "100%", objectFit: "cover", display: "block" },
   coverAddArea: {
     width: "100%", height: "100%", display: "flex", flexDirection: "column",
@@ -390,6 +422,18 @@ const styles = {
   lyricsTab: {
     display: "flex", flexDirection: "column", gap: "8px", padding: "4px 0",
   },
+  lyricsToolbar: {
+    display: "flex", alignItems: "center", gap: "10px",
+  },
+  importLrcBtn: {
+    display: "inline-flex", alignItems: "center", gap: "6px",
+    alignSelf: "flex-start",
+    padding: "6px 16px", borderRadius: "20px",
+    border: "1px solid rgba(233,69,96,0.3)",
+    background: "rgba(233,69,96,0.1)",
+    color: "#e94560", fontSize: "13px", fontWeight: 500,
+    cursor: "pointer", fontFamily: "inherit",
+  },
   lyricsTextarea: {
     minHeight: "220px",
     padding: "12px",
@@ -402,9 +446,6 @@ const styles = {
     fontFamily: "'Segoe UI', sans-serif",
     resize: "vertical",
     outline: "none",
-  },
-  lyricsHint: {
-    fontSize: "12px", color: "#9ca3af", margin: 0,
   },
 
   /* 类型标签 */

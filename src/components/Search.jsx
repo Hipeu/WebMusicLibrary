@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
-import { FaMusic, FaCompactDisc, FaUser, FaListUl, FaArrowLeft } from "react-icons/fa";
+import { FaMusic, FaCompactDisc, FaUser, FaListUl, FaArrowLeft, FaExclamationCircle } from "react-icons/fa";
+import { songPlayable } from "../utils/formatCheck";
 
 /* ================================================================
    🔍 Search — 侧边栏搜索输入框
@@ -210,7 +211,12 @@ export function SearchResults({
                     <div className="search-song-thumb-placeholder"><FaMusic /></div>
                   )}
                   <div className="search-song-card-info">
-                    <span className="search-song-card-title">{item.title}</span>
+                    <span className="search-song-card-title">
+                      {!songPlayable(item) && (
+                        <FaExclamationCircle size={12} title="该格式无法播放" style={{ color: "#f59e0b", marginRight: "5px", flexShrink: 0 }} />
+                      )}
+                      {item.title}
+                    </span>
                     <span className="search-song-card-meta">{item.artist}{item.albumYear ? ` · ${item.albumYear}` : ""}</span>
                   </div>
                 </div>
@@ -349,7 +355,12 @@ function SearchCategoryDetail({
             <div className="search-song-thumb-placeholder"><FaMusic /></div>
           )}
           <div className="search-song-card-info">
-            <span className="search-song-card-title">{item.title}</span>
+            <span className="search-song-card-title">
+              {!songPlayable(item) && (
+                <FaExclamationCircle size={12} title="该格式无法播放" style={{ color: "#f59e0b", marginRight: "5px", flexShrink: 0 }} />
+              )}
+              {item.title}
+            </span>
             <span className="search-song-card-meta">{item.artist}{item.albumYear ? ` · ${item.albumYear}` : ""}</span>
           </div>
         </div>

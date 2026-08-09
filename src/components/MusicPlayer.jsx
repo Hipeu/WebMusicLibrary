@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect } from "react";
-import { FaChevronDown, FaList, FaMusic, FaHeart, FaRegHeart, FaEllipsisH, FaInfoCircle, FaPlus, FaCompactDisc, FaUser, FaStepForward, FaRedo, FaRandom } from "react-icons/fa";
+import { FaChevronDown, FaList, FaMusic, FaHeart, FaRegHeart, FaEllipsisH, FaInfoCircle, FaPlus, FaCompactDisc, FaUser, FaStepForward, FaRedo, FaRandom, FaExclamationCircle } from "react-icons/fa";
 import Lyrics from "./Lyrics";
 import { parseLRC } from "../utils/LyricsParser";
 import { getLyrics } from "../services/api";
+import { songPlayable } from "../utils/formatCheck";
 import PlayerControls from "./PlayerControls";
 import useCoverColor from "./CoverColor";
 
@@ -34,10 +35,10 @@ export default function MusicPlayer({
   onNavigateToAlbum,
   onNavigateToArtist,
   onNavigateToPlaylist,
+  onUnplayableSong,
 }) {
     const [showDetail, setShowDetail] = useState(false);
   const [lyricsData, setLyricsData] = useState(null);
-  const lrcInputRef = useRef(null);
   const [detailTab, setDetailTab] = useState("songs"); // "songs" | "lyrics"
   const [tabTransition, setTabTransition] = useState(false);
     const [isFavorited, setIsFavorited] = useState(false);
@@ -122,22 +123,6 @@ export default function MusicPlayer({
       setDetailTab(tab);
       setTabTransition(false);
     }, 200);
-  }
-
-  // ---------- 导入 LRC 歌词 ----------
-  function handleImportLRC(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      const text = evt.target?.result;
-      if (typeof text === "string") {
-        const parsed = parseLRC(text);
-        setLyricsData(parsed);
-      }
-    };
-    reader.readAsText(file, "utf-8");
-    e.target.value = "";
   }
 
   // ---------- 播放控制 ----------
@@ -342,6 +327,21 @@ export default function MusicPlayer({
     }
     setShuffledOrder(indices);
   }, [playMode, currentAlbumId, currentPlaylistId, sourceSongs.length]);
+
+  // 自动跳过不可播放的歌曲（连续播放时遇到 ALAC 等格式自动切到下一首可播放的）
+  useEffect(() => {
+    if (!currentSong || songPlayable(currentSong)) return;
+    const start = currentSongIndex;
+    for (let n = 1; n <= allSongs.length; n++) {
+      const i = (start + n) % allSongs.length;
+      if (songPlayable(allSongs[i])) {
+        setCurrentSongIndex(i);
+        return;
+      }
+    }
+    setIsPlaying(false);
+    setCurrentTime(0);
+  }, [currentSongIndex, currentSong?.url]);
 
     // 点击菜单外关闭
   useEffect(() => {
@@ -627,23 +627,6 @@ export default function MusicPlayer({
                                         </button>
                                       </div>
                                     )}
-                                    {detailTab === "lyrics" && (
-                                      <div style={styles.lyricsToolbar}>
-                                        <button
-                                          style={styles.importLrcBtn}
-                                          onClick={() => lrcInputRef.current?.click()}
-                                        >
-                                          📄 导入歌词
-                                        </button>
-                                        <input
-                                          ref={lrcInputRef}
-                                          type="file"
-                                          accept=".lrc,text/plain"
-                                          style={{ display: "none" }}
-                                          onChange={handleImportLRC}
-                                        />
-                                      </div>
-                                    )}
                                     {detailTab === "info" && (
                                       <div style={styles.playModeBar}>
                                         <span style={styles.sourceLabel}>
@@ -674,11 +657,21 @@ export default function MusicPlayer({
                                                   ...(displayCurrentIdx === idx ? styles.detailSongItemActive : {}),
                                                   ...(isQueueSong ? styles.detailQueueSongItem : {}),
                                                 }}
-                                                onClick={() => { setCurrentSongIndex(actualIdx); setIsPlaying(true); }}
+                                                onClick={() => {
+                                                  if (!songPlayable(song)) {
+                                                    onUnplayableSong?.(song);
+                                                  } else {
+                                                    setCurrentSongIndex(actualIdx);
+                                                    setIsPlaying(true);
+                                                  }
+                                                }}
                                               >
                                                 <span style={styles.detailSongIdx}>{String(playMode === "shuffle" ? idx + 1 : actualIdx + 1).padStart(2, "0")}</span>
                                                 <div style={{ flex: 1, overflow: "hidden" }}>
                                                   <p style={styles.detailSongName}>
+                                                    {!songPlayable(song) && (
+                                                      <FaExclamationCircle size={12} title="该格式无法播放" style={{ color: "#f59e0b", marginRight: "5px", flexShrink: 0 }} />
+                                                    )}
                                                     {song.title}
                                                     {isQueueSong && <span style={styles.detailQueueTag}> 待播</span>}
                                                   </p>
@@ -723,10 +716,12 @@ export default function MusicPlayer({
                                               <span style={styles.infoLabel}>时长</span>
                                               <span style={styles.infoValue}>{currentSong.duration ? formatDuration(currentSong.duration) : "未知"}</span>
                                             </div>
-                                            <div style={styles.infoRow}>
-                                              <span style={styles.infoLabel}>种类</span>
-                                              <span style={styles.infoValue}>{currentSong.codec || currentSong.container || "未知"}</span>
-                                            </div>
+                                            {(currentSong.codec || currentSong.container) && (
+                                              <div style={styles.infoRow}>
+                                                <span style={styles.infoLabel}>种类</span>
+                                                <span style={styles.infoValue}>{currentSong.codec || currentSong.container}</span>
+                                              </div>
+                                            )}
                                             <div style={styles.infoRow}>
                                               <span style={styles.infoLabel}>码率</span>
                                               <span style={styles.infoValue}>{currentSong.bitrate ? `${Math.round(currentSong.bitrate / 1000)} kbps` : "未知"}</span>
@@ -1255,29 +1250,7 @@ const styles = {
       whiteSpace: "nowrap",
     },
 
-    lyricsToolbar: {
-    display: "flex",
-    alignItems: "center",
-    gap: "10px",
-    flexShrink: 0,
-  },
-        importLrcBtn: {
-    background: "rgba(233,69,96,0.15)",
-    border: "1px solid rgba(233,69,96,0.3)",
-    color: "#e94560",
-    fontSize: "13px",
-    fontWeight: 500,
-    padding: "6px 16px",
-    borderRadius: "20px",
-    cursor: "pointer",
-    transition: "background 0.2s",
-    display: "inline-flex",
-    alignItems: "center",
-    gap: "6px",
-    fontFamily: "inherit",
-  },
-
-  // ===== 添加到播放列表浮窗 =====
+    // ===== 添加到播放列表浮窗 =====
   playlistPanelOverlay: {
     position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
     background: "rgba(0,0,0,0.6)",

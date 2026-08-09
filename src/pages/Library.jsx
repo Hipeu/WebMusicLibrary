@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { FiPlus } from "react-icons/fi";
-import { FaEllipsisH, FaCompactDisc, FaUser, FaHeart, FaStepForward, FaClock, FaPlus, FaSortAmountDown, FaArrowUp, FaTrash, FaMusic, FaInfoCircle, FaCog, FaPlay } from "react-icons/fa";
+import { FaEllipsisH, FaCompactDisc, FaUser, FaHeart, FaStepForward, FaClock, FaPlus, FaSortAmountDown, FaArrowUp, FaTrash, FaMusic, FaInfoCircle, FaCog, FaPlay, FaExclamationCircle } from "react-icons/fa";
 import { readMetadata } from "../utils/MetadataReader";
 import { uploadMusic, getMusicList, getAssetUrl, deleteMusic, checkMusicFiles, updateMusicMetadata, getLyrics, getPlaylists, savePlaylists } from "../services/api";
 import { saveSongToIndex, removeSongFromIndex, loadMusicIndex } from "../utils/musicIndex";
 import { normalizePlaylists, loadPlaylistCache, savePlaylistCache } from "../utils/playlistStore";
+import { isUnplayableCodec, songPlayable } from "../utils/formatCheck";
 import MusicPlayer from "../components/MusicPlayer";
 import AlbumDetail from "./AlbumDetail";
 import ArtistsDetail from "./ArtistsDetail";
@@ -20,6 +21,18 @@ import "../styles/music-library.css";
 /* ======================================================
    工具函数：专辑 / 歌曲构建与合并
    ====================================================== */
+
+// 支持的音频扩展名（用于过滤非音乐文件）
+const MUSIC_EXTS = [
+  ".mp3", ".flac", ".ogg", ".oga", ".opus", ".m4a", ".m4b",
+  ".mp4", ".wav", ".wave", ".aiff", ".aif", ".wma", ".ape", ".wv",
+];
+function isMusicFile(name) {
+  if (!name) return false;
+  const ext = name.split(".").pop().toLowerCase();
+  return MUSIC_EXTS.includes(`.${ext}`);
+}
+
 function buildAlbumsFromIndex(index) {
   const albumMap = new Map();
   Object.entries(index).forEach(([file_path, s]) => {
@@ -192,6 +205,10 @@ export default function MusicLibrary() {
   const [volume, setVolume] = useState(1);
   const audioRef = useRef(null);
   const fileInputRef = useRef(null);
+  const toastTimerRef = useRef(null);
+  const [toastMsg, setToastMsg] = useState(null); // 右上角通知
+  const [importPending, setImportPending] = useState(null); // 不可播放格式导入确认 { entries, unplayable }
+  const [unplayableDialogSong, setUnplayableDialogSong] = useState(null); // 播放被拦截的歌曲
   const [showImportMenu, setShowImportMenu] = useState(false);
   const [showCreatePlaylist, setShowCreatePlaylist] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -323,57 +340,55 @@ export default function MusicLibrary() {
     );
   }
 
+  // ---------- 右上角通知 ----------
+  function showToast(msg) {
+    setToastMsg(msg);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToastMsg(null), 3000);
+  }
+
   // ---------- 导入音频文件 ----------
-  async function handleImportFiles(e) {
-    const selectedFiles = Array.from(e.target.files);
-    if (selectedFiles.length === 0) return;
-
-    // 读取所有文件的元数据（优先上传到后端持久化，失败则回退本地导入）
-    const entries = await Promise.all(
-      selectedFiles.map(async (f) => {
-        try {
-          const res = await uploadMusic(f);
-          if (res.status === "ok") {
-            const m = res.meta || {};
-            const entry = {
-              title: res.title,
-              artist: res.artist || "未知艺术家",
-              album: res.album || "未知专辑",
-              album_artist: m.album_artist || null,
-              year: m.year || null,
-              genre: m.genre || null,
-              duration: m.duration || null,
-              url: getAssetUrl(res.file_path ? `/library/${res.file_path}` : null),
-              file_path: res.file_path || null,
-              coverURL: res.cover_url ? getAssetUrl(res.cover_url) : null,
-              cover_path: (m && m.cover_path) || null,
-              trackNo: m.trackNo || null,
-              composer: m.composer || null,
-              lyricist: m.lyricist || null,
-              publisher: m.publisher || null,
-              comment: m.comment || null,
-              bitrate: m.bitrate || null,
-              codec: m.codec || null,
-              container: m.codec || null,
-              importTime: Date.now(),
-            };
-            // 写入本地索引，保证服务未启动时也能展示
-            saveSongToIndex(entry);
-            return entry;
-          }
-        } catch (err) {
-          console.warn("后端上传失败，使用本地导入:", err);
-        }
-        // 后端不可用 → 本地导入（blob URL）
-        const meta = await readMetadata(f);
-        return {
-          ...meta,
-          url: URL.createObjectURL(f),
+  // 上传单个文件并构建条目（优先上传后端持久化，失败回退本地导入）
+  async function buildEntryFromFile(f, meta) {
+    try {
+      const res = await uploadMusic(f);
+      if (res.status === "ok") {
+        const m = res.meta || {};
+        const entry = {
+          title: res.title,
+          artist: res.artist || "未知艺术家",
+          album: res.album || "未知专辑",
+          album_artist: m.album_artist || null,
+          year: m.year || null,
+          genre: m.genre || null,
+          duration: m.duration || null,
+          url: getAssetUrl(res.file_path ? `/library/${res.file_path}` : null),
+          file_path: res.file_path || null,
+          coverURL: res.cover_url ? getAssetUrl(res.cover_url) : null,
+          cover_path: (m && m.cover_path) || null,
+          trackNo: m.trackNo || null,
+          composer: m.composer || null,
+          lyricist: m.lyricist || null,
+          publisher: m.publisher || null,
+          comment: m.comment || null,
+          bitrate: m.bitrate || null,
+          // 优先用前端解析的真实编码（ALAC 等浏览器不可播格式）
+          codec: (meta && meta.codec) || m.codec || null,
+          container: (meta && meta.container) || m.codec || null,
+          importTime: Date.now(),
         };
-      })
-    );
+        saveSongToIndex(entry);
+        return entry;
+      }
+    } catch (err) {
+      console.warn("后端上传失败，使用本地导入:", err);
+    }
+    const mm = meta || await readMetadata(f);
+    return { ...mm, url: URL.createObjectURL(f) };
+  }
 
-    // 按专辑名分组
+  // 将条目按专辑分组并合并到 albums 状态
+  function finishImport(entries) {
     const albumMap = new Map();
     for (const entry of entries) {
       const title = entry.album || "未知专辑";
@@ -381,93 +396,102 @@ export default function MusicLibrary() {
       const key = `${entry.album_artist || entry.artist || "未知艺术家"}|${title}`;
       if (!albumMap.has(key)) {
         albumMap.set(key, {
-                        id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
-            title,
-            artist: entry.album_artist || entry.artist || "未知艺术家",
-            album_artist: entry.album_artist || null,
-            year: entry.year || null,
-            genre: entry.genre || null,
-            publisher: entry.publisher || null,
-            coverURL: entry.coverURL,
-            importTime: Date.now(),
-            songs: [],
-          });
+          id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
+          title,
+          artist: entry.album_artist || entry.artist || "未知艺术家",
+          album_artist: entry.album_artist || null,
+          year: entry.year || null,
+          genre: entry.genre || null,
+          publisher: entry.publisher || null,
+          coverURL: entry.coverURL,
+          importTime: Date.now(),
+          songs: [],
+        });
       }
-            const album = albumMap.get(key);
-      album.songs.push({
-        title: entry.title,
-        artist: entry.artist,
-        album: entry.album,
-        album_artist: entry.album_artist,
-        genre: entry.genre,
-        duration: entry.duration,
-        url: entry.url,
-        file_path: entry.file_path,
-        coverURL: entry.coverURL,
-        trackNo: entry.trackNo,
-        composer: entry.composer,
-        lyricist: entry.lyricist,
-        publisher: entry.publisher,
-        comment: entry.comment,
-        bitrate: entry.bitrate,
-        codec: entry.codec,
-        container: entry.container,
-        creationTime: entry.creationTime,
-        modificationTime: entry.modificationTime,
-        importTime: entry.importTime,
-      });
-      // 如果封面还没设置，用第一首歌的封面
-      if (!album.coverURL && entry.coverURL) {
-        album.coverURL = entry.coverURL;
-      }
-      // 如果流派还没设置，用第一首歌的流派
-      if (!album.genre && entry.genre) {
-        album.genre = entry.genre;
-      }
+      const album = albumMap.get(key);
+      album.songs.push({ ...entry });
+      if (!album.coverURL && entry.coverURL) album.coverURL = entry.coverURL;
+      if (!album.genre && entry.genre) album.genre = entry.genre;
     }
-
     const newAlbums = Array.from(albumMap.values());
-
-        setAlbums((prev) => {
-      // 合并到已有专辑中（按「专辑艺人/艺人 + 专辑名」匹配，与分组键一致）
+    setAlbums((prev) => {
       const albumKey = (a) => `${a.album_artist || a.artist || "未知艺术家"}|${a.title}`;
       const merged = new Map();
-      for (const a of prev) {
-        merged.set(albumKey(a), { ...a, songs: [...a.songs] });
-      }
+      for (const a of prev) merged.set(albumKey(a), { ...a, songs: [...a.songs] });
       for (const a of newAlbums) {
         const k = albumKey(a);
         if (merged.has(k)) {
           const existing = merged.get(k);
-          // 合并歌曲，去重
           const existingUrls = new Set(existing.songs.map((s) => s.url));
           for (const s of a.songs) {
-            if (!existingUrls.has(s.url)) {
-              existing.songs.push(s);
-            }
+            if (!existingUrls.has(s.url)) existing.songs.push(s);
           }
-          // 补全封面：已有专辑没有封面时用新专辑的
-          if (!existing.coverURL && a.coverURL) {
-            existing.coverURL = a.coverURL;
-          }
-          // 补全年份：已有专辑没有年份时用新专辑的
-          if (!existing.year && a.year) {
-            existing.year = a.year;
-          }
-                    // 补全艺人：已有专辑是未知时用新专辑的
-          if ((existing.artist === "未知艺术家" || !existing.artist) && a.artist && a.artist !== "未知艺术家") {
-            existing.artist = a.artist;
-          }
-          // 补全流派：已有专辑没有流派时用新专辑的
-          if (!existing.genre && a.genre) {
-            existing.genre = a.genre;
-          }
+          if (!existing.coverURL && a.coverURL) existing.coverURL = a.coverURL;
+          if (!existing.year && a.year) existing.year = a.year;
+          if ((existing.artist === "未知艺术家" || !existing.artist) && a.artist && a.artist !== "未知艺术家") existing.artist = a.artist;
+          if (!existing.genre && a.genre) existing.genre = a.genre;
         } else {
           merged.set(k, { ...a, songs: [...a.songs] });
         }
       }
       return Array.from(merged.values());
     });
+  }
+
+  async function handleImportFiles(e) {
+    const selectedFiles = Array.from(e.target.files);
+    if (selectedFiles.length === 0) return;
+
+    // 过滤非音乐文件
+    const musicFiles = [];
+    let skippedNonMusic = 0;
+    for (const f of selectedFiles) {
+      if (isMusicFile(f.name)) musicFiles.push(f);
+      else skippedNonMusic++;
+    }
+
+    // 解析编码，区分可播放 / 不可播放（浏览器无法播放的格式弹窗确认）
+    const entries = [];
+    const unplayable = [];
+    for (const f of musicFiles) {
+      let meta = null;
+      try {
+        meta = await readMetadata(f);
+      } catch {
+        // 解析失败按普通文件处理
+      }
+      if (meta && isUnplayableCodec(meta.codec || meta.container)) {
+        unplayable.push({ file: f, meta });
+      } else {
+        entries.push(await buildEntryFromFile(f, meta));
+      }
+    }
+
+    if (skippedNonMusic > 0) showToast(`已忽略 ${skippedNonMusic} 个非音乐文件`);
+
+    if (unplayable.length > 0) {
+      setImportPending({ entries, unplayable });
+      return;
+    }
+    finishImport(entries);
+  }
+
+  // 不可播放格式：用户选择继续
+  function handleUnplayableContinue() {
+    const pending = importPending;
+    setImportPending(null);
+    if (!pending) return;
+    (async () => {
+      const extra = await Promise.all(pending.unplayable.map((p) => buildEntryFromFile(p.file, p.meta)));
+      finishImport([...pending.entries, ...extra]);
+    })();
+  }
+
+  // 不可播放格式：用户选择取消（跳过不可播放，仅导入可播放的）
+  function handleUnplayableCancel() {
+    const pending = importPending;
+    setImportPending(null);
+    if (pending) finishImport(pending.entries);
   }
 
         // ---------- 点击专辑卡片 — 打开专辑详情页 ----------
@@ -497,19 +521,29 @@ export default function MusicLibrary() {
     const album = albums.find((a) => a.id === detailAlbumId);
     if (!album || album.songs.length === 0) return;
 
+    // 跳过不可播放歌曲，从第一首可播放的开始
+    const firstPlayable = album.songs.findIndex((s) => songPlayable(s));
+    if (firstPlayable === -1) {
+      setUnplayableDialogSong(album.songs[0]);
+      return;
+    }
+
     if (currentAlbumId === detailAlbumId) {
       // 同一专辑：切换播放/暂停
       togglePlay();
     } else {
       setCurrentPlaylistId(null); // 切换到专辑播放，清除播放列表来源
       setCurrentAlbumId(detailAlbumId);
-      setCurrentSongIndex(0);
+      setCurrentSongIndex(firstPlayable);
       setIsPlaying(true);
     }
   }
 
   // ---------- 从详情页选择歌曲播放 ----------
   function handlePlaySongFromDetail(songIndex) {
+    const album = albums.find((a) => a.id === detailAlbumId);
+    const song = album?.songs?.[songIndex];
+    if (song && !songPlayable(song)) { setUnplayableDialogSong(song); return; }
     setCurrentPlaylistId(null); // 切换到专辑播放，清除播放列表来源
     setCurrentAlbumId(detailAlbumId);
     setCurrentSongIndex(songIndex);
@@ -556,18 +590,28 @@ export default function MusicLibrary() {
       const album = albums.find((a) => a.id === albumId);
       if (!album || album.songs.length === 0) return;
 
+      // 跳过不可播放歌曲，从第一首可播放的开始
+      const firstPlayable = album.songs.findIndex((s) => songPlayable(s));
+      if (firstPlayable === -1) {
+        setUnplayableDialogSong(album.songs[0]);
+        return;
+      }
+
       if (currentAlbumId === albumId) {
         togglePlay();
       } else {
         setCurrentPlaylistId(null);
         setCurrentAlbumId(albumId);
-        setCurrentSongIndex(0);
+        setCurrentSongIndex(firstPlayable);
         setIsPlaying(true);
       }
     }
 
     // ---------- 从艺人详情页选择歌曲播放 ----------
     function handlePlaySongFromArtist(albumId, songIndex) {
+      const album = albums.find((a) => a.id === albumId);
+      const song = album?.songs?.[songIndex];
+      if (song && !songPlayable(song)) { setUnplayableDialogSong(song); return; }
       setCurrentPlaylistId(null);
       setCurrentAlbumId(albumId);
       setCurrentSongIndex(songIndex);
@@ -576,6 +620,9 @@ export default function MusicLibrary() {
 
     // ---------- 从搜索结果页选择歌曲播放 ----------
     function handlePlaySongFromSearch(albumId, songIndex) {
+      const album = albums.find((a) => a.id === albumId);
+      const song = album?.songs?.[songIndex];
+      if (song && !songPlayable(song)) { setUnplayableDialogSong(song); return; }
       setCurrentPlaylistId(null);
       setCurrentAlbumId(albumId);
       setCurrentSongIndex(songIndex);
@@ -628,18 +675,28 @@ export default function MusicLibrary() {
     const pl = playlists.find((p) => p.id === detailPlaylistId);
     if (!pl || !pl.songs || pl.songs.length === 0) return;
 
+    // 跳过不可播放歌曲，从第一首可播放的开始
+    const firstPlayable = pl.songs.findIndex((s) => songPlayable(s));
+    if (firstPlayable === -1) {
+      if (pl.songs.length > 0) setUnplayableDialogSong(pl.songs[0]);
+      return;
+    }
+
     if (currentPlaylistId === detailPlaylistId) {
       togglePlay();
     } else {
       setCurrentAlbumId(null); // 切换到播放列表播放，清除专辑来源
       setCurrentPlaylistId(detailPlaylistId);
-      setCurrentSongIndex(0);
+      setCurrentSongIndex(firstPlayable);
       setIsPlaying(true);
     }
   }
 
   // ---------- 从播放列表详情选择歌曲播放 ----------
   function handlePlaySongFromPlaylist(songIndex) {
+    const pl = playlists.find((p) => p.id === detailPlaylistId);
+    const song = pl?.songs?.[songIndex];
+    if (song && !songPlayable(song)) { setUnplayableDialogSong(song); return; }
     setCurrentAlbumId(null); // 切换到播放列表播放，清除专辑来源
     setCurrentPlaylistId(detailPlaylistId);
     setCurrentSongIndex(songIndex);
@@ -2170,6 +2227,8 @@ export default function MusicLibrary() {
                                                                       handleCheckboxChange(songKey, e);
                                                                     } else if (isMissing) {
                                                                       setMissingDialogSong(song);
+                                                                    } else if (!songPlayable(song)) {
+                                                                      setUnplayableDialogSong(song);
                                                                     } else {
                                                                       // 歌曲视图：只播放当前这一首，不自动切歌
                                                                       setCurrentAlbumId(null);
@@ -2192,6 +2251,9 @@ export default function MusicLibrary() {
                                 </div>
                                                                 <div style={styles.songColTitle}>
                                                                   <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
+                                                                    {!songPlayable(song) && (
+                                                                      <FaExclamationCircle size={13} title="该格式无法播放" style={{ color: "#f59e0b", flexShrink: 0 }} />
+                                                                    )}
                                                                     <div style={styles.songCoverThumb}>
                                                                       {(() => {
                                                                         const album = albums.find((a) => a.id === song.albumId);
@@ -2210,14 +2272,14 @@ export default function MusicLibrary() {
                                                                         );
                                                                       })()}
                                                                     </div>
-                                                                    <span style={{
-                                                                      ...styles.songCellTitle,
-                                                                      ...(isActive ? styles.songCellTitleActive : {}),
-                                                                      ...(isMissing ? styles.songCellTextMissing : {}),
-                                                                      minWidth: 0,
-                                                                    }}>
-                                                                      {song.title}
-                                                                    </span>
+                                                                     <span style={{
+                                                                       ...styles.songCellTitle,
+                                                                       ...(isActive ? styles.songCellTitleActive : {}),
+                                                                       ...(isMissing ? styles.songCellTextMissing : {}),
+                                                                       minWidth: 0,
+                                                                     }}>
+                                                                       {song.title}
+                                                                     </span>
                                                                   </div>
                                                                 </div>
                                 <div style={styles.songColArtist}>
@@ -2815,6 +2877,7 @@ export default function MusicLibrary() {
           setDetailArtistName(null);
           handleOpenPlaylistDetail(playlistId);
         }}
+        onUnplayableSong={(song) => setUnplayableDialogSong(song)}
       />
 
       <MusicEdit
@@ -2824,6 +2887,43 @@ export default function MusicLibrary() {
       />
 
       <Settings show={showSettings} onClose={() => setShowSettings(false)} />
+
+      {/* ===== 右上角通知（添加音乐功能条下方） ===== */}
+      {toastMsg && (
+        <div style={styles.toastNotify}>
+          <FaExclamationCircle size={16} style={{ color: "#f59e0b" }} />
+          <span>{toastMsg}</span>
+        </div>
+      )}
+
+      {/* ===== 不受支持格式导入确认浮窗 ===== */}
+      {importPending && (
+        <div style={styles.overlay}>
+          <div style={styles.confirmDialog} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.confirmIcon}><FaExclamationCircle size={30} style={{ color: "#f59e0b" }} /></div>
+            <h3 style={styles.confirmTitle}>该内容不受支持</h3>
+            <p style={styles.confirmText}>该内容可以继续添加至资料库但无法播放，还要继续吗？</p>
+            <div style={styles.confirmActions}>
+              <button style={styles.confirmDeleteBtn} onClick={handleUnplayableContinue}>继续</button>
+              <button style={styles.confirmCancelBtn} onClick={handleUnplayableCancel}>取消</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== 播放不可播放格式提示浮窗 ===== */}
+      {unplayableDialogSong && (
+        <div style={styles.overlay} onClick={() => setUnplayableDialogSong(null)}>
+          <div style={styles.confirmDialog} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.confirmIcon}><FaExclamationCircle size={30} style={{ color: "#f59e0b" }} /></div>
+            <h3 style={styles.confirmTitle}>此格式浏览器不支持</h3>
+            <p style={styles.confirmText}>「{unplayableDialogSong.title}」无法在浏览器中播放。</p>
+            <div style={styles.confirmActions}>
+              <button style={styles.confirmCancelBtn} onClick={() => setUnplayableDialogSong(null)}>知道了</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 缺失文件提示浮窗 */}
       {missingDialogSong && (
@@ -3345,6 +3445,24 @@ const styles = {
     background: "rgba(0,0,0,0.4)", zIndex: 1000,
     display: "flex", alignItems: "center", justifyContent: "center",
     backdropFilter: "blur(4px)",
+  },
+  // 右上角通知（添加音乐功能条下方）
+  toastNotify: {
+    position: "fixed",
+    top: "76px",
+    right: "24px",
+    zIndex: 1500,
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    padding: "10px 16px",
+    borderRadius: "10px",
+    background: "#ffffff",
+    color: "#374151",
+    fontSize: "13px",
+    fontWeight: 500,
+    boxShadow: "0 8px 30px rgba(0,0,0,0.18)",
+    border: "1px solid #f3f4f6",
   },
   confirmDialog: {
     width: "380px", padding: "32px", borderRadius: "16px",
