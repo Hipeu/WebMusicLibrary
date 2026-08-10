@@ -39,6 +39,7 @@ export default function MusicPlayer({
 }) {
     const [showDetail, setShowDetail] = useState(false);
   const [lyricsData, setLyricsData] = useState(null);
+  const [hasLyrics, setHasLyrics] = useState(null); // null=加载中 / true=有 / false=无
   const [detailTab, setDetailTab] = useState("songs"); // "songs" | "lyrics"
   const [tabTransition, setTabTransition] = useState(false);
     const [isFavorited, setIsFavorited] = useState(false);
@@ -275,6 +276,8 @@ export default function MusicPlayer({
     prevSongUrlRef.current = currentSong.url;
 
     setLyricsData(null);
+    // 有文件路径 → 置为加载中；无文件路径 → 无歌词
+    setHasLyrics(currentSong?.file_path ? null : false);
     if (audioRef.current) {
       audioRef.current.load();
       if (isPlaying) {
@@ -305,9 +308,15 @@ export default function MusicPlayer({
         if (cancelled) return;
         if (res?.lyrics) {
           setLyricsData(parseLRC(res.lyrics));
+          setHasLyrics(true);
+        } else {
+          setHasLyrics(false);
         }
       })
-      .catch((err) => console.warn("加载歌词失败:", err));
+      .catch((err) => {
+        console.warn("加载歌词失败:", err);
+        if (!cancelled) setHasLyrics(false);
+      });
     return () => {
       cancelled = true;
     };
@@ -764,8 +773,11 @@ export default function MusicPlayer({
                                           style={{
                                             ...styles.capsuleBtn,
                                             ...(detailTab === "lyrics" ? styles.capsuleBtnActive : {}),
+                                            ...(hasLyrics === false ? styles.capsuleBtnDisabled : {}),
                                           }}
-                                          onClick={() => switchTab("lyrics")}
+                                          disabled={hasLyrics === false}
+                                          onClick={() => hasLyrics !== false && switchTab("lyrics")}
+                                          title={hasLyrics === false ? "暂无歌词" : undefined}
                                         >
                                           <FaMusic size={13} style={{ marginRight: "6px" }} />
                                           歌词
@@ -1043,6 +1055,11 @@ const styles = {
     background: "#e94560",
     color: "#fff",
     boxShadow: "0 4px 16px rgba(233,69,96,0.4)",
+  },
+  capsuleBtnDisabled: {
+    opacity: 0.4,
+    cursor: "not-allowed",
+    color: "#9ca3af",
   },
 
                 // ===== 右侧 - 歌曲信息样式（并列于封面右侧） =====

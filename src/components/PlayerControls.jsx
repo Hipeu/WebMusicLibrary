@@ -25,7 +25,7 @@ export default function PlayerControls({
   onPlayModeChange,
 }) {
   return (
-    <footer style={styles.bottomBar}>
+    <footer style={styles.bottomBar} className="app-player-bar">
       {/* 进度条 */}
       <div style={styles.progressWrapper}>
         <input

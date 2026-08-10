@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { FaSlidersH, FaSyncAlt, FaTrashAlt, FaInfoCircle, FaTimes } from "react-icons/fa";
+import { FaSlidersH, FaSyncAlt, FaTrashAlt, FaInfoCircle, FaTimes, FaPen } from "react-icons/fa";
 import { saveSettings, getMigrationStatus } from "../services/api";
 
 /* ================================================================
@@ -13,6 +13,7 @@ export default function Settings({ show, onClose, onReset, onSettingsSaved }) {
 
   const menuItems = [
     { id: "appearance", label: "通用设置", icon: <FaSlidersH /> },
+    { id: "edit", label: "编辑", icon: <FaPen /> },
     { id: "sync", label: "同步设置", icon: <FaSyncAlt /> },
     { id: "reset", label: "重置", icon: <FaTrashAlt /> },
     { id: "about", label: "关于", icon: <FaInfoCircle /> },
@@ -49,6 +50,7 @@ export default function Settings({ show, onClose, onReset, onSettingsSaved }) {
         {/* 右侧内容区 */}
         <div style={styles.content}>
           {active === "appearance" && <AppearancePanel onSettingsSaved={onSettingsSaved} />}
+          {active === "edit" && <EditPanel onSettingsSaved={onSettingsSaved} />}
           {active === "sync" && <PlaceholderPanel icon={<FaSyncAlt size={40} />} title="同步设置" hint="功能即将上线，敬请期待" />}
           {active === "reset" && <ResetPanel onReset={onReset} />}
           {active === "about" && <AboutPanel />}
@@ -107,6 +109,50 @@ function AppearancePanel({ onSettingsSaved }) {
 }
 
 /* ================================================================
+   ✏️ 编辑设置面板 — 编辑音乐信息时的默认行为
+   ================================================================ */
+function EditPanel({ onSettingsSaved }) {
+  const [publisherCopyright, setPublisherCopyright] = useState(
+    () => localStorage.getItem("edit-publisher-copyright") !== "false"
+  );
+
+  function handleTogglePublisherCopyright() {
+    const next = !publisherCopyright;
+    setPublisherCopyright(next);
+    localStorage.setItem("edit-publisher-copyright", String(next));
+    onSettingsSaved?.();
+  }
+
+  return (
+    <div style={panelStyles.container}>
+      <h3 style={panelStyles.title}>编辑</h3>
+      <p style={panelStyles.desc}>编辑音乐信息时的默认行为</p>
+      <div style={panelStyles.toggleRow}>
+        <div style={panelStyles.toggleText}>
+          <p style={panelStyles.toggleTitle}>编辑发布者默认携带发布符号和日期</p>
+          <p style={panelStyles.toggleDesc}>开启后，编辑歌曲或专辑时若发布者为空，会自动填入「℗ 年份 」前缀</p>
+        </div>
+        <button
+          style={{
+            ...panelStyles.toggleSwitch,
+            ...(publisherCopyright ? panelStyles.toggleSwitchOn : {}),
+          }}
+          onClick={handleTogglePublisherCopyright}
+          title={publisherCopyright ? "点击关闭" : "点击开启"}
+        >
+          <div
+            style={{
+              ...panelStyles.toggleKnob,
+              ...(publisherCopyright ? panelStyles.toggleKnobOn : {}),
+            }}
+          />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ================================================================
    📂 导入设置 — 修改资料库位置
    ================================================================ */
 function ImportSettings({ onSettingsSaved }) {
@@ -115,6 +161,17 @@ function ImportSettings({ onSettingsSaved }) {
   const [error, setError] = useState("");
   const [migrating, setMigrating] = useState(false);
   const [migProgress, setMigProgress] = useState({ done: 0, total: 0 });
+  // 导入时跳过不支持播放的格式（localStorage 持久化，默认开启）
+  const [skipUnplayable, setSkipUnplayable] = useState(
+    () => localStorage.getItem("import-skip-unplayable") !== "false"
+  );
+
+  function handleToggleSkipUnplayable() {
+    const next = !skipUnplayable;
+    setSkipUnplayable(next);
+    localStorage.setItem("import-skip-unplayable", String(next));
+    onSettingsSaved?.();
+  }
 
   async function handleConfirm() {
     const p = pathInput.trim();
@@ -179,6 +236,27 @@ function ImportSettings({ onSettingsSaved }) {
           <p style={panelStyles.locationDesc}>修改音乐资料库的存放位置</p>
           <button style={panelStyles.modifyBtn} onClick={() => setShowDialog(true)}>
             修改
+          </button>
+        </div>
+        <div style={panelStyles.toggleRow}>
+          <div style={panelStyles.toggleText}>
+            <p style={panelStyles.toggleTitle}>导入不支持播放的格式时跳过导入</p>
+            <p style={panelStyles.toggleDesc}>开启后，导入时会自动跳过浏览器无法播放的格式（如 ALAC / APE 等）</p>
+          </div>
+          <button
+            style={{
+              ...panelStyles.toggleSwitch,
+              ...(skipUnplayable ? panelStyles.toggleSwitchOn : {}),
+            }}
+            onClick={handleToggleSkipUnplayable}
+            title={skipUnplayable ? "点击关闭" : "点击开启"}
+          >
+            <div
+              style={{
+                ...panelStyles.toggleKnob,
+                ...(skipUnplayable ? panelStyles.toggleKnobOn : {}),
+              }}
+            />
           </button>
         </div>
       </div>
@@ -615,6 +693,63 @@ const panelStyles = {
     fontWeight: 600,
     cursor: "pointer",
     fontFamily: "inherit",
+  },
+  toggleRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "16px",
+    padding: "18px 20px",
+    marginTop: "12px",
+    borderRadius: "10px",
+    border: "1px solid #f3f4f6",
+    background: "#fafafa",
+  },
+  toggleText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  toggleTitle: {
+    fontSize: "14px",
+    fontWeight: 600,
+    color: "#374151",
+    margin: "0 0 4px",
+  },
+  toggleDesc: {
+    fontSize: "12px",
+    lineHeight: 1.6,
+    color: "#6b7280",
+    margin: 0,
+  },
+  toggleSwitch: {
+    flexShrink: 0,
+    width: "44px",
+    height: "24px",
+    borderRadius: "12px",
+    border: "none",
+    background: "#d1d5db",
+    padding: "2px",
+    cursor: "pointer",
+    transition: "background 0.2s",
+    position: "relative",
+    fontFamily: "inherit",
+  },
+  toggleSwitchOn: {
+    background: "#e94560",
+  },
+  toggleKnob: {
+    width: "20px",
+    height: "20px",
+    borderRadius: "50%",
+    background: "#ffffff",
+    boxShadow: "0 1px 3px rgba(0,0,0,0.25)",
+    transition: "transform 0.2s",
+    position: "absolute",
+    top: "2px",
+    left: "2px",
+  },
+  toggleKnobOn: {
+    transform: "translateX(20px)",
   },
 };
 

@@ -291,7 +291,12 @@ export default function AlbumDetail({
           })})()}
           <div style={styles.songListHeader}>
             <div style={styles.dividerLine} />
-            <span style={styles.songCount}>{album.songs.length} 首</span>
+            <div style={styles.songMetaRow}>
+              {album.publisher && (
+                <span style={styles.songMetaText}>{album.publisher}</span>
+              )}
+              <span style={styles.songCount}>{album.songs.length} 首</span>
+            </div>
           </div>
         </div>
     </div>
@@ -569,6 +574,13 @@ infoColumn: {
     letterSpacing: "1px", textTransform: "uppercase",
   },
   songCount: { fontSize: "13px", color: "#6b7280" },
+  songMetaRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: "12px",
+    flexWrap: "wrap",
+  },
+  songMetaText: { fontSize: "13px", color: "#6b7280" },
 
     songList: {
     flex: 1, display: "flex", flexDirection: "column",

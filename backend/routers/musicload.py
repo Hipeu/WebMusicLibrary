@@ -2,7 +2,10 @@ import os
 import json
 import shutil
 import re
-from fastapi import APIRouter, UploadFile, File
+import hashlib
+import subprocess
+import sys
+from fastapi import APIRouter, UploadFile, File, Body
 from pydantic import BaseModel
 from services.metadata_service import parse_metadata
 from services.library_config import get_library_path
@@ -147,6 +150,18 @@ def save_cover(meta, output_dir):
         return None
 
 
+def _file_sha256(path):
+    """计算文件 SHA-256（分块读取，避免大文件占用内存）"""
+    try:
+        h = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                h.update(chunk)
+        return h.hexdigest()
+    except Exception:
+        return None
+
+
 @router.post("/upload")
 async def upload_music(file: UploadFile = File(...)):
     """上传音乐文件，按 Artist/Album 组织到 Music_Library"""
@@ -174,6 +189,8 @@ async def upload_music(file: UploadFile = File(...)):
     final_filename = f"{safe_title}{ext}"
     final_path = os.path.join(album_dir, final_filename)
     shutil.move(temp_path, final_path)
+    # 记录文件哈希（用于导入时判断是否为同一首）
+    file_hash = _file_sha256(final_path)
 
     # 封面 / 歌词 / 元信息直接写入 data 备份目录
     data_cover_dir = os.path.join(PICTURE_DIR, artist, album)
@@ -231,6 +248,7 @@ async def upload_music(file: UploadFile = File(...)):
         "cover_path": meta.get("cover_path"),
         "metadata_path": f"metadata/{artist}/{album}/{safe_title}.json",
         "lyrics_path": f"Lyrics/{artist}/{album}/{safe_title}.lrc",
+        "sha256": file_hash,
     }
     save_manifest(manifest)
 
@@ -304,6 +322,7 @@ def list_music():
             "cover_url": song_cover_url,
             "lyrics_url": lyrics_url,
             "file_exists": exists,
+            "hash": s.get("sha256"),
         })
 
     # 2. 扫描目录中未在清单内的额外音频文件（用户手动放入）
@@ -464,3 +483,29 @@ def check_files(req: CheckRequest):
             continue
         result[p] = os.path.exists(full)
     return {"exists": result}
+
+
+@router.post("/open")
+def open_music_file(payload: dict = Body(...)):
+    """用系统默认程序（本地播放器）打开资料库中的音乐文件。
+    仅本机运行场景有效：后端与浏览器同机，os.startfile 作用于用户本机。
+    """
+    file_path = payload.get("file_path") if isinstance(payload, dict) else None
+    if not file_path:
+        return {"status": "error", "msg": "缺少 file_path"}
+    lib = os.path.normpath(get_library_path())
+    full = os.path.normpath(os.path.join(lib, file_path))
+    if full != lib and not full.startswith(lib + os.sep):
+        return {"status": "error", "msg": "无效路径"}
+    if not os.path.isfile(full):
+        return {"status": "error", "msg": "文件不存在"}
+    try:
+        if sys.platform.startswith("win"):
+            os.startfile(full)
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", full])
+        else:
+            subprocess.Popen(["xdg-open", full])
+    except Exception as e:
+        return {"status": "error", "msg": str(e)}
+    return {"status": "ok"}

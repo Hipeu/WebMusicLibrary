@@ -52,6 +52,16 @@ export async function checkMusicFiles(paths) {
   return res.json();
 }
 
+/** 用系统默认程序（本地播放器）打开资料库中的音乐文件 */
+export async function openMusicFile(filePath) {
+  const res = await fetch(`${BASE_URL}/api/music/open`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ file_path: filePath }),
+  });
+  return res.json();
+}
+
 /** 编辑歌曲元信息（写入音乐文件内部标签 + data 备份 + manifest）
  *  payload: { file_path, title?, artist?, album?, genre?, year?, trackNo?,
  *             composer?, lyricist?, publisher?, comment?, lyrics?, cover?(File) }
@@ -93,11 +103,17 @@ export async function savePlaylists(list) {
   return res.json();
 }
 
-/** 重置整个资料库（清空音乐库 + data 备份） */
+/** 重置整个资料库（清空音乐库 + data 备份，后台线程执行） */
 export async function resetAll() {
   const res = await fetch(`${BASE_URL}/api/reset`, {
     method: "DELETE",
   });
+  return res.json();
+}
+
+/** 获取资料库重置进度 */
+export async function getResetProgress() {
+  const res = await fetch(`${BASE_URL}/api/reset/progress`);
   return res.json();
 }
 
@@ -129,11 +145,13 @@ export default {
   deleteMusic,
   testConnection,
   checkMusicFiles,
+  openMusicFile,
   updateMusicMetadata,
   getLyrics,
   getPlaylists,
   savePlaylists,
   resetAll,
+  getResetProgress,
   getSettings,
   saveSettings,
   getMigrationStatus,

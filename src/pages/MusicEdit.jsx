@@ -16,6 +16,8 @@ export default function MusicEdit({ target, onClose, onSave }) {
 
   useEffect(() => {
     if (!target) return;
+    // 发布者预输入：设置开启且年份存在时补全 "℗ 年份 "（仅当发布者原本为空）
+    const prefilledPublisher = getPrefilledPublisher(data?.year);
     if (isAlbum) {
       setForm({
         title: data.title || "",
@@ -23,7 +25,7 @@ export default function MusicEdit({ target, onClose, onSave }) {
         album_artist: data.album_artist ?? "",
         year: data.year ?? "",
         genre: data.genre || "",
-        publisher: data.publisher || "",
+        publisher: data.publisher || prefilledPublisher,
       });
     } else {
       setForm({
@@ -36,7 +38,7 @@ export default function MusicEdit({ target, onClose, onSave }) {
         trackNo: data.trackNo ?? "",
         composer: data.composer || "",
         lyricist: data.lyricist || "",
-        publisher: data.publisher || "",
+        publisher: data.publisher || prefilledPublisher,
         comment: data.comment || "",
         lyrics: data.lyrics ?? "",
       });
@@ -316,6 +318,14 @@ function formatDuration(seconds) {
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
   return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+/** 发布者预输入：设置「编辑发布者默认携带发布符号和日期」开启且有年份时，返回 "℗ 年份 "，否则空字符串 */
+function getPrefilledPublisher(year) {
+  const enabled = localStorage.getItem("edit-publisher-copyright") !== "false";
+  if (!enabled) return "";
+  if (!year) return "";
+  return `℗ ${year} `;
 }
 
 function formatTimestamp(ts) {

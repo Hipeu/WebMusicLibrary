@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { FiPlus } from "react-icons/fi";
 import { FaEllipsisH, FaCompactDisc, FaUser, FaHeart, FaStepForward, FaClock, FaPlus, FaSortAmountDown, FaArrowUp, FaTrash, FaMusic, FaInfoCircle, FaCog, FaPlay, FaExclamationCircle, FaCheckCircle } from "react-icons/fa";
 import { readMetadata } from "../utils/MetadataReader";
-import { uploadMusic, getMusicList, getAssetUrl, deleteMusic, checkMusicFiles, updateMusicMetadata, getLyrics, getPlaylists, savePlaylists, resetAll } from "../services/api";
+import { uploadMusic, getMusicList, getAssetUrl, deleteMusic, checkMusicFiles, updateMusicMetadata, getLyrics, getPlaylists, savePlaylists, resetAll, getResetProgress, openMusicFile } from "../services/api";
 import { saveSongToIndex, removeSongFromIndex, loadMusicIndex } from "../utils/musicIndex";
 import { normalizePlaylists, loadPlaylistCache, savePlaylistCache } from "../utils/playlistStore";
 import { isUnplayableCodec, songPlayable } from "../utils/formatCheck";
@@ -31,6 +31,32 @@ function isMusicFile(name) {
   if (!name) return false;
   const ext = name.split(".").pop().toLowerCase();
   return MUSIC_EXTS.includes(`.${ext}`);
+}
+
+/** 归一化歌曲身份键（title|artist|album），用于判断"同一首" */
+function songDupKey(title, artist, album) {
+  return [artist, album, title].map((s) => String(s || "").trim().toLowerCase()).join("|");
+}
+
+/** 计算文件 SHA-256（hex 字符串）；失败返回 null */
+async function fileSha256(file) {
+  try {
+    const buf = await file.arrayBuffer();
+    const digest = await crypto.subtle.digest("SHA-256", buf);
+    return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
+  } catch {
+    return null;
+  }
+}
+
+/** 当前时间戳（模块级包装，避免在组件函数内直接调用 Date.now） */
+function nowTs() {
+  return Date.now();
+}
+
+/** 生成本地专辑 id（模块级包装，避免在组件函数内直接调用 Date.now/Math.random） */
+function newAlbumId() {
+  return Date.now().toString() + Math.random().toString(36).slice(2, 6);
 }
 
 function buildAlbumsFromIndex(index) {
@@ -77,6 +103,7 @@ function buildAlbumsFromIndex(index) {
       year: s.year,
       importTime: s.importTime || Date.now(),
       modification_time: s.modification_time,
+      hash: s.hash || null,
     });
   });
   return Array.from(albumMap.values());
@@ -108,6 +135,7 @@ function buildAlbumsFromServer(data) {
         year: s.year,
         importTime: Date.now(),
         modification_time: s.modification_time,
+        hash: s.hash || null,
       }));
       if (songs.length === 0) continue;
       const firstSong = songs[0];
@@ -206,6 +234,7 @@ export default function MusicLibrary() {
   const [volume, setVolume] = useState(1);
   const audioRef = useRef(null);
   const fileInputRef = useRef(null);
+  const reimportInputRef = useRef(null);
   const toastTimerRef = useRef(null);
   const [toastMsg, setToastMsg] = useState(null); // 右上角通知
   const [toastType, setToastType] = useState("warning"); // "warning" | "success"
@@ -213,8 +242,16 @@ export default function MusicLibrary() {
   const [importCurrentCover, setImportCurrentCover] = useState(null); // 正在导入的音乐封面
   const importCancelledRef = useRef(false);
   const importAbortRef = useRef(null);
-  const [importPending, setImportPending] = useState(null); // 不可播放格式导入确认 { entries, unplayable }
+  const [isDragOver, setIsDragOver] = useState(false); // 拖拽文件悬浮在可导入区域
+  const dragExcludedRef = useRef(false); // 当前是否悬浮在排除区（侧栏/顶栏/底部播放条）
+  const [importPending, setImportPending] = useState(null); // 不可播放格式导入确认 { entries, unplayable, unplayableSkippedList, duplicateSkippedList, skippedNonMusic }
+  const [importConfirm, setImportConfirm] = useState(null); // 一致性确认 { item, context }
+  const [importRememberChoice, setImportRememberChoice] = useState(false); // 确认弹窗「后续都默认此操作」复选
+  const importUnplayableChoiceRef = useRef(null); // 会话级记忆："continue" | "cancel" | null（刷新失效）
+  const [importSkipDetail, setImportSkipDetail] = useState(null); // 导入结果详情 { duplicate, unplayable }
   const [unplayableDialogSong, setUnplayableDialogSong] = useState(null); // 播放被拦截的歌曲
+  const [resetting, setResetting] = useState(false); // 是否正在重置资料库
+  const [resetProgress, setResetProgress] = useState({ done: 0, total: 0 }); // 重置进度 { done, total }
   const [showImportMenu, setShowImportMenu] = useState(false);
   const [showCreatePlaylist, setShowCreatePlaylist] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -347,11 +384,12 @@ export default function MusicLibrary() {
   }
 
   // ---------- 右上角通知 ----------
-  function showToast(msg, type = "warning") {
+  // msg 可为字符串，或 { title, content, action } 结构（title+content+按钮）
+  function showToast(msg, type = "warning", timeout = 3000) {
     setToastMsg(msg);
     setToastType(type);
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    toastTimerRef.current = setTimeout(() => setToastMsg(null), 3000);
+    toastTimerRef.current = setTimeout(() => setToastMsg(null), timeout);
   }
 
   // ---------- 设置保存成功提示 ----------
@@ -387,7 +425,7 @@ export default function MusicLibrary() {
           // 优先用前端解析的真实编码（ALAC 等浏览器不可播格式）
           codec: (meta && meta.codec) || m.codec || null,
           container: (meta && meta.container) || m.codec || null,
-          importTime: Date.now(),
+          importTime: nowTs(),
         };
         saveSongToIndex(entry);
         return entry;
@@ -410,7 +448,7 @@ export default function MusicLibrary() {
       const key = `${entry.album_artist || entry.artist || "未知艺术家"}|${title}`;
       if (!albumMap.has(key)) {
         albumMap.set(key, {
-          id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
+          id: newAlbumId(),
           title,
           artist: entry.album_artist || entry.artist || "未知艺术家",
           album_artist: entry.album_artist || null,
@@ -418,7 +456,7 @@ export default function MusicLibrary() {
           genre: entry.genre || null,
           publisher: entry.publisher || null,
           coverURL: entry.coverURL,
-          importTime: Date.now(),
+          importTime: nowTs(),
           songs: [],
         });
       }
@@ -452,8 +490,145 @@ export default function MusicLibrary() {
     });
   }
 
+  // 导入完成上报：合并进 albums，并按结果弹「导入完成」success toast
+  function finishImportResult(entries, opts = {}) {
+    const { duplicate = [], unplayable = [], nonMusic = 0 } = opts;
+    finishImport(entries);
+    const hasDup = duplicate.length > 0;
+    const hasUnplayable = unplayable.length > 0;
+    const parts = [];
+    if (hasDup && hasUnplayable) parts.push("重复歌曲和无法播放歌曲已经跳过");
+    else if (hasDup) parts.push("重复音乐已跳过");
+    else if (hasUnplayable) parts.push("无法播放歌曲已跳过");
+    if (nonMusic > 0) parts.push(`已忽略 ${nonMusic} 个非音乐文件`);
+    const content = parts.join("；");
+
+    if (hasDup || hasUnplayable) {
+      const detail = { duplicate, unplayable };
+      setImportSkipDetail(detail);
+      showToast({
+        title: "导入完成",
+        content,
+        action: { label: "查看详情", onClick: () => setImportSkipDetail(detail) },
+      }, "success", 10000);
+      return;
+    }
+
+    if (entries.length > 0) {
+      showToast(content ? { title: "导入完成", content } : { title: "导入完成" }, "success", 3000);
+      return;
+    }
+
+    // 完全没有音乐可导入
+    if (nonMusic > 0) showToast(`已忽略 ${nonMusic} 个非音乐文件`, "warning");
+  }
+
+  // 一致性确认继续后推进：导入该文件并处理下一项 / 收尾
+  function advanceAfterConsistency(context, confirmedEntry) {
+    const { entries, unplayable, unplayableSkippedList, duplicateSkippedList, skippedNonMusic, pendingFiles } = context;
+    const newEntries = confirmedEntry ? [...entries, confirmedEntry] : entries;
+    if (pendingFiles.length > 0) {
+      const [item, ...rest] = pendingFiles;
+      setImportConfirm({ item, context: { ...context, entries: newEntries, pendingFiles: rest } });
+      return;
+    }
+    handleUnplayableStage({ entries: newEntries, unplayable, unplayableSkippedList, duplicateSkippedList, skippedNonMusic });
+  }
+
+  // 一致性确认弹窗：继续导入
+  async function handleConsistencyConfirm() {
+    const c = importConfirm;
+    if (!c) return;
+    const { item, context } = c;
+    setImportConfirm(null);
+    let entry = null;
+    try {
+      entry = await buildEntryFromFile(item.file, item.meta);
+    } catch (err) {
+      if (err && err.name === "AbortError") return;
+    }
+    advanceAfterConsistency(context, entry);
+  }
+
+  // 一致性确认弹窗：取消（跳过该文件）
+  function handleConsistencyCancel() {
+    const c = importConfirm;
+    if (!c) return;
+    setImportConfirm(null);
+    advanceAfterConsistency(c.context, null);
+  }
+
+  // 处理不可播放确认阶段（一致性队列处理完毕后的收尾）
+  function handleUnplayableStage(ctx) {
+    const { entries, unplayable, unplayableSkippedList, duplicateSkippedList, skippedNonMusic } = ctx;
+    if (unplayable.length > 0) {
+      const choice = importUnplayableChoiceRef.current;
+      if (choice === "continue") {
+        // 会话内已记忆「继续」：直接导入全部
+        (async () => {
+          const extra = await Promise.all(unplayable.map((p) => buildEntryFromFile(p.file, p.meta)));
+          finishImportResult([...entries, ...extra], { duplicate: duplicateSkippedList, unplayable: unplayableSkippedList, nonMusic: skippedNonMusic });
+        })();
+      } else if (choice === "cancel") {
+        // 会话内已记忆「取消」：跳过不可播放，仅导入可播放的
+        const skipped = [
+          ...(unplayableSkippedList || []),
+          ...unplayable.map((p) => ({
+            title: p.meta?.title || p.file.name.replace(/\.[^/.]+$/, ""),
+            artist: p.meta?.artist || "未知艺术家",
+          })),
+        ];
+        finishImportResult(entries, { duplicate: duplicateSkippedList, unplayable: skipped, nonMusic: skippedNonMusic });
+      } else {
+        setImportRememberChoice(false);
+        setImportPending({ entries, unplayable, unplayableSkippedList, duplicateSkippedList, skippedNonMusic });
+      }
+      return;
+    }
+    finishImportResult(entries, { duplicate: duplicateSkippedList, unplayable: unplayableSkippedList, nonMusic: skippedNonMusic });
+  }
+
+  // 判断导入文件与目标歌曲是否为同一首（元信息已匹配；哈希一致或目标无记录哈希视为同一首）
+  async function isSameSong(file, target) {
+    if (!target || !target.hash) return true;
+    const h = await fileSha256(file);
+    if (!h) return true;
+    return h === target.hash;
+  }
+
+  // 打开本地播放器播放资料库中的音乐文件
+  async function handleOpenLocalFile(filePath) {
+    try {
+      const res = await openMusicFile(filePath);
+      if (res && res.status === "error") {
+        showToast(res.msg || "打开文件失败", "warning");
+      }
+    } catch (err) {
+      console.warn("打开本地文件失败:", err);
+      showToast("打开文件失败", "warning");
+    }
+  }
+
+  // 缺失歌曲「查找」：用户重新选择文件后导入（走一致性校验）
+  async function handleReimportSelect(e) {
+    const target = missingDialogSong;
+    const files = Array.from(e.target.files || []);
+    e.target.value = "";
+    if (!target || files.length === 0) return;
+    setMissingDialogSong(null);
+    await processFiles(files, { reimportTarget: target });
+  }
+
   async function handleImportFiles(e) {
-    const selectedFiles = Array.from(e.target.files);
+    const files = Array.from(e.target.files || []);
+    e.target.value = "";
+    await processFiles(files);
+  }
+
+  // 导入音乐文件核心逻辑（文件选择 / 拖拽 / 查找重导入共用）
+  async function processFiles(fileList, opts = {}) {
+    const { reimportTarget = null } = opts;
+    const selectedFiles = Array.from(fileList || []);
     if (selectedFiles.length === 0) return;
 
     // 过滤非音乐文件
@@ -471,9 +646,24 @@ export default function MusicLibrary() {
     setImportCurrentCover(null);
     if (musicFiles.length > 0) setImportProgress({ done: 0, total: musicFiles.length });
 
-    // 解析编码，区分可播放 / 不可播放（浏览器无法播放的格式弹窗确认）
+    // 设置开关：开启时跳过不支持播放的格式（默认开启，不做任何导入）
+    const skipUnplayable = localStorage.getItem("import-skip-unplayable") !== "false";
+
+    // 构建已有歌曲的元信息索引（title|artist|album → song），供重复/一致性判断
+    const existingByMeta = new Map();
+    if (!reimportTarget) {
+      albums.forEach((a) => (a.songs || []).forEach((s) => {
+        const k = songDupKey(s.title, s.artist, s.album);
+        if (k !== "||" && !existingByMeta.has(k)) existingByMeta.set(k, s);
+      }));
+    }
+
+    // 解析编码，区分可播放 / 不可播放；做重复与一致性校验
     const entries = [];
-    const unplayable = [];
+    const unplayable = []; // 需要确认的不可播放文件
+    const unplayableSkippedList = []; // 已跳过的不可播放文件（标题/艺人）
+    const duplicateSkippedList = []; // 重复导入被跳过的文件（标题/艺人）
+    const pendingFiles = []; // 需要一致性确认的文件 { file, meta, replace }
     let done = 0;
     for (const f of musicFiles) {
       if (importCancelledRef.current) break;
@@ -486,8 +676,65 @@ export default function MusicLibrary() {
       if (importCancelledRef.current) break;
       // 更新当前导入音乐的封面（无封面则占位）
       setImportCurrentCover(meta?.coverURL || null);
+
+      const mTitle = meta?.title || f.name.replace(/\.[^/.]+$/, "");
+      const mArtist = meta?.artist || "";
+      const mAlbum = meta?.album || "";
+      const metaKey = songDupKey(mTitle, mArtist, mAlbum);
+
+      // 确定比对目标 / 一致性类型
+      let target;
+      let replaceType = null; // "replace"（内容不一致，覆盖）| "new"（不同歌曲，仅新增）
+      if (reimportTarget) {
+        // 查找重导入：目标为指定的缺失歌曲
+        if (metaKey === songDupKey(reimportTarget.title, reimportTarget.artist, reimportTarget.album)) {
+          target = reimportTarget;
+        } else {
+          replaceType = "new";
+        }
+      } else {
+        target = metaKey !== "||" ? existingByMeta.get(metaKey) : undefined;
+      }
+
+      if (target) {
+        // 元信息匹配 → 一致性校验（哈希）
+        const same = await isSameSong(f, target);
+        if (!same) {
+          // 内容不一致 → 待确认（替换）
+          pendingFiles.push({ file: f, meta, replace: true });
+        } else {
+          // 同一首 → 归位：缺失则恢复导入，已存在则静默跳过（记入重复列表）
+          const isMissing = target.file_path && missingSongs.has(target.file_path);
+          if (isMissing || reimportTarget) {
+            try {
+              entries.push(await buildEntryFromFile(f, meta, abort.signal));
+            } catch (err) {
+              if (err && err.name === "AbortError") break;
+            }
+          } else {
+            duplicateSkippedList.push({ title: mTitle, artist: mArtist || "未知艺术家" });
+          }
+        }
+        done++;
+        setImportProgress({ done, total: musicFiles.length });
+        continue;
+      }
+
+      if (replaceType === "new") {
+        // 元信息不匹配（查找流程）→ 待确认（仅新增）
+        pendingFiles.push({ file: f, meta, replace: false });
+        done++;
+        setImportProgress({ done, total: musicFiles.length });
+        continue;
+      }
+
+      // 新歌：按可播放性处理
       if (meta && isUnplayableCodec(meta.codec || meta.container)) {
-        unplayable.push({ file: f, meta });
+        if (skipUnplayable) {
+          unplayableSkippedList.push({ title: mTitle, artist: mArtist || "未知艺术家" });
+        } else {
+          unplayable.push({ file: f, meta });
+        }
       } else {
         try {
           entries.push(await buildEntryFromFile(f, meta, abort.signal));
@@ -501,24 +748,28 @@ export default function MusicLibrary() {
     }
 
     if (importCancelledRef.current) {
-      // 取消：保留已导入部分，丢弃未处理的不可播放队列
+      // 取消：保留已导入部分，丢弃未处理的队列
       abort.abort();
       setImportProgress(null);
       setImportCurrentCover(null);
-      if (skippedNonMusic > 0) showToast(`已忽略 ${skippedNonMusic} 个非音乐文件`);
-      if (entries.length > 0) finishImport(entries);
+      finishImportResult(entries, { duplicate: duplicateSkippedList, unplayable: unplayableSkippedList, nonMusic: skippedNonMusic });
       return;
     }
 
     setImportProgress(null);
     setImportCurrentCover(null);
-    if (skippedNonMusic > 0) showToast(`已忽略 ${skippedNonMusic} 个非音乐文件`);
 
-    if (unplayable.length > 0) {
-      setImportPending({ entries, unplayable });
+    // 先处理一致性确认队列，再处理不可播放确认
+    if (pendingFiles.length > 0) {
+      const [item, ...rest] = pendingFiles;
+      setImportConfirm({
+        item,
+        context: { entries, unplayable, unplayableSkippedList, duplicateSkippedList, skippedNonMusic, pendingFiles: rest },
+      });
       return;
     }
-    finishImport(entries);
+
+    handleUnplayableStage({ entries, unplayable, unplayableSkippedList, duplicateSkippedList, skippedNonMusic });
   }
 
   // 取消导入：停止剩余文件，保留已导入的
@@ -529,6 +780,66 @@ export default function MusicLibrary() {
     }
   }
 
+  // ---------- 拖拽添加音乐 ----------
+  function hasDragFiles(e) {
+    return !!(e.dataTransfer && Array.from(e.dataTransfer.types || []).includes("Files"));
+  }
+
+  function isExcludedDropZone(el) {
+    return !!(el && el.closest && el.closest(".app-sidebar, .app-topbar, .app-player-bar"));
+  }
+
+  function handleDragEnter(e) {
+    if (!hasDragFiles(e)) return;
+    if (isExcludedDropZone(e.target)) {
+      dragExcludedRef.current = true;
+      setIsDragOver(false);
+      return;
+    }
+    dragExcludedRef.current = false;
+    setIsDragOver(true);
+  }
+
+  function handleDragOver(e) {
+    if (!hasDragFiles(e)) return;
+    if (isExcludedDropZone(e.target)) {
+      dragExcludedRef.current = true;
+      setIsDragOver(false);
+      return; // 排除区不 preventDefault → 不可投放
+    }
+    dragExcludedRef.current = false;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+    setIsDragOver(true);
+  }
+
+  function handleDrop(e) {
+    e.preventDefault();
+    setIsDragOver(false);
+    const wasExcluded = dragExcludedRef.current;
+    dragExcludedRef.current = false;
+    if (wasExcluded) return;
+    if (hasDragFiles(e)) {
+      processFiles(e.dataTransfer.files);
+    }
+  }
+
+  // 离开窗口（或拖拽取消）时隐藏拖拽遮罩：窗口级 dragleave 且 relatedTarget 为 null
+  useEffect(() => {
+    function onWindowDragLeave(e) {
+      if (!e.relatedTarget) setIsDragOver(false);
+    }
+    function onWindowDrop() {
+      setIsDragOver(false);
+    }
+    window.addEventListener("dragleave", onWindowDragLeave);
+    window.addEventListener("drop", onWindowDrop);
+    return () => {
+      window.removeEventListener("dragleave", onWindowDragLeave);
+      window.removeEventListener("drop", onWindowDrop);
+    };
+  }, []);
+
   // 不可播放格式：用户选择继续
   function handleUnplayableContinue() {
     const pending = importPending;
@@ -536,7 +847,11 @@ export default function MusicLibrary() {
     if (!pending) return;
     (async () => {
       const extra = await Promise.all(pending.unplayable.map((p) => buildEntryFromFile(p.file, p.meta)));
-      finishImport([...pending.entries, ...extra]);
+      finishImportResult([...pending.entries, ...extra], {
+        duplicate: pending.duplicateSkippedList || [],
+        unplayable: pending.unplayableSkippedList || [],
+        nonMusic: pending.skippedNonMusic || 0,
+      });
     })();
   }
 
@@ -544,7 +859,19 @@ export default function MusicLibrary() {
   function handleUnplayableCancel() {
     const pending = importPending;
     setImportPending(null);
-    if (pending) finishImport(pending.entries);
+    if (!pending) return;
+    const skipped = [
+      ...(pending.unplayableSkippedList || []),
+      ...pending.unplayable.map((p) => ({
+        title: p.meta?.title || p.file.name.replace(/\.[^/.]+$/, ""),
+        artist: p.meta?.artist || "未知艺术家",
+      })),
+    ];
+    finishImportResult(pending.entries, {
+      duplicate: pending.duplicateSkippedList || [],
+      unplayable: skipped,
+      nonMusic: pending.skippedNonMusic || 0,
+    });
   }
 
         // ---------- 点击专辑卡片 — 打开专辑详情页 ----------
@@ -1227,33 +1554,50 @@ export default function MusicLibrary() {
     setDeleteAlbumConfirm(null);
   }
 
-  // ---------- 重置整个资料库（回到最初状态） ----------
+  // ---------- 重置整个资料库（回到最初状态，后台线程 + 进度轮询） ----------
   async function handleResetData() {
-    // 清空后端资料库（音乐库 + data 备份 + 播放列表）
+    setShowSettings(false);
+    setResetting(true);
+    setResetProgress({ done: 0, total: 0 });
     try {
       await resetAll();
     } catch (err) {
       console.warn("重置后端失败:", err);
     }
-    // 清空本地缓存（含主题，什么都不保留）
-    localStorage.removeItem("music-library-index");
-    localStorage.removeItem("music-playlists-v1");
-    localStorage.removeItem("app-theme");
-    applyTheme("system");
-    // 重置前端状态
-    setAlbums([]);
-    setPlaylists(DEFAULT_PLAYLISTS.map((p) => ({ ...p, songs: [] })));
-    setPlayQueue([]);
-    setCurrentAlbumId(null);
-    setCurrentPlaylistId(null);
-    setCurrentSongIndex(0);
-    setIsPlaying(false);
-    setMissingSongs(new Set());
-    setDetailAlbumId(null);
-    setDetailPlaylistId(null);
-    setDetailArtistName(null);
-    setShowSettings(false);
-    showToast("重置资料库成功", "success");
+    // 轮询后端重置进度，完成后清空前端状态
+    const poll = async () => {
+      let st = null;
+      try {
+        st = await getResetProgress();
+      } catch (err) {
+        console.warn("获取重置进度失败:", err);
+      }
+      if (st && st.running) {
+        setResetProgress({ done: st.done || 0, total: st.total || 0 });
+        setTimeout(poll, 500);
+        return;
+      }
+      // 完成（或后端不可用）：清空本地缓存（含主题，什么都不保留）
+      setResetting(false);
+      localStorage.removeItem("music-library-index");
+      localStorage.removeItem("music-playlists-v1");
+      localStorage.removeItem("app-theme");
+      applyTheme("system");
+      // 重置前端状态
+      setAlbums([]);
+      setPlaylists(DEFAULT_PLAYLISTS.map((p) => ({ ...p, songs: [] })));
+      setPlayQueue([]);
+      setCurrentAlbumId(null);
+      setCurrentPlaylistId(null);
+      setCurrentSongIndex(0);
+      setIsPlaying(false);
+      setMissingSongs(new Set());
+      setDetailAlbumId(null);
+      setDetailPlaylistId(null);
+      setDetailArtistName(null);
+      showToast("重置资料库成功", "success");
+    };
+    poll();
   }
 
     // ---------- 编辑元信息 ----------
@@ -1787,7 +2131,13 @@ export default function MusicLibrary() {
 
       // ---------- 渲染 ----------
   return (
-    <div style={styles.container} className="app-root">
+    <div
+      style={styles.container}
+      className="app-root"
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
             
 
             {/* ============================================================ */}
@@ -3034,6 +3384,30 @@ export default function MusicLibrary() {
 
       <Settings show={showSettings} onClose={() => setShowSettings(false)} onReset={handleResetData} onSettingsSaved={handleSettingsSaved} />
 
+      {/* ===== 拖拽添加音乐遮罩（仅可导入区域显示；常驻 DOM，通过透明度显隐） ===== */}
+      <div
+        style={{
+          ...styles.dragOverlay,
+          opacity: isDragOver ? 1 : 0,
+          visibility: isDragOver ? "visible" : "hidden",
+        }}
+        className="drag-drop-overlay"
+      >
+        <div style={styles.dragOverlayBox}>
+          <FaMusic size={36} style={{ opacity: 0.7 }} />
+          <span style={styles.dragOverlayText}>拖拽至此处添加</span>
+        </div>
+      </div>
+
+      {/* ===== 缺失歌曲「查找」重导入的文件选择器 ===== */}
+      <input
+        ref={reimportInputRef}
+        type="file"
+        accept="audio/*"
+        style={{ display: "none" }}
+        onChange={handleReimportSelect}
+      />
+
       {/* ===== 导入进度卡片（右上角） ===== */}
       {importProgress && importProgress.total > 0 && (
         <div style={styles.importProgress}>
@@ -3074,13 +3448,39 @@ export default function MusicLibrary() {
 
       {/* ===== 右上角通知（添加音乐功能条下方） ===== */}
       {toastMsg && (
-        <div style={{ ...styles.toastNotify, ...(toastType === "success" ? styles.toastNotifySuccess : {}) }}>
-          {toastType === "success" ? (
-            <FaCheckCircle size={24} style={{ color: "#ffffff" }} />
+        <div style={{ ...styles.toastNotify, ...(typeof toastMsg === "object" ? styles.toastNotifyCard : {}), ...(toastType === "success" ? styles.toastNotifySuccess : {}) }}>
+          {typeof toastMsg === "object" ? (
+            <>
+              {toastType === "success" ? (
+                <FaCheckCircle size={20} style={{ color: "#ffffff", flexShrink: 0 }} />
+              ) : (
+                <FaExclamationCircle size={20} style={{ color: "#f59e0b", flexShrink: 0 }} />
+              )}
+              <div style={styles.toastCardBody}>
+                <p style={{ ...styles.toastCardTitle, ...(toastType === "success" ? styles.toastCardTitleSuccess : {}) }}>{toastMsg.title}</p>
+                {toastMsg.content && (
+                  <p style={{ ...styles.toastCardContent, ...(toastType === "success" ? styles.toastCardContentSuccess : {}) }}>{toastMsg.content}</p>
+                )}
+              </div>
+              {toastMsg.action && (
+                <button
+                  style={toastType === "success" ? styles.toastCardActionSuccess : styles.toastCardAction}
+                  onClick={toastMsg.action.onClick}
+                >
+                  {toastMsg.action.label}
+                </button>
+              )}
+            </>
           ) : (
-            <FaExclamationCircle size={24} style={{ color: "#f59e0b" }} />
+            <>
+              {toastType === "success" ? (
+                <FaCheckCircle size={24} style={{ color: "#ffffff" }} />
+              ) : (
+                <FaExclamationCircle size={24} style={{ color: "#f59e0b" }} />
+              )}
+              <span>{toastMsg}</span>
+            </>
           )}
-          <span>{toastMsg}</span>
         </div>
       )}
 
@@ -3091,9 +3491,123 @@ export default function MusicLibrary() {
             <h3 style={styles.confirmTitle}>该内容不受支持</h3>
             <div style={styles.confirmDivider} />
             <p style={styles.confirmText}>该内容可以继续添加至资料库但无法播放，还要继续吗？</p>
+            <label style={styles.importCheckboxRow}>
+              <input
+                type="checkbox"
+                style={styles.importCheckbox}
+                checked={importRememberChoice}
+                onChange={(e) => setImportRememberChoice(e.target.checked)}
+              />
+              <span style={styles.importCheckboxLabel}>后续都默认此操作</span>
+            </label>
             <div style={styles.confirmActions}>
-              <button style={styles.confirmDeleteBtn} onClick={handleUnplayableContinue}>继续</button>
-              <button style={styles.confirmCancelBtn} onClick={handleUnplayableCancel}>取消</button>
+              <button
+                style={styles.confirmDeleteBtn}
+                onClick={() => {
+                  if (importRememberChoice) importUnplayableChoiceRef.current = "continue";
+                  handleUnplayableContinue();
+                }}
+              >
+                继续
+              </button>
+              <button
+                style={styles.confirmCancelBtn}
+                onClick={() => {
+                  if (importRememberChoice) importUnplayableChoiceRef.current = "cancel";
+                  handleUnplayableCancel();
+                }}
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== 重置进度对话框（居中，不可取消） ===== */}
+      {resetting && (
+        <div style={styles.resetOverlay}>
+          <div style={styles.resetProgressBox} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.resetProgressBody}>
+              <h3 style={styles.resetProgressTitle}>正在重置资料库</h3>
+              <div style={styles.confirmDivider} />
+              <p style={styles.resetProgressWarn}>重置完成前请不要关闭窗口</p>
+              <div style={styles.resetProgressCountRow}>
+                <span style={styles.resetProgressCount}>
+                  已重置：{resetProgress.done}/{resetProgress.total}
+                </span>
+                <span style={styles.resetProgressPct}>
+                  {resetProgress.total > 0 ? Math.round((resetProgress.done / resetProgress.total) * 100) : 0}%
+                </span>
+              </div>
+            </div>
+            <div style={styles.resetProgressTrack}>
+              <div
+                style={{
+                  ...styles.resetProgressFill,
+                  width: `${resetProgress.total > 0 ? Math.round((resetProgress.done / resetProgress.total) * 100) : 0}%`,
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== 导入结果详情浮窗（被跳过的无法播放 / 重复歌曲） ===== */}
+      {importSkipDetail && (
+        <div style={styles.overlay} onClick={() => setImportSkipDetail(null)}>
+          <div style={styles.confirmDialog} onClick={(e) => e.stopPropagation()}>
+            <h3 style={styles.confirmTitle}>导入结果</h3>
+            <div style={styles.confirmDivider} />
+            {importSkipDetail.unplayable.length > 0 && (
+              <>
+                <p style={styles.confirmText}>无法播放歌曲：</p>
+                <div style={styles.importUnplayableList}>
+                  {importSkipDetail.unplayable.map((s, i) => (
+                    <div key={i} style={styles.importUnplayableRow}>
+                      <span style={styles.importUnplayableTitle}>{s.title}</span>
+                      <span style={styles.importUnplayableArtist}>{s.artist}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+            {importSkipDetail.duplicate.length > 0 && (
+              <>
+                <p style={styles.confirmText}>重复添加歌曲：</p>
+                <div style={styles.importUnplayableList}>
+                  {importSkipDetail.duplicate.map((s, i) => (
+                    <div key={i} style={styles.importUnplayableRow}>
+                      <span style={styles.importUnplayableTitle}>{s.title}</span>
+                      <span style={styles.importUnplayableArtist}>{s.artist}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+            <div style={styles.confirmActions}>
+              <button style={styles.confirmCancelBtn} onClick={() => setImportSkipDetail(null)}>
+                确定
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== 导入一致性确认浮窗（内容不一致 / 不同歌曲） ===== */}
+      {importConfirm && (
+        <div style={styles.overlay}>
+          <div style={styles.confirmDialog} onClick={(e) => e.stopPropagation()}>
+            <h3 style={styles.confirmTitle}>继续导入？</h3>
+            <div style={styles.confirmDivider} />
+            <p style={styles.confirmText}>
+              {importConfirm.item.replace
+                ? "导入的内容与源文件不一致，继续导入会替换源文件的信息"
+                : "导入的内容与源文件不一致，继续导入仅会新增项目"}
+            </p>
+            <div style={styles.confirmActions}>
+              <button style={styles.confirmDeleteBtn} onClick={handleConsistencyConfirm}>继续导入</button>
+              <button style={styles.confirmCancelBtn} onClick={handleConsistencyCancel}>取消</button>
             </div>
           </div>
         </div>
@@ -3105,9 +3619,17 @@ export default function MusicLibrary() {
           <div style={styles.confirmDialog} onClick={(e) => e.stopPropagation()}>
             <h3 style={styles.confirmTitle}>此格式浏览器不支持</h3>
             <div style={styles.confirmDivider} />
-            <p style={styles.confirmText}>「{unplayableDialogSong.title}」无法在浏览器中播放。</p>
+            <p style={styles.confirmText}>无法在播放器中播放，可以尝试直接打开文件</p>
             <div style={styles.confirmActions}>
-              <button style={styles.confirmCancelBtn} onClick={() => setUnplayableDialogSong(null)}>知道了</button>
+              {unplayableDialogSong.file_path && (
+                <button
+                  style={styles.confirmDeleteBtn}
+                  onClick={() => handleOpenLocalFile(unplayableDialogSong.file_path)}
+                >
+                  打开
+                </button>
+              )}
+              <button style={styles.confirmCancelBtn} onClick={() => setUnplayableDialogSong(null)}>确定</button>
             </div>
           </div>
         </div>
@@ -3121,8 +3643,8 @@ export default function MusicLibrary() {
             <div style={styles.confirmDivider} />
             <p style={styles.confirmText}>该歌曲已经被删除或移动至其他地方，是否要查找这首音乐？</p>
             <div style={styles.confirmActions}>
-              <button style={styles.confirmDeleteBtn} onClick={() => setMissingDialogSong(null)}>查找</button>
-              <button style={styles.confirmCancelBtn} onClick={() => setMissingDialogSong(null)}>取消</button>
+              <button style={styles.confirmDeleteBtn} onClick={() => reimportInputRef.current?.click()}>查找</button>
+              <button style={styles.confirmCancelBtn} onClick={() => setMissingDialogSong(null)}>确定</button>
             </div>
           </div>
         </div>
@@ -3634,6 +4156,34 @@ const styles = {
     display: "flex", alignItems: "center", justifyContent: "center",
     backdropFilter: "blur(4px)",
   },
+  // 拖拽添加音乐遮罩
+  dragOverlay: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 900,
+    background: "rgba(233,69,96,0.12)",
+    pointerEvents: "none",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    transition: "opacity 0.15s ease",
+  },
+  dragOverlayBox: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: "14px",
+    padding: "40px 60px",
+    borderRadius: "18px",
+    border: "3px dashed #e94560",
+    background: "rgba(255,255,255,0.9)",
+    color: "#e94560",
+    boxShadow: "0 20px 60px rgba(0,0,0,0.15)",
+  },
+  dragOverlayText: {
+    fontSize: "18px",
+    fontWeight: 600,
+  },
   // 导入进度卡片（右上角）
   importProgress: {
     position: "fixed",
@@ -3736,6 +4286,185 @@ const styles = {
     background: "#22c55e",
     color: "#ffffff",
     border: "1px solid #22c55e",
+  },
+  // 标题+内容+按钮的卡片式通知
+  toastNotifyCard: {
+    alignItems: "flex-start",
+    gap: "12px",
+    padding: "16px 18px",
+    minWidth: "320px",
+    maxWidth: "380px",
+  },
+  toastCardBody: {
+    flex: 1,
+    minWidth: 0,
+    display: "flex",
+    flexDirection: "column",
+    gap: "3px",
+  },
+  toastCardTitle: {
+    fontSize: "16px",
+    fontWeight: 600,
+    color: "#1f2937",
+    margin: 0,
+  },
+  toastCardContent: {
+    fontSize: "13px",
+    color: "#6b7280",
+    margin: 0,
+    lineHeight: 1.5,
+  },
+  toastCardAction: {
+    flexShrink: 0,
+    padding: "6px 16px",
+    borderRadius: "16px",
+    border: "1px solid #e94560",
+    background: "#ffffff",
+    color: "#e94560",
+    fontSize: "13px",
+    fontWeight: 600,
+    cursor: "pointer",
+    fontFamily: "inherit",
+    transition: "all 0.2s",
+  },
+  // 绿色成功卡片：标题/内容白字，按钮白底绿字
+  toastCardTitleSuccess: { color: "#ffffff" },
+  toastCardContentSuccess: { color: "rgba(255,255,255,0.92)" },
+  toastCardActionSuccess: {
+    flexShrink: 0,
+    padding: "6px 16px",
+    borderRadius: "16px",
+    border: "1px solid #ffffff",
+    background: "#ffffff",
+    color: "#16a34a",
+    fontSize: "13px",
+    fontWeight: 600,
+    cursor: "pointer",
+    fontFamily: "inherit",
+    transition: "all 0.2s",
+  },
+  // 导入确认弹窗复选
+  importCheckboxRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    margin: "0 0 10px",
+    cursor: "pointer",
+    userSelect: "none",
+  },
+  importCheckbox: {
+    width: "16px",
+    height: "16px",
+    cursor: "pointer",
+    accentColor: "#e94560",
+    margin: 0,
+  },
+  importCheckboxLabel: {
+    fontSize: "13px",
+    color: "#374151",
+  },
+  // 已导入但不可播放歌曲列表
+  importUnplayableList: {
+    maxHeight: "240px",
+    overflowY: "auto",
+    display: "flex",
+    flexDirection: "column",
+    gap: "6px",
+    margin: "4px 0 14px",
+    padding: "10px 12px",
+    borderRadius: "10px",
+    border: "1px solid #f3f4f6",
+    background: "#fafafa",
+  },
+  importUnplayableRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "12px",
+    padding: "6px 4px",
+    borderBottom: "1px solid #f3f4f6",
+  },
+  importUnplayableTitle: {
+    fontSize: "13px",
+    fontWeight: 500,
+    color: "#1f2937",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    flex: 1,
+    minWidth: 0,
+  },
+  importUnplayableArtist: {
+    fontSize: "12px",
+    color: "#6b7280",
+    flexShrink: 0,
+    maxWidth: "120px",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  // 重置进度对话框（居中，不可取消）
+  resetOverlay: {
+    position: "fixed",
+    inset: 0,
+    background: "rgba(0,0,0,0.5)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 1600,
+    fontFamily: "'Segoe UI', sans-serif",
+  },
+  resetProgressBox: {
+    width: "400px",
+    background: "#ffffff",
+    borderRadius: "14px",
+    boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "stretch",
+    overflow: "hidden",
+  },
+  resetProgressBody: {
+    padding: "26px 28px 20px",
+  },
+  resetProgressTitle: {
+    fontSize: "20px",
+    fontWeight: 700,
+    color: "#1f2937",
+    margin: "0",
+    textAlign: "left",
+  },
+  resetProgressWarn: {
+    fontSize: "14px",
+    color: "#e94560",
+    lineHeight: 1.6,
+    margin: "0 0 18px",
+  },
+  resetProgressCountRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: "0",
+  },
+  resetProgressCount: {
+    fontSize: "14px",
+    color: "#6b7280",
+  },
+  resetProgressPct: {
+    fontSize: "14px",
+    fontWeight: 600,
+    color: "#374151",
+  },
+  resetProgressTrack: {
+    height: "6px",
+    width: "100%",
+    background: "#f3f4f6",
+    marginTop: "0",
+  },
+  resetProgressFill: {
+    height: "100%",
+    background: "#e94560",
+    transition: "width 0.25s ease",
   },
   confirmDialog: {
     width: "420px", padding: "28px 30px 22px", borderRadius: "14px",
