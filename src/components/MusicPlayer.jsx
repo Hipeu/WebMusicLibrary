@@ -4,6 +4,7 @@ import Lyrics from "./Lyrics";
 import { parseLRC } from "../utils/LyricsParser";
 import { getLyrics } from "../services/api";
 import { songPlayable } from "../utils/formatCheck";
+import { incrementPlayCount } from "../utils/playCount";
 import PlayerControls from "./PlayerControls";
 import useCoverColor from "./CoverColor";
 
@@ -282,6 +283,8 @@ export default function MusicPlayer({
       audioRef.current.load();
       if (isPlaying) {
         audioRef.current.play().catch(() => setIsPlaying(false));
+        // 实际开始播放 → 播放次数 +1
+        incrementPlayCount(currentSong);
       }
     }
 

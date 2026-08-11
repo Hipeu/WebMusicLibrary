@@ -2,14 +2,16 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { FiPlus } from "react-icons/fi";
 import { FaEllipsisH, FaCompactDisc, FaUser, FaHeart, FaStepForward, FaClock, FaPlus, FaSortAmountDown, FaArrowUp, FaTrash, FaMusic, FaInfoCircle, FaCog, FaPlay, FaExclamationCircle, FaCheckCircle } from "react-icons/fa";
 import { readMetadata } from "../utils/MetadataReader";
-import { uploadMusic, getMusicList, getAssetUrl, deleteMusic, checkMusicFiles, updateMusicMetadata, getLyrics, getPlaylists, savePlaylists, resetAll, getResetProgress, openMusicFile } from "../services/api";
+import { uploadMusic, getMusicList, getAssetUrl, deleteMusic, checkMusicFiles, updateMusicMetadata, getLyrics, getPlaylists, savePlaylists, resetAll, getResetProgress, openMusicFile, getArtists, saveArtist, deleteArtist } from "../services/api";
 import { saveSongToIndex, removeSongFromIndex, loadMusicIndex } from "../utils/musicIndex";
 import { normalizePlaylists, loadPlaylistCache, savePlaylistCache } from "../utils/playlistStore";
 import { isUnplayableCodec, songPlayable } from "../utils/formatCheck";
+import { clearPlayCounts } from "../utils/playCount";
 import MusicPlayer from "../components/MusicPlayer";
 import AlbumDetail from "./AlbumDetail";
 import ArtistsDetail from "./ArtistsDetail";
 import PlaylistDetail from "./PlaylistDetail";
+import ArtistEdit from "./ArtistEdit";
 import { SearchResults } from "../components/Search";
 import CoverPlayButton from "../components/CoverPlayButton";
 import MusicEdit from "./MusicEdit";
@@ -272,6 +274,8 @@ export default function MusicLibrary() {
 
         // ---------- 艺人详情页状态 ----------
         const [detailArtistName, setDetailArtistName] = useState(null);
+        const [artistRecords, setArtistRecords] = useState({}); // { 艺人名: { cover_url, bio, genres } }
+        const [artistEditTarget, setArtistEditTarget] = useState(null); // { artist, record, albums }
 
     // ---------- 侧边栏导航 ----------
     const [activeNav, setActiveNav] = useState("library");
@@ -958,6 +962,50 @@ export default function MusicLibrary() {
       setDetailArtistName(null);
     }
 
+    // ---------- 打开艺人编辑 ----------
+    function handleOpenArtistEdit(artistName) {
+      setArtistEditTarget({
+        artist: artistName,
+        record: artistRecords[artistName] || {},
+        albums: albums.filter((a) => a.artist === artistName),
+      });
+    }
+
+    // ---------- 艺人编辑保存 ----------
+    function handleSaveArtist(updated) {
+      if (!updated || !updated.name) return;
+      setArtistEditTarget(null);
+      setArtistRecords((prev) => ({ ...prev, [updated.name]: updated }));
+    }
+
+    // ---------- 删除歌曲/专辑后：处理空艺人（按开关保留或删除） ----------
+    function syncArtistsAfterDelete(prevAlbums, nextAlbums) {
+      const prevArtists = new Set(prevAlbums.map((a) => a.artist));
+      const currArtists = new Set(nextAlbums.map((a) => a.artist));
+      const emptied = Array.from(prevArtists).filter((n) => !currArtists.has(n));
+      if (emptied.length === 0) return;
+      const keep = localStorage.getItem("artist-keep-empty") !== "false";
+      if (keep) {
+        // 保留空艺人：无记录则建档
+        setArtistRecords((prev) => {
+          const next = { ...prev };
+          emptied.forEach((n) => {
+            if (!next[n]) next[n] = { cover_url: null, bio: "", genres: [] };
+          });
+          return next;
+        });
+        emptied.forEach((n) => saveArtist({ name: n, bio: "", genres: [] }).catch(() => {}));
+      } else {
+        // 自动删除空艺人
+        setArtistRecords((prev) => {
+          const next = { ...prev };
+          emptied.forEach((n) => { delete next[n]; });
+          return next;
+        });
+        emptied.forEach((n) => deleteArtist(n).catch(() => {}));
+      }
+    }
+
     // ---------- 从艺人详情页点击专辑卡片 — 打开专辑详情页 ----------
     function handleOpenAlbumFromArtist(albumId) {
       setDetailAlbumId(albumId);
@@ -1267,14 +1315,15 @@ export default function MusicLibrary() {
     });
 
     // 删除选中的歌曲（并移除被删空的专辑）
-    setAlbums((prev) =>
-      prev
-        .map((album) => ({
-          ...album,
-          songs: album.songs.filter((song, idx) => !selectedSongs.has(`${album.id}-${idx}`)),
-        }))
-        .filter((a) => a.songs.length > 0)
-    );
+    const nextAlbums = albums
+      .map((album) => ({
+        ...album,
+        songs: album.songs.filter((song, idx) => !selectedSongs.has(`${album.id}-${idx}`)),
+      }))
+      .filter((a) => a.songs.length > 0);
+    setAlbums(nextAlbums);
+    // 处理被删空专辑的艺人（保留/删除空艺人，按开关）
+    syncArtistsAfterDelete(albums, nextAlbums);
 
         // 如果当前播放的歌曲被删除了，停止播放
     if (currentDeleted) {
@@ -1316,19 +1365,20 @@ export default function MusicLibrary() {
         setCurrentAlbumId(null);
       }
       setPlayQueue((prev) => prev.filter(s => s.albumId !== albumId));
-      setAlbums((prev) => prev.filter(a => a.id !== albumId));
+      const nextAlbums = albums.filter((a) => a.id !== albumId);
+      setAlbums(nextAlbums);
       setDetailAlbumId((prev) => prev === albumId ? null : prev);
+      syncArtistsAfterDelete(albums, nextAlbums);
     } else {
-      setAlbums((prev) =>
-        prev
-          .map((a) => {
-            if (a.id === albumId) {
-              return { ...a, songs: a.songs.filter((s) => s.url !== deleteSongConfirm.url) };
-            }
-            return a;
-          })
-          .filter((a) => a.songs.length > 0)
-      );
+      const nextAlbums = albums
+        .map((a) => {
+          if (a.id === albumId) {
+            return { ...a, songs: a.songs.filter((s) => s.url !== deleteSongConfirm.url) };
+          }
+          return a;
+        })
+        .filter((a) => a.songs.length > 0);
+      setAlbums(nextAlbums);
       if (currentSong?.url === deleteSongConfirm.url) {
         setIsPlaying(false);
       }
@@ -1545,7 +1595,9 @@ export default function MusicLibrary() {
     // 从播放队列中移除该专辑的歌曲
     setPlayQueue((prev) => prev.filter(s => s.albumId !== albumId));
     // 删除专辑
-    setAlbums((prev) => prev.filter(a => a.id !== albumId));
+    const nextAlbums = albums.filter((a) => a.id !== albumId);
+    setAlbums(nextAlbums);
+    syncArtistsAfterDelete(albums, nextAlbums);
     setDeleteAlbumConfirm(null);
     setDetailAlbumId((prev) => prev === albumId ? null : prev);
   }
@@ -1582,6 +1634,7 @@ export default function MusicLibrary() {
       localStorage.removeItem("music-library-index");
       localStorage.removeItem("music-playlists-v1");
       localStorage.removeItem("app-theme");
+      clearPlayCounts();
       applyTheme("system");
       // 重置前端状态
       setAlbums([]);
@@ -1595,6 +1648,7 @@ export default function MusicLibrary() {
       setDetailAlbumId(null);
       setDetailPlaylistId(null);
       setDetailArtistName(null);
+      setArtistRecords({});
       showToast("重置资料库成功", "success");
     };
     poll();
@@ -1933,6 +1987,20 @@ export default function MusicLibrary() {
         // 后端不可用：保持本地缓存
       }
     })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // ---------- 艺人数据：从后端加载存储的艺人记录 ----------
+  useEffect(() => {
+    let cancelled = false;
+    getArtists()
+      .then((data) => {
+        if (cancelled) return;
+        if (data && typeof data === "object") setArtistRecords(data);
+      })
+      .catch(() => {
+        // 后端不可用：艺人仅由专辑派生
+      });
     return () => { cancelled = true; };
   }, []);
 
@@ -2520,7 +2588,9 @@ export default function MusicLibrary() {
                     ) : (
                       <div style={styles.artistGrid}>
                         {(() => {
-                          const uniqueArtists = Array.from(new Set(albums.map((a) => a.artist)));
+                          // 艺人列表 = 存储的记录 ∪ 专辑派生艺人（保留无音乐的艺人）
+                          const derived = albums.map((a) => a.artist);
+                          const uniqueArtists = Array.from(new Set([...derived, ...Object.keys(artistRecords)]));
                           return [...uniqueArtists].sort((a, b) => {
                             if (artistSortMode === "z-a") {
                               return b.localeCompare(a, "zh-CN");
@@ -2528,8 +2598,11 @@ export default function MusicLibrary() {
                             return a.localeCompare(b, "zh-CN");
                           }).map((artist) => {
                             const artistAlbums = albums.filter((a) => a.artist === artist);
-                            // 无艺人形象照时，取该艺人自己专辑中一张有封面的封面作头像
-                            const artistCover = artistAlbums.find((a) => a.coverURL)?.coverURL || null;
+                            // 头像：优先艺人照片，其次取该艺人专辑中一张有封面的封面作头像
+                            const record = artistRecords[artist] || {};
+                            const artistCover = record.cover_url
+                              ? getAssetUrl(record.cover_url)
+                              : (artistAlbums.find((a) => a.coverURL)?.coverURL || null);
                             return (
                               <div key={artist} style={styles.artistCard} onClick={() => handleOpenArtistDetail(artist)}>
                                 <div style={styles.artistAvatar}>
@@ -2558,6 +2631,7 @@ export default function MusicLibrary() {
                                         <ArtistsDetail
                       artist={detailArtistName}
                       albums={albums.filter((a) => a.artist === detailArtistName)}
+                      record={artistRecords[detailArtistName] || {}}
                       currentAlbumId={currentAlbumId}
                       currentSongIndex={currentSongIndex}
                       isPlaying={isPlaying}
@@ -2565,6 +2639,7 @@ export default function MusicLibrary() {
                       onPlaySong={handlePlaySongFromArtist}
                       onBack={handleCloseArtistDetail}
                       onOpenAlbum={handleOpenAlbumFromArtist}
+                      onEditArtist={handleOpenArtistEdit}
                     />
                   </div>
                                 ) : activeNav === "songs" ? (
@@ -3381,6 +3456,17 @@ export default function MusicLibrary() {
         onClose={() => setEditTarget(null)}
         onSave={handleSaveEdit}
       />
+
+      {artistEditTarget && (
+        <ArtistEdit
+          key={artistEditTarget.artist}
+          artist={artistEditTarget.artist}
+          record={artistEditTarget.record}
+          albums={artistEditTarget.albums}
+          onClose={() => setArtistEditTarget(null)}
+          onSaved={handleSaveArtist}
+        />
+      )}
 
       <Settings show={showSettings} onClose={() => setShowSettings(false)} onReset={handleResetData} onSettingsSaved={handleSettingsSaved} />
 

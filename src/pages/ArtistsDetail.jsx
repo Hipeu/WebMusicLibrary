@@ -1,17 +1,22 @@
 import { useState } from "react";
-import { FaArrowLeft } from "react-icons/fa";
+import { FaArrowLeft, FaPen, FaChevronRight } from "react-icons/fa";
 import CoverPlayButton from "../components/CoverPlayButton";
+import { getAssetUrl } from "../services/api";
+import { loadPlayCounts, songPlayKey } from "../utils/playCount";
 
 /* ================================================================
    🎤 ArtistsDetail — 艺人详情页
    布局：
      ① 顶部：艺人照片（长方形铺满横幅）
-     ② 中部：专辑网格（按年份排序，和资料库一样的卡片样式）
-     ③ 底部：艺人信息介绍模块（功能预留）
+     ② 新入库（未播放过的歌曲，按入库时间从新到旧，一排）
+     ③ 歌曲（3×3 网格，按播放次数 → 最近导入时间；> 查看全部）
+     ④ 专辑（一排横向卡片，按年份；查看全部专辑入口）
+     ⑤ 底部：艺人简介（仅在有内容时显示）
    ================================================================ */
 export default function ArtistsDetail({
   artist,
   albums,
+  record,
   currentAlbumId,
   currentSongIndex,
   isPlaying,
@@ -19,8 +24,10 @@ export default function ArtistsDetail({
   onPlaySong,
   onBack,
   onOpenAlbum,
+  onEditArtist,
 }) {
   const [bannerImgError, setBannerImgError] = useState(false);
+  const [subView, setSubView] = useState(null); // null | "songs" | "albums"（全部歌曲 / 全部专辑子页）
   if (!artist) return null;
 
   // 按年份排序专辑（降序：从新到旧）
@@ -30,13 +37,122 @@ export default function ArtistsDetail({
     return yearB - yearA;
   });
 
-  // 艺人形象照数据源（现阶段无独立艺人图，先恒为 null；有艺人图后再接入）
-  const artistCover = null;
+  // 新入库：专辑按最近添加排序（专辑内歌曲最大 importTime，兜底专辑 importTime）
+  const newArrivalAlbums = [...albums].sort((a, b) => {
+    const importOf = (album) =>
+      Math.max(
+        album.importTime || 0,
+        ...(album.songs || []).map((s) => s.importTime || 0)
+      );
+    return importOf(b) - importOf(a);
+  });
+
+  // 艺人形象照：优先使用存储的艺人照片
+  const artistCover = record?.cover_url ? getAssetUrl(record.cover_url) : null;
   const showBanner = !!artistCover && !bannerImgError;
   const songCount = albums.reduce((sum, a) => sum + (a.songs?.length || 0), 0);
 
+  // 全部歌曲（带播放次数 / 导入时间）
+  const counts = loadPlayCounts();
+  const allSongs = albums.flatMap((a) =>
+    (a.songs || []).map((s, idx) => ({
+      ...s,
+      albumId: a.id,
+      songIndex: idx,
+      playCount: counts[songPlayKey(s)] || 0,
+      importTime: s.importTime || 0,
+    }))
+  );
+
+  // 歌曲排序：播放次数降序 → 最近导入时间降序
+  const sortedSongs = [...allSongs].sort(
+    (a, b) => (b.playCount - a.playCount) || (b.importTime - a.importTime)
+  );
+  // 3×3 网格最多展示 9 首
+  const topSongs = sortedSongs.slice(0, 9);
+
+  // 播放歌曲
+  function playSong(song) {
+    onPlaySong && onPlaySong(song.albumId, song.songIndex);
+  }
+
   return (
-    <div style={styles.container}>
+    <div style={styles.container} className="artist-detail-page">
+      {subView === "songs" ? (
+        <div style={styles.subPage}>
+          <button style={styles.subBackBtn} onClick={() => setSubView(null)} title="返回">
+            <FaArrowLeft size={18} />
+          </button>
+          <h1 style={styles.subTitle}>全部歌曲</h1>
+          <div style={styles.subSongGrid}>
+            {sortedSongs.map((song) => {
+              const isActive = song.albumId === currentAlbumId && song.songIndex === currentSongIndex;
+              return (
+                <div
+                  key={`${song.albumId}-${song.songIndex}`}
+                  style={{
+                    ...styles.songCell,
+                    ...(isActive ? styles.songCellActive : {}),
+                  }}
+                  onClick={() => playSong(song)}
+                >
+                  <div style={styles.songCellCover}>
+                    <span style={styles.songCellCoverIcon}>🎶</span>
+                    {song.coverURL && (
+                      <img
+                        src={song.coverURL}
+                        alt=""
+                        onError={(e) => { e.currentTarget.style.display = "none"; }}
+                        style={styles.songCellCoverImg}
+                      />
+                    )}
+                  </div>
+                  <div style={styles.songCellText}>
+                    <p style={styles.songCellTitle}>{song.title}</p>
+                    <p style={styles.songCellAlbum}>{song.album}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : subView === "albums" ? (
+        <div style={styles.subPage}>
+          <button style={styles.subBackBtn} onClick={() => setSubView(null)} title="返回">
+            <FaArrowLeft size={18} />
+          </button>
+          <h1 style={styles.subTitle}>全部专辑</h1>
+          <div style={styles.subAlbumGrid}>
+            {sortedAlbums.map((album) => (
+              <div
+                key={album.id}
+                className="album-card"
+                style={{ ...styles.albumCard, width: "100%" }}
+                onClick={() => { setSubView(null); onOpenAlbum && onOpenAlbum(album.id); }}
+              >
+                <div style={styles.albumCardCoverWrapper}>
+                  <div style={styles.albumCardCoverPlaceholder}>
+                    <span style={styles.albumCardCoverIcon}>🎶</span>
+                  </div>
+                  {album.coverURL && (
+                    <img
+                      src={album.coverURL}
+                      alt={album.title}
+                      onError={(e) => { e.currentTarget.style.display = "none"; }}
+                      style={{ ...styles.albumCardCover, position: "absolute", inset: 0 }}
+                    />
+                  )}
+                </div>
+                <p style={styles.albumCardTitle}>{album.title}</p>
+                <p style={styles.albumCardYear}>
+                  {album.year ? `${album.year}` : "未知年份"}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <>
       {/* 返回按钮 */}
       <button style={styles.backBtn} onClick={onBack} title="返回">
         <FaArrowLeft size={18} />
@@ -59,30 +175,136 @@ export default function ArtistsDetail({
           </div>
           {/* 艺人在横幅上的名字 */}
           <div style={styles.bannerInfo}>
-            <h1 style={styles.artistName}>{artist}</h1>
+            <div style={styles.nameRow}>
+              <h1 style={styles.artistName}>{artist}</h1>
+              {onEditArtist && (
+                <button style={styles.editBtn} onClick={() => onEditArtist(artist)} title="编辑艺人">
+                  <FaPen size={14} />
+                </button>
+              )}
+            </div>
             <p style={styles.artistStats}>{albums.length} 个专辑 · {songCount} 首歌曲</p>
           </div>
         </div>
       ) : (
         <div style={styles.compactHeader}>
-          <h1 style={styles.compactName}>{artist}</h1>
+          <div style={styles.nameRow}>
+            <h1 style={styles.compactName}>{artist}</h1>
+            {onEditArtist && (
+              <button style={styles.editBtnCompact} onClick={() => onEditArtist(artist)} title="编辑艺人">
+                <FaPen size={14} />
+              </button>
+            )}
+          </div>
           <p style={styles.compactStats}>{albums.length} 个专辑 · {songCount} 首歌曲</p>
         </div>
       )}
 
       {/* ============================================================ */}
-      {/* ② 中部：专辑网格（和资料库一样的卡片样式）                 */}
+      {/* ② 新入库：最近添加的专辑，一排横向滚动                    */}
       {/* ============================================================ */}
-      <div style={styles.albumsSection}>
-        <h2 style={styles.sectionTitle}>专辑作品</h2>
+      {newArrivalAlbums.length > 0 && (
+        <div style={styles.blockSection}>
+          <div style={styles.titleRow}>
+            <h2 style={styles.sectionTitle}>新入库</h2>
+          </div>
+          <div style={styles.hScrollRow}>
+            {newArrivalAlbums.map((album) => (
+              <div
+                key={album.id}
+                className="album-card"
+                style={styles.albumCard}
+                onClick={() => onOpenAlbum && onOpenAlbum(album.id)}
+              >
+                <div style={styles.albumCardCoverWrapper}>
+                  <div style={styles.albumCardCoverPlaceholder}>
+                    <span style={styles.albumCardCoverIcon}>🎶</span>
+                  </div>
+                  {album.coverURL && (
+                    <img
+                      src={album.coverURL}
+                      alt={album.title}
+                      onError={(e) => { e.currentTarget.style.display = "none"; }}
+                      style={{ ...styles.albumCardCover, position: "absolute", inset: 0 }}
+                    />
+                  )}
+                </div>
+                <p style={styles.albumCardTitle}>{album.title}</p>
+                <p style={styles.albumCardYear}>
+                  {album.year ? `${album.year}` : "未知年份"}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
+      {/* ============================================================ */}
+      {/* ③ 歌曲：3×3 网格 + 「>」查看全部                          */}
+      {/* ============================================================ */}
+      {allSongs.length > 0 && (
+        <div style={styles.blockSection}>
+          <div style={styles.titleRow}>
+            <h2 style={styles.sectionTitle}>歌曲</h2>
+            {allSongs.length > 9 && (
+              <button style={styles.moreBtn} onClick={() => setSubView("songs")} title="查看全部歌曲">
+                <FaChevronRight size={13} />
+              </button>
+            )}
+          </div>
+          <div style={styles.songGrid}>
+            {topSongs.map((song) => {
+              const isActive = song.albumId === currentAlbumId && song.songIndex === currentSongIndex;
+              return (
+                <div
+                  key={`${song.albumId}-${song.songIndex}`}
+                  style={{
+                    ...styles.songCell,
+                    ...(isActive ? styles.songCellActive : {}),
+                  }}
+                  onClick={() => playSong(song)}
+                >
+                  <div style={styles.songCellCover}>
+                    <span style={styles.songCellCoverIcon}>🎶</span>
+                    {song.coverURL && (
+                      <img
+                        src={song.coverURL}
+                        alt=""
+                        onError={(e) => { e.currentTarget.style.display = "none"; }}
+                        style={styles.songCellCoverImg}
+                      />
+                    )}
+                  </div>
+                  <div style={styles.songCellText}>
+                    <p style={styles.songCellTitle}>{song.title}</p>
+                    <p style={styles.songCellAlbum}>{song.album}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* ④ 专辑：一排横向卡片 + 查看全部入口                       */}
+      {/* ============================================================ */}
+      <div style={styles.blockSection}>
+        <div style={styles.titleRow}>
+          <h2 style={styles.sectionTitle}>专辑</h2>
+          {sortedAlbums.length > 0 && (
+            <button style={styles.moreBtn} onClick={() => setSubView("albums")} title="查看全部专辑">
+              <FaChevronRight size={13} />
+            </button>
+          )}
+        </div>
         {sortedAlbums.length === 0 ? (
           <div style={styles.emptyState}>
             <span style={styles.emptyIcon}>📀</span>
             <p style={styles.emptyText}>该艺人暂无专辑</p>
           </div>
         ) : (
-          <div style={styles.albumGrid}>
+          <div style={styles.hScrollRow}>
             {sortedAlbums.map((album) => {
               const isActive = album.id === currentAlbumId;
               return (
@@ -93,18 +315,18 @@ export default function ArtistsDetail({
                     ...styles.albumCard,
                     ...(isActive ? styles.albumCardActive : {}),
                   }}
-                                    onClick={() => onOpenAlbum && onOpenAlbum(album.id)}
+                  onClick={() => onOpenAlbum && onOpenAlbum(album.id)}
                 >
-                  <div style={styles.coverWrapper}>
-                    <div style={styles.coverPlaceholder}>
-                      <span style={styles.coverPlaceholderIcon}>🎶</span>
+                  <div style={styles.albumCardCoverWrapper}>
+                    <div style={styles.albumCardCoverPlaceholder}>
+                      <span style={styles.albumCardCoverIcon}>🎶</span>
                     </div>
                     {album.coverURL && (
                       <img
                         src={album.coverURL}
                         alt={album.title}
                         onError={(e) => { e.currentTarget.style.display = "none"; }}
-                        style={{ ...styles.coverImage, position: "absolute", inset: 0 }}
+                        style={{ ...styles.albumCardCover, position: "absolute", inset: 0 }}
                       />
                     )}
                     <CoverPlayButton
@@ -112,14 +334,14 @@ export default function ArtistsDetail({
                       isPlaying={isPlaying}
                       onTogglePlay={(e) => {
                         e.stopPropagation();
-                        onPlayAlbum(album.id);
+                        onPlayAlbum && onPlayAlbum(album.id);
                       }}
                     />
                     {isActive && (
-                      <div style={styles.playingBadge}>▶ 正在播放</div>
+                      <div style={styles.playingBadge}>▶</div>
                     )}
                   </div>
-                                    <p style={styles.albumCardTitle}>{album.title}</p>
+                  <p style={styles.albumCardTitle}>{album.title}</p>
                   <p style={styles.albumCardYear}>
                     {album.year ? `${album.year}` : "未知年份"}
                   </p>
@@ -131,16 +353,17 @@ export default function ArtistsDetail({
       </div>
 
       {/* ============================================================ */}
-      {/* ③ 底部：艺人信息介绍模块（功能预留）                       */}
+      {/* ⑤ 底部：艺人简介（仅在有内容时显示）                       */}
       {/* ============================================================ */}
-      <div style={styles.infoSection}>
-        <h2 style={styles.sectionTitle}>艺人简介</h2>
-        <div style={styles.infoPlaceholder}>
-          <span style={styles.infoPlaceholderIcon}>📝</span>
-          <p style={styles.infoPlaceholderText}>艺人简介功能即将上线</p>
-          <p style={styles.infoPlaceholderHint}>敬请期待更多精彩内容</p>
+      {record?.bio ? (
+        <div style={styles.infoSection}>
+          <h2 style={styles.sectionTitle}>艺人简介</h2>
+          <div style={styles.bioText}>{record.bio}</div>
         </div>
-      </div>
+      ) : null}
+
+        </>
+      )}
     </div>
   );
 }
@@ -202,10 +425,15 @@ const styles = {
     objectFit: "cover",
     display: "block",
   },
-  // 无形象照时的紧凑头部（名字贴近返回按钮，深色文字）
+  // 无形象照时的紧凑头部
   compactHeader: {
     padding: "72px 48px 8px",
     flexShrink: 0,
+  },
+  nameRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: "14px",
   },
   compactName: {
     fontSize: "34px",
@@ -217,6 +445,34 @@ const styles = {
     fontSize: "14px",
     color: "#6b7280",
     margin: "6px 0 0",
+  },
+  editBtn: {
+    flexShrink: 0,
+    width: "38px",
+    height: "38px",
+    borderRadius: "50%",
+    border: "1px solid rgba(255,255,255,0.5)",
+    background: "rgba(0,0,0,0.3)",
+    color: "#ffffff",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    transition: "background 0.2s",
+  },
+  editBtnCompact: {
+    flexShrink: 0,
+    width: "38px",
+    height: "38px",
+    borderRadius: "50%",
+    border: "1px solid #e5e7eb",
+    background: "#f3f4f6",
+    color: "#6b7280",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    transition: "background 0.2s",
   },
   bannerOverlay: {
     position: "absolute",
@@ -249,37 +505,123 @@ const styles = {
     textShadow: "0 1px 8px rgba(0,0,0,0.4)",
   },
 
-    // ================================================================
-  // ② 中部：专辑网格
   // ================================================================
-  albumsSection: {
-    padding: "36px 48px 20px",
+  // 通用区块
+  // ================================================================
+  blockSection: {
+    padding: "28px 48px 0",
     flexShrink: 0,
+  },
+  titleRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    marginBottom: "16px",
   },
   sectionTitle: {
     fontSize: "22px",
     fontWeight: 700,
     color: "#1f2937",
-    margin: "0 0 24px 0",
+    margin: 0,
   },
-  emptyState: {
+  moreBtn: {
+    flexShrink: 0,
+    width: "32px",
+    height: "32px",
+    borderRadius: "50%",
+    border: "1px solid #e5e7eb",
+    background: "#f3f4f6",
+    color: "#6b7280",
+    cursor: "pointer",
     display: "flex",
-    flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
-    padding: "60px 20px",
+    transition: "background 0.2s",
+  },
+
+  // 横向滚动行（新入库 / 专辑）
+  hScrollRow: {
+    display: "flex",
+    gap: "12px",
+    overflowX: "auto",
+    paddingBottom: "8px",
+  },
+
+  // ================================================================
+  // ③ 歌曲：3×3 网格
+  // ================================================================
+  songGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(3, 1fr)",
     gap: "12px",
   },
-  emptyIcon: { fontSize: "48px", opacity: 0.3 },
-  emptyText: { fontSize: "16px", color: "#6b7280", margin: 0 },
-
-  // 网格布局 — 和资料库一致
-  albumGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
-    gap: "24px",
+  songCell: {
+    display: "flex",
+    alignItems: "center",
+    gap: "12px",
+    padding: "10px 14px",
+    minHeight: "64px",
+    borderRadius: "10px",
+    border: "1px solid #e5e7eb",
+    background: "#ffffff",
+    cursor: "pointer",
+    overflow: "hidden",
+    transition: "background 0.15s, border-color 0.15s",
   },
+  songCellActive: {
+    background: "rgba(233,69,96,0.12)",
+    border: "1px solid rgba(233,69,96,0.25)",
+  },
+  songCellCover: {
+    position: "relative",
+    width: "40px",
+    height: "40px",
+    borderRadius: "6px",
+    overflow: "hidden",
+    flexShrink: 0,
+    background: "#e5e7eb",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  songCellCoverIcon: { fontSize: "16px", opacity: 0.4 },
+  songCellCoverImg: {
+    position: "absolute",
+    inset: 0,
+    width: "100%",
+    height: "100%",
+    objectFit: "cover",
+    display: "block",
+  },
+  songCellText: {
+    flex: 1,
+    minWidth: 0,
+    overflow: "hidden",
+  },
+  songCellTitle: {
+    fontSize: "14px",
+    fontWeight: 600,
+    color: "#1f2937",
+    margin: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  songCellAlbum: {
+    fontSize: "12px",
+    color: "#6b7280",
+    margin: "3px 0 0",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+
+  // ================================================================
+  // ④ 专辑：一排横向卡片
+  // ================================================================
   albumCard: {
+    flexShrink: 0,
+    width: "170px",
     borderRadius: "12px",
     overflow: "hidden",
     background: "#ffffff",
@@ -290,17 +632,15 @@ const styles = {
     border: "2px solid #e94560",
     boxShadow: "0 0 20px rgba(233,69,96,0.2)",
   },
-
-  // 封面
-  coverWrapper: {
+  albumCardCoverWrapper: {
     position: "relative",
     width: "100%",
     aspectRatio: "1 / 1",
     overflow: "hidden",
     background: "#f3f4f6",
   },
-  coverImage: { width: "100%", height: "100%", objectFit: "cover", display: "block" },
-  coverPlaceholder: {
+  albumCardCover: { width: "100%", height: "100%", objectFit: "cover", display: "block" },
+  albumCardCoverPlaceholder: {
     width: "100%",
     height: "100%",
     display: "flex",
@@ -308,27 +648,27 @@ const styles = {
     justifyContent: "center",
     background: "#e5e7eb",
   },
-  coverPlaceholderIcon: { fontSize: "40px", opacity: 0.4 },
+  albumCardCoverIcon: { fontSize: "32px", opacity: 0.4 },
   playingBadge: {
     position: "absolute",
-    top: "8px",
-    left: "8px",
-    padding: "3px 10px",
+    top: "6px",
+    left: "6px",
+    width: "24px",
+    height: "24px",
     borderRadius: "12px",
     background: "#e94560",
     color: "#fff",
     fontSize: "11px",
-    fontWeight: 600,
-    letterSpacing: "0.3px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
     backdropFilter: "blur(4px)",
   },
-
-    // 专辑卡片文字
   albumCardTitle: {
     fontSize: "15px",
     fontWeight: 600,
     color: "#1f2937",
-    margin: "12px 12px 4px",
+    margin: "10px 12px 3px",
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
@@ -337,43 +677,82 @@ const styles = {
     fontSize: "14px",
     color: "#6b7280",
     fontWeight: 500,
-    margin: "0 12px 14px",
+    margin: "0 12px 12px",
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
   },
 
-  // ================================================================
-  // ③ 底部：艺人信息介绍模块（功能预留）
-  // ================================================================
-  infoSection: {
-    padding: "20px 48px 120px",
-    flexShrink: 0,
-  },
-  infoPlaceholder: {
+  emptyState: {
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
-    padding: "48px 20px",
-    borderRadius: "16px",
-    border: "2px dashed #e5e7eb",
-    background: "#f9fafb",
-    gap: "8px",
+    padding: "40px 20px",
+    gap: "12px",
   },
-  infoPlaceholderIcon: {
-    fontSize: "40px",
-    opacity: 0.3,
+  emptyIcon: { fontSize: "48px", opacity: 0.3 },
+  emptyText: { fontSize: "16px", color: "#6b7280", margin: 0 },
+
+  // ================================================================
+  // ⑤ 艺人简介
+  // ================================================================
+  infoSection: {
+    padding: "28px 48px 120px",
+    flexShrink: 0,
   },
-  infoPlaceholderText: {
-    fontSize: "16px",
-    color: "#6b7280",
-    margin: 0,
-    fontWeight: 500,
+  bioText: {
+    fontSize: "14px",
+    lineHeight: 1.8,
+    color: "#4b5563",
+    whiteSpace: "pre-wrap",
+    wordBreak: "break-word",
   },
-  infoPlaceholderHint: {
-    fontSize: "13px",
-    color: "#9ca3af",
-    margin: 0,
+
+  // ================================================================
+  // 子页面（全部歌曲 / 全部专辑）
+  // ================================================================
+  subPage: {
+    display: "flex",
+    flexDirection: "column",
+    minHeight: "100%",
+    position: "relative",
+  },
+  subBackBtn: {
+    position: "absolute",
+    top: "20px",
+    left: "24px",
+    zIndex: 20,
+    width: "40px",
+    height: "40px",
+    borderRadius: "50%",
+    border: "1px solid #e5e7eb",
+    background: "#ffffff",
+    color: "#374151",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+    transition: "background 0.2s, transform 0.15s",
+  },
+  subTitle: {
+    fontSize: "26px",
+    fontWeight: 700,
+    color: "#1f2937",
+    margin: "0 0 24px",
+    padding: "72px 48px 0",
+  },
+  subSongGrid: {
+    padding: "0 48px 80px",
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
+    gap: "12px",
+  },
+  subAlbumGrid: {
+    padding: "0 48px 80px",
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))",
+    gap: "20px",
   },
 };

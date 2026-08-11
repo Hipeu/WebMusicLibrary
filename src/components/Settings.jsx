@@ -104,6 +104,51 @@ function AppearancePanel({ onSettingsSaved }) {
       </div>
 
       <ImportSettings onSettingsSaved={onSettingsSaved} />
+
+      <ArtistSettings onSettingsSaved={onSettingsSaved} />
+    </div>
+  );
+}
+
+/* ================================================================
+   🎤 艺人设置 — 删除音乐时对空艺人的处理
+   ================================================================ */
+function ArtistSettings({ onSettingsSaved }) {
+  const [keepEmpty, setKeepEmpty] = useState(
+    () => localStorage.getItem("artist-keep-empty") !== "false"
+  );
+
+  function handleToggleKeepEmpty() {
+    const next = !keepEmpty;
+    setKeepEmpty(next);
+    localStorage.setItem("artist-keep-empty", String(next));
+    onSettingsSaved?.();
+  }
+
+  return (
+    <div style={{ marginTop: "28px" }}>
+      <h3 style={panelStyles.title}>艺人设置</h3>
+      <div style={panelStyles.toggleRow}>
+        <div style={panelStyles.toggleText}>
+          <p style={panelStyles.toggleTitle}>删除音乐时保留无音乐的艺人</p>
+          <p style={panelStyles.toggleDesc}>开启后，即使某位艺人的音乐被全部删除，该艺人仍会保留在艺人列表中；关闭则自动删除空艺人</p>
+        </div>
+        <button
+          style={{
+            ...panelStyles.toggleSwitch,
+            ...(keepEmpty ? panelStyles.toggleSwitchOn : {}),
+          }}
+          onClick={handleToggleKeepEmpty}
+          title={keepEmpty ? "点击关闭" : "点击开启"}
+        >
+          <div
+            style={{
+              ...panelStyles.toggleKnob,
+              ...(keepEmpty ? panelStyles.toggleKnobOn : {}),
+            }}
+          />
+        </button>
+      </div>
     </div>
   );
 }

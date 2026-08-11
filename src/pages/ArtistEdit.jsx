@@ -1,0 +1,400 @@
+import { useState, useRef, useMemo } from "react";
+import { FaPen, FaImage, FaPlus, FaMusic } from "react-icons/fa";
+import { getAssetUrl, saveArtist, uploadArtistCover } from "../services/api";
+
+/* ================================================================
+   ✏️ ArtistEdit — 编辑艺人信息弹窗
+   顶部：艺人头像 + 名称
+   标签：艺人封面 / 艺人详情 / 流派
+   ================================================================ */
+export default function ArtistEdit({ artist, record, albums, onClose, onSaved }) {
+  // 自动抓取流派：该艺人所有歌曲的 genre 去重
+  const autoGenres = useMemo(() => {
+    const set = new Set();
+    (albums || []).forEach((a) =>
+      (a.songs || []).forEach((s) => {
+        if (s.genre) set.add(s.genre);
+      })
+    );
+    return Array.from(set);
+  }, [albums]);
+
+  const [activeTab, setActiveTab] = useState("cover"); // "cover" | "bio" | "genres"
+  const [coverUrl, setCoverUrl] = useState(record?.cover_url || null);
+  const [coverFile, setCoverFile] = useState(null);
+  const [bio, setBio] = useState(record?.bio || "");
+  const [genres, setGenres] = useState(() => {
+    const saved = record?.genres;
+    if (saved && saved.length) return [...saved];
+    return autoGenres;
+  });
+  const [genreInput, setGenreInput] = useState("");
+  const coverInputRef = useRef(null);
+
+  function displayUrl(u) {
+    if (!u) return null;
+    if (u.startsWith("data:") || u.startsWith("http")) return u;
+    return getAssetUrl(u);
+  }
+
+  function handleCoverSelect(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setCoverFile(file);
+    const reader = new FileReader();
+    reader.onload = (ev) => setCoverUrl(ev.target.result);
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  }
+
+  function handleRemoveCover() {
+    setCoverFile(null);
+    setCoverUrl(null);
+  }
+
+  function handleAddGenre() {
+    const g = genreInput.trim();
+    if (g && !genres.includes(g)) setGenres([...genres, g]);
+    setGenreInput("");
+  }
+
+  function handleRemoveGenre(g) {
+    setGenres(genres.filter((x) => x !== g));
+  }
+
+  function handleResetGenres() {
+    setGenres([...autoGenres]);
+  }
+
+  async function handleSave() {
+    const payload = { name: artist, bio, genres };
+    if (coverFile) {
+      const res = await uploadArtistCover(artist, coverFile);
+      if (res?.status === "ok" && res.cover_url) {
+        payload.cover_url = res.cover_url;
+      }
+    } else {
+      payload.cover_url = coverUrl;
+    }
+    let ok = false;
+    try {
+      const res = await saveArtist(payload);
+      ok = res?.status === "ok";
+    } catch (err) {
+      console.warn("保存艺人失败:", err);
+    }
+    if (ok) {
+      onSaved?.({ name: artist, cover_url: payload.cover_url || null, bio, genres });
+    }
+    onClose?.();
+  }
+
+  const tabs = [
+    { id: "cover", label: "艺人封面" },
+    { id: "bio", label: "艺人详情" },
+    { id: "genres", label: "流派" },
+  ];
+
+  return (
+    <div style={styles.overlay}>
+      <div style={styles.dialog} className="artist-edit-dialog" onClick={(e) => e.stopPropagation()}>
+        {/* 顶部：头像 + 名称 */}
+        <div style={styles.topSection}>
+          <div style={styles.topAvatar}>
+            {coverUrl ? (
+              <img src={displayUrl(coverUrl)} alt="" style={styles.topAvatarImg} />
+            ) : (
+              <div style={styles.topAvatarPlaceholder}><FaMusic size={20} /></div>
+            )}
+          </div>
+          <div style={styles.topInfo}>
+            <h3 style={styles.topTitle}>{artist}</h3>
+            <p style={styles.topHint}>
+              <FaPen size={11} style={{ marginRight: "5px" }} />
+              编辑艺人信息
+            </p>
+          </div>
+        </div>
+
+        {/* 标签栏 */}
+        <div style={styles.tabBar}>
+          <div style={styles.tabCapsule}>
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                style={{
+                  ...styles.tabBtn,
+                  ...(activeTab === tab.id ? styles.tabBtnActive : {}),
+                }}
+                onClick={() => setActiveTab(tab.id)}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* 标签内容 */}
+        <div style={styles.tabContent}>
+          {activeTab === "cover" && (
+            <div style={styles.coverTab}>
+              <div style={styles.coverPreview}>
+                {coverUrl ? (
+                  <img
+                    src={displayUrl(coverUrl)}
+                    alt="艺人照片"
+                    style={styles.coverPreviewImg}
+                  />
+                ) : (
+                  <div style={styles.coverAddArea} onClick={() => coverInputRef.current?.click()}>
+                    <FaPlus size={28} />
+                    <span style={styles.coverAddText}>添加照片</span>
+                  </div>
+                )}
+              </div>
+              <div style={styles.coverActions}>
+                <button style={styles.changeCoverBtn} onClick={() => coverInputRef.current?.click()}>
+                  <FaImage size={14} style={{ marginRight: "6px" }} />
+                  更换照片
+                </button>
+                {coverUrl && (
+                  <button style={styles.removeCoverBtn} onClick={handleRemoveCover}>
+                    移除照片
+                  </button>
+                )}
+              </div>
+              <input
+                ref={coverInputRef}
+                type="file"
+                accept="image/*"
+                style={{ display: "none" }}
+                onChange={handleCoverSelect}
+              />
+            </div>
+          )}
+
+          {activeTab === "bio" && (
+            <div style={styles.bioTab}>
+              <textarea
+                style={styles.bioTextarea}
+                value={bio}
+                onChange={(e) => setBio(e.target.value)}
+                placeholder="在此填写艺人简介…"
+                spellCheck={false}
+              />
+            </div>
+          )}
+
+          {activeTab === "genres" && (
+            <div style={styles.genresTab}>
+              <div style={styles.genresHint}>自动抓取自音乐元信息，可自行增删</div>
+              <div style={styles.genresChips}>
+                {genres.length === 0 ? (
+                  <span style={styles.genresEmpty}>暂无流派</span>
+                ) : (
+                  genres.map((g) => (
+                    <span key={g} style={styles.genreChip}>
+                      <span style={styles.genreChipText}>{g}</span>
+                      <button style={styles.genreChipRemove} onClick={() => handleRemoveGenre(g)}>
+                        ×
+                      </button>
+                    </span>
+                  ))
+                )}
+              </div>
+              <div style={styles.genreAddRow}>
+                <input
+                  style={styles.genreInput}
+                  value={genreInput}
+                  onChange={(e) => setGenreInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleAddGenre(); }}
+                  placeholder="输入流派后回车添加"
+                  spellCheck={false}
+                />
+                <button style={styles.genreAddBtn} onClick={handleAddGenre}>
+                  <FaPlus size={12} style={{ marginRight: "4px" }} />
+                  添加
+                </button>
+              </div>
+              <button style={styles.genreResetBtn} onClick={handleResetGenres}>
+                重置为自动抓取
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* 底部按钮 */}
+        <div style={styles.footer}>
+          <button style={styles.cancelBtn} onClick={onClose}>取消</button>
+          <button style={styles.saveBtn} onClick={handleSave}>保存</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ================================================================
+   🎨 样式
+   ================================================================ */
+const styles = {
+  overlay: {
+    position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    zIndex: 1000,
+  },
+  dialog: {
+    background: "#ffffff", borderRadius: "14px", width: "580px",
+    maxHeight: "85vh", display: "flex", flexDirection: "column",
+    fontFamily: "'Segoe UI', sans-serif",
+    boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+  },
+
+  /* 顶部 */
+  topSection: {
+    display: "flex", alignItems: "center", gap: "16px",
+    padding: "20px 24px 16px",
+    borderBottom: "1px solid #e5e7eb",
+  },
+  topAvatar: {
+    width: "80px", height: "80px", borderRadius: "50%",
+    overflow: "hidden", flexShrink: 0, background: "#e5e7eb",
+  },
+  topAvatarImg: { width: "100%", height: "100%", objectFit: "cover", display: "block" },
+  topAvatarPlaceholder: {
+    width: "100%", height: "100%", display: "flex", alignItems: "center",
+    justifyContent: "center", color: "#9ca3af",
+  },
+  topInfo: { minWidth: 0, flex: 1 },
+  topTitle: {
+    fontSize: "18px", fontWeight: 700, color: "#1f2937", margin: 0,
+    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+  },
+  topHint: {
+    fontSize: "13px", color: "#6b7280", margin: "6px 0 0",
+    display: "flex", alignItems: "center",
+  },
+
+  /* 标签栏 */
+  tabBar: {
+    display: "flex", justifyContent: "center",
+    padding: "12px 24px 16px", flexShrink: 0,
+  },
+  tabCapsule: {
+    display: "flex", gap: "2px", padding: "4px",
+    borderRadius: "28px", background: "#f3f4f6",
+  },
+  tabBtn: {
+    display: "flex", alignItems: "center",
+    padding: "6px 18px", borderRadius: "24px",
+    border: "none", background: "transparent",
+    color: "#6b7280", fontSize: "13px", fontWeight: 500,
+    cursor: "pointer", fontFamily: "inherit",
+    transition: "all 0.25s ease", letterSpacing: "0.3px",
+  },
+  tabBtnActive: {
+    background: "#e94560", color: "#ffffff",
+    boxShadow: "0 4px 12px rgba(233,69,96,0.35)",
+  },
+
+  /* 标签内容 */
+  tabContent: {
+    flex: 1, overflowY: "auto", padding: "16px 24px", minHeight: "200px",
+  },
+
+  /* 封面 */
+  coverTab: {
+    display: "flex", flexDirection: "column", alignItems: "center",
+    gap: "14px", padding: "20px 0",
+  },
+  coverPreview: {
+    width: "220px", height: "220px", borderRadius: "50%", overflow: "hidden",
+  },
+  coverPreviewImg: { width: "100%", height: "100%", objectFit: "cover", display: "block" },
+  coverAddArea: {
+    width: "100%", height: "100%", display: "flex", flexDirection: "column",
+    alignItems: "center", justifyContent: "center", gap: "6px",
+    border: "2px dashed #d1d5db", borderRadius: "50%", cursor: "pointer",
+    color: "#9ca3af", transition: "border-color 0.2s, color 0.2s",
+  },
+  coverAddText: { fontSize: "13px", fontWeight: 500 },
+  coverActions: { display: "flex", alignItems: "center", gap: "10px" },
+  changeCoverBtn: {
+    display: "inline-flex", alignItems: "center", gap: "4px",
+    padding: "8px 16px", borderRadius: "6px", border: "1px solid #e5e7eb",
+    background: "#ffffff", color: "#374151", fontSize: "13px",
+    cursor: "pointer", fontFamily: "inherit",
+  },
+  removeCoverBtn: {
+    display: "inline-flex", alignItems: "center", gap: "4px",
+    padding: "8px 16px", borderRadius: "6px", border: "1px solid #fecaca",
+    background: "#fef2f2", color: "#dc2626", fontSize: "13px",
+    cursor: "pointer", fontFamily: "inherit",
+  },
+
+  /* 详情 */
+  bioTab: { padding: "4px 0" },
+  bioTextarea: {
+    width: "100%", minHeight: "240px", boxSizing: "border-box",
+    padding: "12px", borderRadius: "8px",
+    border: "1px solid #e5e7eb", background: "#f9fafb",
+    fontSize: "13px", lineHeight: 1.7, color: "#1f2937",
+    fontFamily: "'Segoe UI', sans-serif", resize: "vertical",
+    outline: "none",
+  },
+
+  /* 流派 */
+  genresTab: {
+    display: "flex", flexDirection: "column", gap: "12px", padding: "4px 0",
+  },
+  genresHint: { fontSize: "12px", color: "#9ca3af" },
+  genresChips: {
+    display: "flex", flexWrap: "wrap", gap: "8px", minHeight: "28px",
+  },
+  genresEmpty: { fontSize: "13px", color: "#9ca3af" },
+  genreChip: {
+    display: "inline-flex", alignItems: "center", gap: "6px",
+    padding: "4px 10px 4px 12px", borderRadius: "14px",
+    background: "#f3f4f6", border: "1px solid #e5e7eb",
+    fontSize: "13px", color: "#374151",
+  },
+  genreChipText: { lineHeight: 1.4 },
+  genreChipRemove: {
+    border: "none", background: "transparent", cursor: "pointer",
+    color: "#9ca3af", fontSize: "15px", lineHeight: 1,
+    padding: "0 2px", fontFamily: "inherit",
+  },
+  genreAddRow: { display: "flex", gap: "8px" },
+  genreInput: {
+    flex: 1, padding: "8px 10px", borderRadius: "6px",
+    border: "1px solid #e5e7eb", fontSize: "13px", color: "#1f2937",
+    background: "#f9fafb", outline: "none", fontFamily: "inherit",
+  },
+  genreAddBtn: {
+    display: "inline-flex", alignItems: "center",
+    padding: "8px 16px", borderRadius: "6px", border: "none",
+    background: "#e94560", color: "#ffffff", fontSize: "13px",
+    fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+  },
+  genreResetBtn: {
+    alignSelf: "flex-start",
+    padding: "6px 14px", borderRadius: "6px",
+    border: "1px solid #e5e7eb", background: "#ffffff",
+    color: "#6b7280", fontSize: "12px", cursor: "pointer", fontFamily: "inherit",
+  },
+
+  /* 底部 */
+  footer: {
+    display: "flex", justifyContent: "flex-end", gap: "8px",
+    padding: "12px 24px", borderTop: "1px solid #e5e7eb",
+  },
+  cancelBtn: {
+    padding: "8px 16px", borderRadius: "6px", border: "1px solid #e5e7eb",
+    background: "#ffffff", color: "#374151", fontSize: "13px",
+    cursor: "pointer", fontFamily: "inherit",
+  },
+  saveBtn: {
+    padding: "8px 16px", borderRadius: "6px", border: "none",
+    background: "#e94560", color: "#ffffff", fontSize: "13px",
+    fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+  },
+};

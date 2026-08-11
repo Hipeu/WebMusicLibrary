@@ -139,6 +139,42 @@ export async function getMigrationStatus() {
   return res.json();
 }
 
+/** 获取艺人数据（data/artists.json） */
+export async function getArtists() {
+  const res = await fetch(`${BASE_URL}/api/artists`);
+  return res.json();
+}
+
+/** 保存单个艺人记录 { name, bio?, genres?, cover_url? } */
+export async function saveArtist(payload) {
+  const res = await fetch(`${BASE_URL}/api/artists`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return res.json();
+}
+
+/** 删除艺人记录及其封面 */
+export async function deleteArtist(name) {
+  const res = await fetch(`${BASE_URL}/api/artists/${encodeURIComponent(name)}`, {
+    method: "DELETE",
+  });
+  return res.json();
+}
+
+/** 上传艺人封面，返回 { status, cover_url } */
+export async function uploadArtistCover(name, file) {
+  const form = new FormData();
+  form.append("name", name);
+  form.append("file", file);
+  const res = await fetch(`${BASE_URL}/api/artists/cover`, {
+    method: "POST",
+    body: form,
+  });
+  return res.json();
+}
+
 export default {
   uploadMusic,
   getMusicList,
@@ -155,5 +191,9 @@ export default {
   getSettings,
   saveSettings,
   getMigrationStatus,
+  getArtists,
+  saveArtist,
+  deleteArtist,
+  uploadArtistCover,
   getAssetUrl,
 };

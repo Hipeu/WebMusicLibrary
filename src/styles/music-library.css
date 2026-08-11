@@ -19,6 +19,12 @@
 .album-card:active {
   transform: translateY(-2px);
 }
+/* 艺人详情页：专辑 / 新入库卡片不显示悬浮上浮效果 */
+.artist-detail-page .album-card:hover,
+.artist-detail-page .album-card:active {
+  transform: none;
+  box-shadow: none;
+}
 .ctrl-btn {
   background: #f3f4f6;
   transition: background 0.2s, transform 0.1s;
