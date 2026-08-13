@@ -1,13 +1,14 @@
 import { useState, useRef, useMemo } from "react";
-import { FaPen, FaImage, FaPlus, FaMusic } from "react-icons/fa";
-import { getAssetUrl, saveArtist, uploadArtistCover } from "../services/api";
+import { FaPen, FaImage, FaPlus, FaMusic, FaTrash } from "react-icons/fa";
+import { getAssetUrl, saveArtist, uploadArtistCover, deleteArtist } from "../services/api";
 
 /* ================================================================
    ✏️ ArtistEdit — 编辑艺人信息弹窗
    顶部：艺人头像 + 名称
    标签：艺人封面 / 艺人详情 / 流派
+   底部：无音乐时显示「移除空艺人」
    ================================================================ */
-export default function ArtistEdit({ artist, record, albums, onClose, onSaved }) {
+export default function ArtistEdit({ artist, record, albums, onClose, onSaved, onRemoved }) {
   // 自动抓取流派：该艺人所有歌曲的 genre 去重
   const autoGenres = useMemo(() => {
     const set = new Set();
@@ -29,7 +30,20 @@ export default function ArtistEdit({ artist, record, albums, onClose, onSaved })
     return autoGenres;
   });
   const [genreInput, setGenreInput] = useState("");
+  const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
   const coverInputRef = useRef(null);
+
+  const isEmpty = (albums || []).length === 0;
+
+  async function handleRemoveArtist() {
+    try {
+      await deleteArtist(artist);
+    } catch (err) {
+      console.warn("删除艺人失败:", err);
+    }
+    onRemoved?.(artist);
+    onClose?.();
+  }
 
   function displayUrl(u) {
     if (!u) return null;
@@ -225,9 +239,30 @@ export default function ArtistEdit({ artist, record, albums, onClose, onSaved })
 
         {/* 底部按钮 */}
         <div style={styles.footer}>
+          {isEmpty && (
+            <button style={styles.removeBtn} onClick={() => setShowRemoveConfirm(true)}>
+              <FaTrash size={12} style={{ marginRight: "5px" }} />
+              移除
+            </button>
+          )}
           <button style={styles.cancelBtn} onClick={onClose}>取消</button>
           <button style={styles.saveBtn} onClick={handleSave}>保存</button>
         </div>
+
+        {/* 移除空艺人确认窗 */}
+        {showRemoveConfirm && (
+          <div style={confirmStyles.overlay} onClick={() => setShowRemoveConfirm(false)}>
+            <div style={confirmStyles.box} onClick={(e) => e.stopPropagation()}>
+              <h3 style={confirmStyles.title}>移除空艺人</h3>
+              <div style={confirmStyles.divider} />
+              <p style={confirmStyles.text}>该操作会删除已编辑的艺人数据，此操作不可撤销</p>
+              <div style={confirmStyles.actions}>
+                <button style={confirmStyles.confirmBtn} onClick={handleRemoveArtist}>确认</button>
+                <button style={confirmStyles.cancelBtn} onClick={() => setShowRemoveConfirm(false)}>取消</button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -392,9 +427,53 @@ const styles = {
     background: "#ffffff", color: "#374151", fontSize: "13px",
     cursor: "pointer", fontFamily: "inherit",
   },
+  removeBtn: {
+    display: "inline-flex", alignItems: "center",
+    padding: "8px 16px", borderRadius: "6px", border: "1px solid #fecaca",
+    background: "#fef2f2", color: "#dc2626", fontSize: "13px",
+    cursor: "pointer", fontFamily: "inherit", marginRight: "auto",
+  },
   saveBtn: {
     padding: "8px 16px", borderRadius: "6px", border: "none",
     background: "#e94560", color: "#ffffff", fontSize: "13px",
     fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+  },
+};
+
+const confirmStyles = {
+  overlay: {
+    position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    zIndex: 1001, fontFamily: "'Segoe UI', sans-serif",
+  },
+  box: {
+    width: "420px", padding: "28px 30px 22px",
+    background: "#ffffff", borderRadius: "14px",
+    boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+    display: "flex", flexDirection: "column", alignItems: "stretch",
+  },
+  title: {
+    fontSize: "20px", fontWeight: 700, color: "#1f2937",
+    margin: "0", textAlign: "left",
+  },
+  divider: {
+    height: "1px", background: "#e5e7eb", margin: "14px 0 4px",
+  },
+  text: {
+    fontSize: "14px", lineHeight: 1.7, color: "#6b7280",
+    textAlign: "left", margin: "8px 0 22px",
+  },
+  actions: {
+    display: "flex", justifyContent: "flex-end", gap: "12px",
+  },
+  confirmBtn: {
+    padding: "8px 20px", borderRadius: "8px", border: "none",
+    background: "#e94560", color: "#ffffff", fontSize: "14px",
+    fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+  },
+  cancelBtn: {
+    padding: "8px 20px", borderRadius: "8px", border: "1px solid #d1d5db",
+    background: "#ffffff", color: "#374151", fontSize: "14px",
+    cursor: "pointer", fontFamily: "inherit",
   },
 };

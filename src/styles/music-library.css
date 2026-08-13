@@ -53,6 +53,16 @@
   from { opacity: 0; }
   to { opacity: 0.9; }
 }
+/* 右上角弹窗：从浏览器右侧滑入 */
+@keyframes slideInRight {
+  from { transform: translateX(120%); }
+  to { transform: translateX(0); }
+}
+/* 右上角弹窗：向右滑出（反向） */
+@keyframes slideOutRight {
+  from { transform: translateX(0); }
+  to { transform: translateX(120%); }
+}
 .mini-cover-hover:hover {
   transform: scale(1.08);
   box-shadow: 0 4px 16px rgba(233,69,96,0.4);

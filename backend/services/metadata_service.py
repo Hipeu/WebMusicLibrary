@@ -10,7 +10,7 @@ from mutagen.mp4 import MP4, MP4Cover
 from mutagen.wave import WAVE
 from mutagen.aiff import AIFF
 from mutagen.asf import ASF
-from mutagen.id3 import ID3, APIC, USLT, TIT2, TPE1, TPE2, TALB, TCON, TCOM, TEXT, TPUB, COMM, TDRC, TRCK
+from mutagen.id3 import ID3, APIC, USLT, TIT2, TPE1, TPE2, TALB, TCON, TCOM, TEXT, TPUB, COMM, TDRC, TRCK, TPOS
 
 
 def _first(val):
@@ -97,6 +97,33 @@ def _extract_track_mp4(tags):
     return None
 
 
+def _extract_disc_mp4(tags):
+    """MP4 碟号：disk 是 (disc, total) 元组列表"""
+    if not tags:
+        return None
+    try:
+        val = tags.get("disk")
+        if isinstance(val, list) and val:
+            d = val[0]
+            if isinstance(d, tuple) and d and d[0]:
+                return int(d[0])
+    except Exception:
+        pass
+    return None
+
+
+def _extract_disc_other(tags, is_id3):
+    """ID3 / Vorbis 碟号：TPOS / discnumber / disc"""
+    if is_id3:
+        raw = _get_id3(tags, "TPOS")
+    else:
+        raw = _get_vorbis(tags, "discnumber") or _get_vorbis(tags, "disc")
+    if not raw:
+        return None
+    m = re.match(r"(\d+)", str(raw))
+    return int(m.group(1)) if m else None
+
+
 def _extract_year_id3_or_vorbis(tags, is_id3):
     if is_id3:
         raw = _get_id3(tags, "TDRC") or _get_id3(tags, "TYER") or _get_id3(tags, "TDRL")
@@ -163,7 +190,7 @@ def _detect_and_extract(audio):
     meta = {
         "title": None, "artist": None, "album": None, "genre": None,
         "composer": None, "lyricist": None, "publisher": None, "comment": None,
-        "year": None, "trackNo": None, "album_artist": None,
+        "year": None, "trackNo": None, "discNo": None, "album_artist": None,
     }
 
     # 1. MP3 → ID3
@@ -180,6 +207,7 @@ def _detect_and_extract(audio):
         meta["comment"] = _get_id3(tags, "COMM")
         meta["year"] = _extract_year_id3_or_vorbis(tags, True)
         meta["trackNo"] = _extract_track_id3_or_vorbis(tags, True)
+        meta["discNo"] = _extract_disc_other(tags, True)
 
     # 2. M4A / MP4 → MP4Tags (iTunes atoms)
     elif isinstance(audio, MP4):
@@ -195,6 +223,7 @@ def _detect_and_extract(audio):
         meta["comment"] = _get_mp4(tags, "\xa9cmt")
         meta["year"] = _extract_year_mp4(tags)
         meta["trackNo"] = _extract_track_mp4(tags)
+        meta["discNo"] = _extract_disc_mp4(tags)
 
     # 3. FLAC / OGG (Vorbis comments)
     elif isinstance(audio, (FLAC, OggVorbis, OggOpus, OggFLAC)):
@@ -210,6 +239,7 @@ def _detect_and_extract(audio):
         meta["comment"] = _get_vorbis(tags, "comment")
         meta["year"] = _extract_year_id3_or_vorbis(tags, False)
         meta["trackNo"] = _extract_track_id3_or_vorbis(tags, False)
+        meta["discNo"] = _extract_disc_other(tags, False)
 
     # 4. WAV → INFO chunk
     elif isinstance(audio, WAVE):
@@ -237,6 +267,7 @@ def _detect_and_extract(audio):
         meta["comment"] = _get_id3(tags, "COMM")
         meta["year"] = _extract_year_id3_or_vorbis(tags, True)
         meta["trackNo"] = _extract_track_id3_or_vorbis(tags, True)
+        meta["discNo"] = _extract_disc_other(tags, True)
 
     # 6. WMA (ASF)
     elif isinstance(audio, ASF):
@@ -258,6 +289,11 @@ def _detect_and_extract(audio):
             m = re.match(r"(\d+)", raw_trk)
             if m:
                 meta["trackNo"] = int(m.group(1))
+        raw_disc = _get_asf(tags, "WM/PartOfSet")
+        if raw_disc:
+            m = re.match(r"(\d+)", raw_disc)
+            if m:
+                meta["discNo"] = int(m.group(1))
 
     return meta
 
@@ -271,7 +307,7 @@ def parse_metadata(file_path):
     """
     meta = {
         "title": None, "artist": None, "album": None, "album_artist": None,
-        "year": None, "genre": None, "trackNo": None,
+        "year": None, "genre": None, "trackNo": None, "discNo": None,
         "composer": None, "lyricist": None, "publisher": None,
         "comment": None, "duration": None, "bitrate": None,
         "codec": None, "lyrics": None, "cover_data": None, "cover_mime": None,
@@ -336,21 +372,21 @@ def parse_metadata(file_path):
 
 ID3_MAPPING = {
     "title": TIT2, "artist": TPE1, "album_artist": TPE2, "album": TALB, "genre": TCON,
-    "composer": TCOM, "lyricist": TEXT, "publisher": TPUB,
+    "composer": TCOM, "lyricist": TEXT, "publisher": TPUB, "discNo": TPOS,
 }
 
 VORBIS_MAPPING = {
     "title": "title", "artist": "artist", "album_artist": "albumartist",
     "album": "album", "genre": "genre",
     "composer": "composer", "lyricist": "lyricist", "publisher": "publisher",
-    "comment": "comment", "year": "date", "trackNo": "tracknumber",
+    "comment": "comment", "year": "date", "trackNo": "tracknumber", "discNo": "discnumber",
 }
 
 ASF_MAPPING = {
     "title": "Title", "artist": "Author", "album_artist": "WM/AlbumArtist",
     "album": "WM/AlbumTitle",
     "genre": "WM/Genre", "composer": "WM/Composer", "comment": "Description",
-    "year": "WM/Year", "trackNo": "WM/TrackNumber",
+    "year": "WM/Year", "trackNo": "WM/TrackNumber", "discNo": "WM/PartOfSet",
 }
 
 MP4_MAPPING = {
@@ -388,6 +424,11 @@ def _write_id3(audio, meta, cover_data, cover_mime, lyrics, clear_fields=None):
             pass
     elif meta.get("trackNo") is not None:
         _set_id3_frame(tags, TRCK, int(meta["trackNo"]))
+    if clear_fields and "discNo" in clear_fields:
+        try:
+            tags.delall("TPOS")
+        except Exception:
+            pass
     if clear_fields and "album_artist" in clear_fields:
         try:
             tags.delall("TPE2")
@@ -418,6 +459,12 @@ def _write_vorbis(audio, meta, cover_data, cover_mime, lyrics, clear_fields=None
             tags[vkey] = [str(meta[key])]
     if clear_fields and "trackNo" in clear_fields:
         for k in ("tracknumber", "track"):
+            try:
+                tags.pop(k, None)
+            except Exception:
+                pass
+    if clear_fields and "discNo" in clear_fields:
+        for k in ("discnumber", "disc"):
             try:
                 tags.pop(k, None)
             except Exception:
@@ -461,6 +508,17 @@ def _write_mp4(audio, meta, cover_data, cover_mime, lyrics, clear_fields=None):
         except Exception:
             total = 0
         tags["trkn"] = [(int(meta["trackNo"]), total)]
+    if clear_fields and "discNo" in clear_fields:
+        try:
+            tags.pop("disk", None)
+        except Exception:
+            pass
+    elif meta.get("discNo") is not None:
+        try:
+            total = tags["disk"][0][1]
+        except Exception:
+            total = 0
+        tags["disk"] = [(int(meta["discNo"]), total)]
     if clear_fields and "album_artist" in clear_fields:
         try:
             tags.pop("aART", None)
@@ -485,6 +543,11 @@ def _write_asf(audio, meta, cover_data, cover_mime, lyrics, clear_fields=None):
     if clear_fields and "trackNo" in clear_fields:
         try:
             del tags["WM/TrackNumber"]
+        except Exception:
+            pass
+    if clear_fields and "discNo" in clear_fields:
+        try:
+            del tags["WM/PartOfSet"]
         except Exception:
             pass
     if clear_fields and "album_artist" in clear_fields:

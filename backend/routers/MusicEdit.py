@@ -20,7 +20,8 @@ LYRICS_DIR = os.path.join(DATA_DIR, "Lyrics")
 METADATA_DIR = os.path.join(DATA_DIR, "metadata")
 
 TEXT_FIELDS = ("title", "artist", "album", "album_artist", "genre", "year", "trackNo",
-               "composer", "lyricist", "publisher", "comment")
+               "discNo", "composer", "lyricist", "publisher", "comment",
+               "arranger", "producer")
 
 COVER_EXT_MAP = {
     "image/jpeg": ".jpg", "image/jpg": ".jpg",
@@ -172,11 +173,15 @@ async def edit_music(
     genre: str = Form(None),
     year: str = Form(None),
     trackNo: str = Form(None),
+    discNo: str = Form(None),
     composer: str = Form(None),
     lyricist: str = Form(None),
     publisher: str = Form(None),
     comment: str = Form(None),
+    arranger: str = Form(None),
+    producer: str = Form(None),
     lyrics: str = Form(None),
+    matched: str = Form(None),
     cover: UploadFile = File(None),
 ):
     """编辑歌曲元信息：同时写入音频文件内部标签 + data 备份 JSON + manifest。
@@ -217,10 +222,27 @@ async def edit_music(
     provided = {"title": title, "artist": artist, "album": album,
                 "genre": genre, "year": year,
                 "composer": composer, "lyricist": lyricist,
-                "publisher": publisher, "comment": comment}
+                "publisher": publisher, "comment": comment,
+                "arranger": arranger, "producer": producer}
     for k, v in provided.items():
         if v is not None and str(v).strip() != "":
             cur[k] = v
+
+    # 碟号：显式传空串则清除为 None
+    if discNo is not None:
+        if str(discNo).strip() == "":
+            cur["discNo"] = None
+            clear_fields.add("discNo")
+        else:
+            try:
+                cur["discNo"] = int(discNo)
+            except Exception:
+                cur["discNo"] = None
+    elif cur.get("discNo") is not None and str(cur["discNo"]).strip() != "":
+        try:
+            cur["discNo"] = int(cur["discNo"])
+        except Exception:
+            cur["discNo"] = None
 
     # 专辑艺人：显式传空/空白串则清除为 None
     clear_fields = set()
@@ -314,16 +336,22 @@ async def edit_music(
         "year": cur.get("year"),
         "genre": cur.get("genre"),
         "trackNo": cur.get("trackNo"),
+        "discNo": cur.get("discNo"),
         "composer": cur.get("composer"),
         "lyricist": cur.get("lyricist"),
         "publisher": cur.get("publisher"),
         "comment": cur.get("comment"),
+        "arranger": cur.get("arranger"),
+        "producer": cur.get("producer"),
         "duration": cur.get("duration"),
         "bitrate": cur.get("bitrate"),
         "codec": cur.get("codec"),
         "cover_path": new_cover_rel,
         "modification_time": int(time.time() * 1000),
     }
+    # 匹配状态：本次匹配(1) 或 保留原有标记
+    new_matched = bool(matched == "1" or cur.get("matched") or entry.get("matched"))
+    json_data["matched"] = new_matched
     try:
         with open(os.path.join(meta_dir, f"{new_title}.json"), "w", encoding="utf-8") as f:
             json.dump(json_data, f, ensure_ascii=False, indent=2)
@@ -340,10 +368,13 @@ async def edit_music(
         "year": json_data["year"],
         "duration": json_data["duration"],
         "trackNo": json_data["trackNo"],
+        "discNo": json_data["discNo"],
         "composer": json_data["composer"],
         "lyricist": json_data["lyricist"],
         "publisher": json_data["publisher"],
         "comment": json_data["comment"],
+        "arranger": json_data["arranger"],
+        "producer": json_data["producer"],
         "bitrate": json_data["bitrate"],
         "codec": json_data["codec"],
         "file_path": new_rel,
@@ -351,6 +382,7 @@ async def edit_music(
         "metadata_path": f"metadata/{new_artist}/{new_album}/{new_title}.json",
         "lyrics_path": f"Lyrics/{new_artist}/{new_album}/{new_title}.lrc",
         "modification_time": json_data["modification_time"],
+        "matched": json_data["matched"],
     }
     del manifest[file_path]
     manifest[new_rel] = new_entry
@@ -366,10 +398,13 @@ async def edit_music(
             "genre": json_data["genre"],
             "year": json_data["year"],
             "trackNo": json_data["trackNo"],
+            "discNo": json_data["discNo"],
             "composer": json_data["composer"],
             "lyricist": json_data["lyricist"],
             "publisher": json_data["publisher"],
             "comment": json_data["comment"],
+            "arranger": json_data["arranger"],
+            "producer": json_data["producer"],
             "file_path": new_rel,
             "file_url": f"/library/{new_rel}",
             "cover_url": f"/data/{new_cover_rel}" if new_cover_rel else None,

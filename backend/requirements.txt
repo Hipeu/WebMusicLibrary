@@ -5,3 +5,4 @@ mutagen
 aiohttp
 thefuzz
 tenacity
+send2trash

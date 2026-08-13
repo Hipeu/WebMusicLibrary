@@ -1,18 +1,29 @@
 import { useState, useEffect, useRef } from "react";
-import { FaTimes, FaImage, FaMusic, FaPlus, FaClock, FaCodeBranch, FaCalendarAlt } from "react-icons/fa";
+import { FaTimes, FaImage, FaMusic, FaPlus, FaClock, FaCodeBranch, FaCalendarAlt, FaLink } from "react-icons/fa";
+import { matchSong, updateMusicMetadata } from "../services/api";
+import LyricImport from "../components/LyricImport";
 
 /* ================================================================
    ✏️ MusicEdit — 编辑音乐元信息弹窗
+   右上角「匹配」：歌曲匹配填入表单 / 专辑匹配逐首写回
    ================================================================ */
-export default function MusicEdit({ target, onClose, onSave }) {
+export default function MusicEdit({ target, onClose, onSave, onRefresh }) {
   const [form, setForm] = useState({});
   const [editCover, setEditCover] = useState(null);
   const [editCoverFile, setEditCoverFile] = useState(null);
   const [activeTab, setActiveTab] = useState("details");
+  const [matching, setMatching] = useState(false);
+  const [matchMsg, setMatchMsg] = useState("");
+  const [didMatch, setDidMatch] = useState(false);
+  const [lyricImportOpen, setLyricImportOpen] = useState(false);
   const coverInputRef = useRef(null);
-  const lrcInputRef = useRef(null);
   const isAlbum = target?.type === "album";
   const data = target?.data;
+  // 匹配状态：专辑 = 任一首已匹配；歌曲 = 自身已匹配
+  const albumMatched = isAlbum
+    ? (data?.songs || []).some((s) => s.matched)
+    : false;
+  const songMatched = isAlbum ? albumMatched : !!data?.matched;
 
   useEffect(() => {
     if (!target) return;
@@ -36,6 +47,7 @@ export default function MusicEdit({ target, onClose, onSave }) {
         year: data.year ?? "",
         genre: data.genre || "",
         trackNo: data.trackNo ?? "",
+        discNo: data.discNo ?? "",
         composer: data.composer || "",
         lyricist: data.lyricist || "",
         publisher: data.publisher || prefilledPublisher,
@@ -46,6 +58,94 @@ export default function MusicEdit({ target, onClose, onSave }) {
   }, [target]);
 
   if (!target) return null;
+
+  // 读取设置里的匹配配置（字段/源/歌词兜底）
+  function buildMatchConfig() {
+    const fieldKeys = ["title", "artist", "album", "year", "track_disc", "genre", "album_artist",
+                       "composer", "lyricist", "lyric", "publisher", "arranger", "producer"];
+    const sourceKeys = ["qq", "itunes", "musicbrainz"];
+    const fields = {};
+    fieldKeys.forEach((k) => { fields[k] = localStorage.getItem(`match-field-${k}`) !== "0"; });
+    const sources = {};
+    sourceKeys.forEach((k) => { sources[k] = localStorage.getItem(`match-source-${k}`) !== "0"; });
+    return {
+      sources,
+      fields,
+      lyric_credits_fallback: localStorage.getItem("match-lyric-fallback") === "1",
+    };
+  }
+
+  async function handleMatch() {
+    if (matching) return;
+    setMatching(true);
+    setMatchMsg("");
+    try {
+      const config = buildMatchConfig();
+      if (isAlbum) {
+        // 专辑：逐首匹配并直接写回（仅填空缺），完成后刷新
+        const songs = data.songs || [];
+        let doneCount = 0;
+        for (const song of songs) {
+          if (song.file_path) {
+            const res = await matchSong({ song_name: song.title, artist_name: song.artist, ...config });
+            if (res && !res.error) {
+              const payload = {};
+              if (res.composers?.length) payload.composer = res.composers.join(", ");
+              if (res.lyricists?.length) payload.lyricist = res.lyricists.join(", ");
+              if (res.album) payload.album = res.album;
+              if (res.album_artist) payload.album_artist = res.album_artist;
+              if (res.year) payload.year = res.year;
+              if (res.genre) payload.genre = res.genre;
+              if (res.trackNo != null) payload.trackNo = res.trackNo;
+              if (res.discNo != null) payload.discNo = res.discNo;
+              if (res.publisher) payload.publisher = res.publisher;
+              if (res.arranger) payload.arranger = res.arranger;
+              if (res.producer) payload.producer = res.producer;
+              if (res.lyric) payload.lyrics = res.lyric;
+              await updateMusicMetadata({ file_path: song.file_path, ...payload, matched: "1" });
+            }
+          }
+          doneCount++;
+          setMatchMsg(`正在匹配 ${doneCount}/${songs.length}`);
+        }
+        onRefresh?.();
+        setMatchMsg("专辑匹配完成，已写回音乐文件");
+      } else {
+        // 歌曲：匹配并填入表单（只填当前为空的字段）
+        const res = await matchSong({
+          song_name: form.title || data.title || "",
+          artist_name: form.artist || data.artist || "",
+          ...config,
+        });
+        if (res && res.error) {
+          setMatchMsg(res.error);
+          return;
+        }
+        setForm((prev) => {
+          const next = { ...prev };
+          if (!next.title && res.song_name) next.title = res.song_name;
+          if (!next.artist && res.artist) next.artist = res.artist;
+          if (!next.album && res.album) next.album = res.album;
+          if (!next.album_artist && res.album_artist) next.album_artist = res.album_artist;
+          if (!next.year && res.year) next.year = res.year;
+          if (!next.genre && res.genre) next.genre = res.genre;
+          if (!next.trackNo && res.trackNo != null) next.trackNo = res.trackNo;
+          if (!next.discNo && res.discNo != null) next.discNo = res.discNo;
+          if (!next.composer && res.composers?.length) next.composer = res.composers.join(", ");
+          if (!next.lyricist && res.lyricists?.length) next.lyricist = res.lyricists.join(", ");
+          if (!next.publisher && res.publisher) next.publisher = res.publisher;
+          if (!next.lyrics && res.lyric) next.lyrics = res.lyric;
+          return next;
+        });
+        setDidMatch(true);
+        setMatchMsg("匹配完成，请确认后保存");
+      }
+    } catch {
+      setMatchMsg("匹配失败，请确认后端与 QQ 服务已启动");
+    } finally {
+      setMatching(false);
+    }
+  }
 
   function handleChange(field, value) {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -61,22 +161,8 @@ export default function MusicEdit({ target, onClose, onSave }) {
   }
 
   // 导入 LRC / 歌词文件，填入歌词表单
-  function handleImportLrc(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      const text = evt.target?.result;
-      if (typeof text === "string") {
-        handleChange("lyrics", text);
-      }
-    };
-    reader.readAsText(file, "utf-8");
-    e.target.value = "";
-  }
-
   function handleSave() {
-    onSave?.(target, form, editCoverFile);
+    onSave?.(target, form, editCoverFile, didMatch);
     onClose();
   }
 
@@ -90,6 +176,13 @@ export default function MusicEdit({ target, onClose, onSave }) {
   return (
     <div style={styles.overlay}>
       <div style={styles.dialog} className="music-edit-dialog" onClick={(e) => e.stopPropagation()}>
+        {/* 右上角：单项匹配 */}
+        <button style={styles.matchBtn} onClick={handleMatch} disabled={matching} title="按设置中的字段与源进行匹配">
+          <FaLink size={13} style={{ marginRight: 6 }} />
+          {matching ? "匹配中…" : isAlbum ? "匹配专辑" : "匹配"}
+        </button>
+        {matchMsg && <p style={styles.matchMsg}>{matchMsg}</p>}
+
         {/* 上半部分：封面 + 标题 + 艺人 */}
         <div style={styles.topSection}>
           <div style={styles.topCover}>
@@ -177,9 +270,15 @@ export default function MusicEdit({ target, onClose, onSave }) {
                     <label style={styles.label}>流派</label>
                     <input style={styles.input} value={form.genre || ""} onChange={(e) => handleChange("genre", e.target.value)} />
                   </div>
-                  <div style={styles.field}>
-                    <label style={styles.label}>音轨号</label>
-                    <input style={styles.input} value={form.trackNo} onChange={(e) => handleChange("trackNo", e.target.value)} />
+                  <div style={styles.fieldRow}>
+                    <div style={styles.field}>
+                      <label style={styles.label}>音轨号</label>
+                      <input style={styles.input} value={form.trackNo} onChange={(e) => handleChange("trackNo", e.target.value)} />
+                    </div>
+                    <div style={styles.field}>
+                      <label style={styles.label}>碟号</label>
+                      <input style={styles.input} value={form.discNo} onChange={(e) => handleChange("discNo", e.target.value)} placeholder="留空清除" />
+                    </div>
                   </div>
                   <div style={styles.field}>
                     <label style={styles.label}>作曲</label>
@@ -264,6 +363,13 @@ export default function MusicEdit({ target, onClose, onSave }) {
                 </div>
               )}
               <div style={styles.typeRow}>
+                <span style={styles.typeIcon}><FaLink size={13} /></span>
+                <span style={styles.typeLabel}>匹配状态</span>
+                <span style={{ ...styles.typeValue, color: songMatched ? "#16a34a" : "#9ca3af" }}>
+                  {songMatched ? "已匹配" : "未匹配"}
+                </span>
+              </div>
+              <div style={styles.typeRow}>
                 <span style={styles.typeIcon}><FaCalendarAlt size={13} /></span>
                 <span style={styles.typeLabel}>添加时间</span>
                 <span style={styles.typeValue}>{formatTimestamp(data?.importTime)}</span>
@@ -281,16 +387,9 @@ export default function MusicEdit({ target, onClose, onSave }) {
           {activeTab === "lyrics" && !isAlbum && (
             <div style={styles.lyricsTab}>
               <div style={styles.lyricsToolbar}>
-                <button style={styles.importLrcBtn} onClick={() => lrcInputRef.current?.click()}>
+                <button style={styles.importLrcBtn} onClick={() => setLyricImportOpen(true)}>
                   📄 导入歌词
                 </button>
-                <input
-                  ref={lrcInputRef}
-                  type="file"
-                  accept=".lrc,text/plain"
-                  style={{ display: "none" }}
-                  onChange={handleImportLrc}
-                />
               </div>
               <textarea
                 style={styles.lyricsTextarea}
@@ -308,6 +407,16 @@ export default function MusicEdit({ target, onClose, onSave }) {
           <button style={styles.cancelBtn} onClick={onClose}>取消</button>
           <button style={styles.saveBtn} onClick={handleSave}>保存</button>
         </div>
+
+        {/* 歌词获取界面 */}
+        {lyricImportOpen && (
+          <LyricImport
+            song_name={form.title || data?.title || ""}
+            artist_name={form.artist || data?.artist || ""}
+            onUseLyric={(text) => handleChange("lyrics", text)}
+            onClose={() => setLyricImportOpen(false)}
+          />
+        )}
       </div>
     </div>
   );
@@ -350,10 +459,42 @@ const styles = {
     zIndex: 1000,
   },
   dialog: {
-    background: "#ffffff", borderRadius: "14px", width: "580px",
+    position: "relative",
+    background: "#ffffff", borderRadius: "14px", width: "640px",
     maxHeight: "85vh", display: "flex", flexDirection: "column",
     fontFamily: "'Segoe UI', sans-serif",
     boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+  },
+  matchBtn: {
+    position: "absolute",
+    top: "14px",
+    right: "14px",
+    zIndex: 10,
+    display: "inline-flex",
+    alignItems: "center",
+    padding: "7px 16px",
+    borderRadius: "16px",
+    border: "1px solid #e94560",
+    background: "#ffffff",
+    color: "#e94560",
+    fontSize: "13px",
+    fontWeight: 600,
+    cursor: "pointer",
+    fontFamily: "inherit",
+  },
+  matchMsg: {
+    position: "absolute",
+    top: "58px",
+    right: "14px",
+    zIndex: 10,
+    fontSize: "12px",
+    color: "#6b7280",
+    margin: 0,
+    background: "#ffffff",
+    padding: "4px 10px",
+    borderRadius: "8px",
+    border: "1px solid #f3f4f6",
+    boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
   },
 
   /* 上半部分 */
@@ -399,7 +540,8 @@ const styles = {
     flex: 1, overflowY: "auto", padding: "16px 24px", minHeight: "200px",
   },
   formFields: { display: "flex", flexDirection: "column", gap: "10px" },
-  field: { display: "flex", flexDirection: "column", gap: "4px" },
+  field: { display: "flex", flexDirection: "column", gap: "4px", flex: 1, minWidth: 0 },
+  fieldRow: { display: "flex", gap: "10px" },
   label: { fontSize: "12px", fontWeight: 600, color: "#6b7280" },
   input: {
     padding: "8px 10px", borderRadius: "6px", border: "1px solid #e5e7eb",
@@ -445,7 +587,7 @@ const styles = {
     cursor: "pointer", fontFamily: "inherit",
   },
   lyricsTextarea: {
-    minHeight: "220px",
+    minHeight: "300px",
     padding: "12px",
     borderRadius: "8px",
     border: "1px solid #e5e7eb",

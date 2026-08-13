@@ -1,12 +1,12 @@
 import { useState, useEffect } from "react";
 import { FaSlidersH, FaLink, FaTrashAlt, FaInfoCircle, FaTimes, FaPen } from "react-icons/fa";
-import { saveSettings, getMigrationStatus, matchAll, getMatchAllProgress, cancelMatchAll } from "../services/api";
+import { saveSettings, getMigrationStatus, matchAll, cancelMatchAll } from "../services/api";
 
 /* ================================================================
    ⚙️ Settings — 设置悬浮窗口
    左侧功能栏 + 右侧内容区
    ================================================================ */
-export default function Settings({ show, onClose, onReset, onSettingsSaved }) {
+export default function Settings({ show, onClose, onReset, onSettingsSaved, matchState, onOpenMatchDetail }) {
   const [active, setActive] = useState("appearance");
 
   if (!show) return null;
@@ -51,7 +51,7 @@ export default function Settings({ show, onClose, onReset, onSettingsSaved }) {
         <div style={styles.content}>
           {active === "appearance" && <AppearancePanel onSettingsSaved={onSettingsSaved} />}
           {active === "edit" && <EditPanel onSettingsSaved={onSettingsSaved} />}
-          {active === "match" && <MatchPanel />}
+          {active === "match" && <MatchPanel matchState={matchState} onOpenMatchDetail={onOpenMatchDetail} />}
           {active === "reset" && <ResetPanel onReset={onReset} />}
           {active === "about" && <AboutPanel />}
         </div>
@@ -160,11 +160,21 @@ function EditPanel({ onSettingsSaved }) {
   const [publisherCopyright, setPublisherCopyright] = useState(
     () => localStorage.getItem("edit-publisher-copyright") !== "false"
   );
+  const [deleteToTrash, setDeleteToTrash] = useState(
+    () => localStorage.getItem("delete-to-trash") === "1"
+  );
 
   function handleTogglePublisherCopyright() {
     const next = !publisherCopyright;
     setPublisherCopyright(next);
     localStorage.setItem("edit-publisher-copyright", String(next));
+    onSettingsSaved?.();
+  }
+
+  function handleToggleDeleteToTrash() {
+    const next = !deleteToTrash;
+    setDeleteToTrash(next);
+    localStorage.setItem("delete-to-trash", next ? "1" : "0");
     onSettingsSaved?.();
   }
 
@@ -193,34 +203,105 @@ function EditPanel({ onSettingsSaved }) {
           />
         </button>
       </div>
+      <div style={panelStyles.toggleRow}>
+        <div style={panelStyles.toggleText}>
+          <p style={panelStyles.toggleTitle}>将删除的音乐移动至回收站</p>
+          <p style={panelStyles.toggleDesc}>开启后，删除音乐文件时移入系统回收站而非永久删除；关闭则直接删除</p>
+        </div>
+        <button
+          style={{
+            ...panelStyles.toggleSwitch,
+            ...(deleteToTrash ? panelStyles.toggleSwitchOn : {}),
+          }}
+          onClick={handleToggleDeleteToTrash}
+          title={deleteToTrash ? "点击关闭" : "点击开启"}
+        >
+          <div
+            style={{
+              ...panelStyles.toggleKnob,
+              ...(deleteToTrash ? panelStyles.toggleKnobOn : {}),
+            }}
+          />
+        </button>
+      </div>
     </div>
   );
 }
 
 /* ================================================================
-   🎯 匹配设置面板 — QQ音乐 / iTunes / MusicBrainz 信息拉取配置
-   左侧：拉取配置开关；右侧：全部匹配功能（进度 + 结果日志）
+   🎯 匹配设置面板 — 元信息字段 / 匹配源 / 全部匹配配置
    ================================================================ */
-function MatchPanel() {
-  // 配置（localStorage 持久化）
-  const [matchSongEnabled, setMatchSongEnabled] = useState(
-    () => localStorage.getItem("match-song-enabled") !== "false"
+const MATCH_FIELDS = [
+  ["title", "标题"], ["artist", "艺术家"], ["album", "专辑"], ["year", "年份"],
+  ["track_disc", "音轨号/碟号"], ["genre", "风格（流派）"], ["album_artist", "专辑艺术家"],
+  ["composer", "作曲家"], ["lyricist", "作词家"], ["lyric", "歌词"],
+  ["publisher", "发布者"], ["arranger", "编曲"], ["producer", "制作人"],
+];
+const MATCH_SOURCES = [
+  ["qq", "QQ音乐"], ["itunes", "iTunes"], ["musicbrainz", "MusicBrainz"],
+];
+
+function MatchPanel({ matchState, onOpenMatchDetail }) {
+  // 元信息字段开关（localStorage 持久化，默认全开）
+  const [fields, setFields] = useState(() => {
+    const o = {};
+    MATCH_FIELDS.forEach(([k]) => { o[k] = localStorage.getItem(`match-field-${k}`) !== "0"; });
+    return o;
+  });
+  // 匹配源开关（localStorage 持久化，默认全开，可单一/混合）
+  const [sources, setSources] = useState(() => {
+    const o = {};
+    MATCH_SOURCES.forEach(([k]) => { o[k] = localStorage.getItem(`match-source-${k}`) !== "0"; });
+    return o;
+  });
+  const [skipMatched, setSkipMatched] = useState(
+    () => localStorage.getItem("match-skip-matched") !== "0"
+  );
+  const [lyricFallback, setLyricFallback] = useState(
+    () => localStorage.getItem("match-lyric-fallback") === "1"
   );
   const [matchArtistEnabled, setMatchArtistEnabled] = useState(
     () => localStorage.getItem("match-artist-enabled") !== "false"
   );
 
-  // 匹配状态
-  const [running, setRunning] = useState(false);
+  // 匹配状态由 Library 统一轮询驱动
+  const running = !!matchState?.running;
+  const progress = {
+    done: matchState?.done || 0,
+    total: matchState?.total || 0,
+    matched: matchState?.matched || 0,
+    failed: matchState?.failed || 0,
+    skipped: matchState?.skipped || 0,
+  };
   const [cancelling, setCancelling] = useState(false);
-  const [progress, setProgress] = useState({ done: 0, total: 0, matched: 0, failed: 0, skipped: 0 });
-  const [log, setLog] = useState([]);
   const [error, setError] = useState("");
 
-  function toggleSong() {
-    const next = !matchSongEnabled;
-    setMatchSongEnabled(next);
-    localStorage.setItem("match-song-enabled", String(next));
+  function toggleField(k) {
+    setFields((prev) => {
+      const next = { ...prev, [k]: !prev[k] };
+      localStorage.setItem(`match-field-${k}`, next[k] ? "1" : "0");
+      return next;
+    });
+  }
+
+  function toggleSource(k) {
+    setSources((prev) => {
+      const next = { ...prev, [k]: !prev[k] };
+      localStorage.setItem(`match-source-${k}`, next[k] ? "1" : "0");
+      return next;
+    });
+  }
+
+  function toggleSkipMatched() {
+    const next = !skipMatched;
+    setSkipMatched(next);
+    localStorage.setItem("match-skip-matched", next ? "1" : "0");
+  }
+
+  function toggleLyricFallback() {
+    const next = !lyricFallback;
+    setLyricFallback(next);
+    localStorage.setItem("match-lyric-fallback", next ? "1" : "0");
   }
 
   function toggleArtist() {
@@ -228,36 +309,6 @@ function MatchPanel() {
     setMatchArtistEnabled(next);
     localStorage.setItem("match-artist-enabled", String(next));
   }
-
-  // 轮询匹配进度
-  useEffect(() => {
-    if (!running) return;
-    const timer = setInterval(async () => {
-      try {
-        const res = await getMatchAllProgress();
-        setProgress({
-          done: res.done || 0,
-          total: res.total || 0,
-          matched: res.matched || 0,
-          failed: res.failed || 0,
-          skipped: res.skipped || 0,
-        });
-        if (res.log) setLog(res.log);
-        if (res.status === "done" || res.status === "error") {
-          setRunning(false);
-          setCancelling(false);
-          if (res.status === "error") {
-            setError(res.error || "匹配过程出现异常");
-          }
-        }
-      } catch {
-        setRunning(false);
-        setCancelling(false);
-        setError("获取匹配进度失败");
-      }
-    }, 600);
-    return () => clearInterval(timer);
-  }, [running]);
 
   async function handleCancelMatch() {
     if (!running) return;
@@ -273,32 +324,27 @@ function MatchPanel() {
   async function handleStartMatch() {
     if (running) return;
     setError("");
-    setProgress({ done: 0, total: 0, matched: 0, failed: 0, skipped: 0 });
-    setLog([]);
     try {
       const res = await matchAll({
-        match_song: matchSongEnabled,
+        match_song: true,
         match_artist: matchArtistEnabled,
+        sources,
+        fields,
+        skip_matched: skipMatched,
+        lyric_credits_fallback: lyricFallback,
       });
       if (res && res.status === "error") {
         setError(res.msg || "启动匹配失败");
         return;
       }
-      if (res && res.status === "done") {
-        // 无需匹配任何内容
-        setProgress({ done: 0, total: 0, matched: 0, failed: 0, skipped: 0 });
-        return;
-      }
-      setProgress({ done: 0, total: res.total || 0, matched: 0, failed: 0, skipped: 0 });
-      setRunning(true);
+      // 进行中/已完成状态由 Library 轮询驱动
     } catch {
       setError("启动匹配失败，请确认后端已启动");
     }
   }
 
   const pct = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
-
-  const logIcon = (kind) => (kind === "ok" ? "✓" : kind === "skip" ? "↷" : "✕");
+  const hasLog = (matchState?.log && matchState.log.length > 0) || progress.total > 0;
 
   return (
     <div style={matchStyles.container}>
@@ -307,25 +353,93 @@ function MatchPanel() {
 
       {/* 左侧：拉取配置 */}
       <div style={matchStyles.configBox}>
-        <p style={matchStyles.configTitle}>拉取配置</p>
+        <p style={matchStyles.configTitle}>匹配字段</p>
+        <div style={matchStyles.fieldGrid}>
+          {MATCH_FIELDS.map(([k, label]) => (
+            <div key={k} style={matchStyles.fieldChip}>
+              <button
+                style={{
+                  ...matchStyles.miniSwitch,
+                  ...(fields[k] ? matchStyles.miniSwitchOn : {}),
+                }}
+                onClick={() => toggleField(k)}
+                title={fields[k] ? "点击关闭" : "点击开启"}
+              >
+                <div
+                  style={{
+                    ...matchStyles.miniKnob,
+                    ...(fields[k] ? matchStyles.miniKnobOn : {}),
+                  }}
+                />
+              </button>
+              <span style={matchStyles.fieldChipLabel}>{label}</span>
+            </div>
+          ))}
+        </div>
+
+        <p style={{ ...matchStyles.configTitle, marginTop: "16px" }}>匹配源（可多选）</p>
+        <div style={matchStyles.sourceRow}>
+          {MATCH_SOURCES.map(([k, label]) => (
+            <button
+              key={k}
+              style={{
+                ...matchStyles.sourceChip,
+                ...(sources[k] ? matchStyles.sourceChipOn : {}),
+              }}
+              onClick={() => toggleSource(k)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* 右侧：全部匹配功能 */}
+      <div style={matchStyles.matchBox}>
+        <p style={matchStyles.configTitle}>全部匹配</p>
+        <p style={matchStyles.matchDesc}>
+          为资料库中缺少信息的歌曲补全所选字段，并为艺人补写真；文件内已存在的信息不会被覆盖
+        </p>
 
         <div style={matchStyles.toggleRow}>
           <div style={matchStyles.toggleText}>
-            <p style={matchStyles.toggleTitle}>匹配歌曲作曲 / 作词 / 编曲 / 制作人</p>
-            <p style={matchStyles.toggleDesc}>通过 QQ音乐歌词 + MusicBrainz 拉取每首歌的词曲作者信息，并补全专辑、年代、流派与封面</p>
+            <p style={matchStyles.toggleTitle}>跳过已匹配的音乐</p>
+            <p style={matchStyles.toggleDesc}>开启后，已匹配过的歌曲不再重复匹配；关闭则全量重匹配</p>
           </div>
           <button
             style={{
               ...panelStyles.toggleSwitch,
-              ...(matchSongEnabled ? panelStyles.toggleSwitchOn : {}),
+              ...(skipMatched ? panelStyles.toggleSwitchOn : {}),
             }}
-            onClick={toggleSong}
-            title={matchSongEnabled ? "点击关闭" : "点击开启"}
+            onClick={toggleSkipMatched}
+            title={skipMatched ? "点击关闭" : "点击开启"}
           >
             <div
               style={{
                 ...panelStyles.toggleKnob,
-                ...(matchSongEnabled ? panelStyles.toggleKnobOn : {}),
+                ...(skipMatched ? panelStyles.toggleKnobOn : {}),
+              }}
+            />
+          </button>
+        </div>
+
+        <div style={matchStyles.toggleRow}>
+          <div style={matchStyles.toggleText}>
+            <p style={matchStyles.toggleTitle}>通过歌词寻找作曲者、作词者和发布者信息</p>
+            <p style={matchStyles.toggleDesc}>如果多个源无法匹配到上述信息则尝试在歌词中寻找</p>
+          </div>
+          <button
+            style={{
+              ...panelStyles.toggleSwitch,
+              ...(lyricFallback ? panelStyles.toggleSwitchOn : {}),
+            }}
+            onClick={toggleLyricFallback}
+            title={lyricFallback ? "点击关闭" : "点击开启"}
+          >
+            <div
+              style={{
+                ...panelStyles.toggleKnob,
+                ...(lyricFallback ? panelStyles.toggleKnobOn : {}),
               }}
             />
           </button>
@@ -352,14 +466,6 @@ function MatchPanel() {
             />
           </button>
         </div>
-      </div>
-
-      {/* 右侧：全部匹配功能 */}
-      <div style={matchStyles.matchBox}>
-        <p style={matchStyles.configTitle}>全部匹配</p>
-        <p style={matchStyles.matchDesc}>
-          为资料库中缺少信息的歌曲批量补全词曲作者、专辑、年代、流派与封面，并为艺人补写真，自动写回音乐文件与资料库
-        </p>
 
         <div style={matchStyles.matchHeader}>
           <button style={matchStyles.startBtn} onClick={handleStartMatch} disabled={running}>
@@ -394,25 +500,12 @@ function MatchPanel() {
           </div>
         )}
 
-        {log.length > 0 && (
-          <div style={matchStyles.logBox}>
-            {log.map((item, i) => (
-              <div key={i} style={matchStyles.logItem}>
-                <span
-                  style={{
-                    ...matchStyles.logIcon,
-                    ...(item.kind === "ok"
-                      ? matchStyles.logIconOk
-                      : item.kind === "skip"
-                        ? matchStyles.logIconSkip
-                        : matchStyles.logIconFail),
-                  }}
-                >
-                  {logIcon(item.kind)}
-                </span>
-                <span style={matchStyles.logText}>{item.message}</span>
-              </div>
-            ))}
+        {hasLog && (
+          <div style={matchStyles.detailRow}>
+            <span style={matchStyles.detailHint}>查看本次匹配的详细结果</span>
+            <button style={matchStyles.detailBtn} onClick={onOpenMatchDetail}>
+              查看详情
+            </button>
           </div>
         )}
       </div>
@@ -1238,6 +1331,75 @@ const matchStyles = {
     background: "#fafafa",
     padding: "18px 20px",
   },
+  fieldGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(2, 1fr)",
+    gap: "8px 14px",
+  },
+  fieldChip: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    minWidth: 0,
+  },
+  fieldChipLabel: {
+    fontSize: "13px",
+    color: "#374151",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  miniSwitch: {
+    flexShrink: 0,
+    width: "34px",
+    height: "20px",
+    borderRadius: "10px",
+    border: "none",
+    background: "#d1d5db",
+    padding: "2px",
+    cursor: "pointer",
+    transition: "background 0.2s",
+    position: "relative",
+    fontFamily: "inherit",
+  },
+  miniSwitchOn: {
+    background: "#e94560",
+  },
+  miniKnob: {
+    width: "16px",
+    height: "16px",
+    borderRadius: "50%",
+    background: "#ffffff",
+    boxShadow: "0 1px 3px rgba(0,0,0,0.25)",
+    transition: "transform 0.2s",
+    position: "absolute",
+    top: "2px",
+    left: "2px",
+  },
+  miniKnobOn: {
+    transform: "translateX(14px)",
+  },
+  sourceRow: {
+    display: "flex",
+    gap: "8px",
+    flexWrap: "wrap",
+  },
+  sourceChip: {
+    padding: "6px 16px",
+    borderRadius: "16px",
+    border: "1px solid #d1d5db",
+    background: "#ffffff",
+    color: "#6b7280",
+    fontSize: "13px",
+    cursor: "pointer",
+    fontFamily: "inherit",
+    transition: "all 0.15s",
+  },
+  sourceChipOn: {
+    background: "#e94560",
+    borderColor: "#e94560",
+    color: "#ffffff",
+  },
   configTitle: {
     fontSize: "14px",
     fontWeight: 600,
@@ -1316,6 +1478,33 @@ const matchStyles = {
     background: "#e94560",
     color: "#ffffff",
     fontSize: "14px",
+    fontWeight: 600,
+    cursor: "pointer",
+    fontFamily: "inherit",
+  },
+  detailRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "12px",
+    marginTop: "14px",
+    padding: "12px 16px",
+    borderRadius: "10px",
+    border: "1px solid #f3f4f6",
+    background: "#fafafa",
+  },
+  detailHint: {
+    fontSize: "13px",
+    color: "#6b7280",
+  },
+  detailBtn: {
+    flexShrink: 0,
+    padding: "7px 18px",
+    borderRadius: "18px",
+    border: "1px solid #e94560",
+    background: "#ffffff",
+    color: "#e94560",
+    fontSize: "13px",
     fontWeight: 600,
     cursor: "pointer",
     fontFamily: "inherit",

@@ -20,6 +20,7 @@ PROJECT_ROOT = os.path.dirname(BACKEND_DIR)
 DATA_DIR = os.path.join(PROJECT_ROOT, "data")
 METADATA_DIR = os.path.join(DATA_DIR, "metadata")
 PICTURE_DIR = os.path.join(DATA_DIR, "picture")
+LYRICS_DIR = os.path.join(DATA_DIR, "Lyrics")
 ARTISTS_IMG_DIR = os.path.join(DATA_DIR, "artists_img")
 
 # 全部匹配进度（后台线程更新）
@@ -60,13 +61,37 @@ def _log(kind, message):
 
 @router.post("/song")
 async def match_song(payload: dict = Body(...)):
-    """按 歌名+艺人 匹配：QQ音乐（主）→ iTunes（兜底）→ MusicBrainz（作曲/作词）"""
+    """按 歌名+艺人 匹配：QQ音乐（主）→ iTunes（兜底）→ MusicBrainz（作曲/作词）
+
+    config: {sources:{qq,itunes,musicbrainz}, fields:{...}, lyric_credits_fallback}
+    """
     song_name = (payload.get("song_name") or "").strip()
     artist_name = (payload.get("artist_name") or "").strip()
     if not song_name or not artist_name:
         return {"error": "缺少 song_name 或 artist_name"}
     matcher = MusicMatcher()
-    return await matcher.match_song(song_name, artist_name)
+    return await matcher.match_song(
+        song_name, artist_name,
+        sources=payload.get("sources"),
+        fields=payload.get("fields"),
+        lyric_credits_fallback=bool(payload.get("lyric_credits_fallback")),
+    )
+
+
+@router.post("/lyric")
+async def match_lyric(payload: dict = Body(...)):
+    """在线歌词多源匹配：返回 [{source, source_label, song_name, artist, album, lyric}]"""
+    song_name = (payload.get("song_name") or "").strip()
+    artist_name = (payload.get("artist_name") or "").strip()
+    if not song_name or not artist_name:
+        return {"error": "缺少 song_name 或 artist_name"}
+    matcher = MusicMatcher()
+    return {
+        "status": "ok",
+        "results": await matcher.match_lyric_standalone(
+            song_name, artist_name, sources=payload.get("sources")
+        ),
+    }
 
 
 @router.post("/artist")
@@ -89,8 +114,8 @@ COVER_EXT_MAP = {
 }
 
 
-def _update_entry_meta(artist, album, title_base, fields):
-    """更新 data/metadata/{artist}/{album}/{title}.json（只覆盖非空字段）"""
+def _update_entry_meta(artist, album, title_base, fields, force=False):
+    """更新 data/metadata/{artist}/{album}/{title}.json（force=True 时覆盖已有字段）"""
     meta_dir = os.path.join(METADATA_DIR, artist, album)
     path = os.path.join(meta_dir, f"{title_base}.json")
     m = {}
@@ -102,7 +127,7 @@ def _update_entry_meta(artist, album, title_base, fields):
             m = {}
     changed = False
     for k, v in fields.items():
-        if v and not m.get(k):
+        if v and (force or not m.get(k)):
             m[k] = v
             changed = True
     if not changed:
@@ -115,40 +140,62 @@ def _update_entry_meta(artist, album, title_base, fields):
         pass
 
 
-def _update_manifest(file_path, fields):
-    """更新 manifest 中该歌曲条目（只覆盖非空字段）"""
+def _update_manifest(file_path, fields, force=False):
+    """更新 manifest 中该歌曲条目（force=True 时覆盖已有字段）"""
     manifest = load_manifest()
     if file_path not in manifest:
         return
     changed = False
     for k, v in fields.items():
-        if v and not manifest[file_path].get(k):
+        if v and (force or not manifest[file_path].get(k)):
             manifest[file_path][k] = v
             changed = True
     if changed:
         save_manifest(manifest)
 
 
-def _save_cover_file(artist, album, cover_data, cover_mime):
-    """保存封面到 data/picture/{artist}/{album}/cover.{ext}，返回相对路径"""
+def _save_cover_file(artist, album, title_base, cover_data, cover_mime):
+    """保存单曲封面到 data/picture/{artist}/{album}/cover_{title}.{ext}，返回相对路径"""
     if not cover_data:
         return None
     ext = COVER_EXT_MAP.get(cover_mime, ".jpg")
     dest_dir = os.path.join(PICTURE_DIR, artist, album)
+    fname = f"cover_{title_base}{ext}"
     try:
         os.makedirs(dest_dir, exist_ok=True)
-        for f in os.listdir(dest_dir):
-            if f.startswith("cover"):
-                os.remove(os.path.join(dest_dir, f))
-        with open(os.path.join(dest_dir, f"cover{ext}"), "wb") as f:
+        with open(os.path.join(dest_dir, fname), "wb") as f:
             f.write(cover_data)
-        return f"picture/{artist}/{album}/cover{ext}"
+        return f"picture/{artist}/{album}/{fname}"
     except Exception:
         return None
 
 
-def _write_song_metadata(file_path, entry, result, cover_data, cover_mime):
-    """将 QQ/iTunes/MusicBrainz 匹配到的信息写回文件标签 + data 备份 + manifest（只填空缺）"""
+def _save_lyric_file(artist, album, title_base, text):
+    """保存歌词到 data/Lyrics/{artist}/{album}/{title}.lrc，返回相对路径"""
+    if not text:
+        return None
+    dest_dir = os.path.join(LYRICS_DIR, artist, album)
+    try:
+        os.makedirs(dest_dir, exist_ok=True)
+        with open(os.path.join(dest_dir, f"{title_base}.lrc"), "w", encoding="utf-8") as f:
+            f.write(text)
+        return f"Lyrics/{artist}/{album}/{title_base}.lrc"
+    except Exception:
+        return None
+
+
+def _write_song_metadata(file_path, entry, result, cover_data, cover_mime, lyric_text=None, fields=None):
+    """将匹配到的信息写回文件标签 + data 备份 + manifest（只填空缺，尊重 fields 开关）。
+
+    文件内已存在的信息不参与匹配（只写缺失字段）；成功写回后打 matched 标记。
+    """
+    all_fields = {"title", "artist", "album", "year", "track_disc", "genre", "album_artist",
+                  "composer", "lyricist", "lyric", "publisher", "arranger", "producer"}
+    fields = fields or {k: True for k in all_fields}
+
+    def _f(k):
+        return bool(fields.get(k, True))
+
     abs_path = os.path.join(get_library_path(), file_path)
     if not os.path.exists(abs_path):
         return False, "音乐文件不存在"
@@ -159,54 +206,107 @@ def _write_song_metadata(file_path, entry, result, cover_data, cover_mime):
 
     composer = ", ".join(result.get("composers") or []) or None
     lyricist = ", ".join(result.get("lyricists") or []) or None
-    arranger = result.get("arranger")
-    producer = result.get("producer")
-    year = result.get("year")
-    genre = result.get("genre")
-    album_name = result.get("album")
+    arranger = result.get("arranger") if _f("arranger") else None
+    producer = result.get("producer") if _f("producer") else None
+    year = result.get("year") if _f("year") else None
+    genre = result.get("genre") if _f("genre") else None
+    album_name = result.get("album") if _f("album") else None
+    album_artist = result.get("album_artist") if _f("album_artist") else None
+    track_no = result.get("trackNo") if _f("track_disc") else None
+    disc_no = result.get("discNo") if _f("track_disc") else None
+    title = result.get("song_name") if _f("title") else None
+    artist_name = result.get("artist") if _f("artist") else None
+    publisher = result.get("publisher") if _f("publisher") else None
 
     # 只写入缺失字段
     tag_meta = {}
-    if not entry.get("composer") and composer:
+    if _f("title") and not entry.get("title") and title:
+        tag_meta["title"] = title
+    if _f("artist") and not entry.get("artist") and artist_name:
+        tag_meta["artist"] = artist_name
+    if _f("composer") and not entry.get("composer") and composer:
         tag_meta["composer"] = composer
-    if not entry.get("lyricist") and lyricist:
+    if _f("lyricist") and not entry.get("lyricist") and lyricist:
         tag_meta["lyricist"] = lyricist
-    if not entry.get("album") and album_name:
+    if _f("album") and not entry.get("album") and album_name:
         tag_meta["album"] = album_name
-    if not entry.get("year") and year:
+    if _f("album_artist") and not entry.get("album_artist") and album_artist:
+        tag_meta["album_artist"] = album_artist
+    if _f("year") and not entry.get("year") and year:
         tag_meta["year"] = year
-    if not entry.get("genre") and genre:
+    if _f("genre") and not entry.get("genre") and genre:
         tag_meta["genre"] = genre
+    if _f("track_disc") and not entry.get("trackNo") and track_no is not None:
+        tag_meta["trackNo"] = int(track_no)
+    if _f("track_disc") and not entry.get("discNo") and disc_no is not None:
+        tag_meta["discNo"] = int(disc_no)
+    if _f("publisher") and not entry.get("publisher") and publisher:
+        tag_meta["publisher"] = publisher
 
-    has_new_fields = bool(tag_meta) or (not entry.get("composer") and composer) or (
-        not entry.get("lyricist") and lyricist
-    ) or (arranger and not entry.get("arranger")) or (producer and not entry.get("producer"))
+    # 歌词：仅当字段启用 且 歌曲原本无歌词文件时写回
+    def _lyric_file_exists():
+        lp = entry.get("lyrics_path")
+        if lp and os.path.exists(os.path.join(DATA_DIR, lp)):
+            return True
+        return os.path.exists(os.path.join(LYRICS_DIR, artist, album, f"{title_base}.lrc"))
+
+    has_lyric = bool(lyric_text) and _f("lyric") and not _lyric_file_exists()
+
+    has_new_fields = (
+        bool(tag_meta)
+        or (arranger and not entry.get("arranger"))
+        or (producer and not entry.get("producer"))
+        or has_lyric
+    )
 
     if not has_new_fields and not cover_data:
         return False, "没有需要写入的信息"
 
-    # 1. 写入文件内部标签
-    if tag_meta:
+    # 1. 写入文件内部标签（含封面与歌词）
+    if tag_meta or cover_data or has_lyric:
         try:
-            write_metadata(abs_path, tag_meta, cover_data=cover_data, cover_mime=cover_mime)
+            write_metadata(
+                abs_path, tag_meta,
+                cover_data=cover_data, cover_mime=cover_mime,
+                lyrics=lyric_text if has_lyric else None,
+            )
         except Exception:
             return False, "写入文件标签失败"
 
-    # 2. 封面文件保存到 data/picture
+    # 2. 封面（每首独立文件）保存到 data/picture
     cover_path = None
     if cover_data:
-        cover_path = _save_cover_file(artist, album, cover_data, cover_mime)
+        cover_path = _save_cover_file(artist, album, title_base, cover_data, cover_mime)
 
-    # 3. data/metadata JSON + manifest（作曲/作词/编曲/制作人/年代/流派/封面）
+    # 3. 歌词保存到 data/Lyrics
+    lyrics_path = None
+    if has_lyric:
+        lyrics_path = _save_lyric_file(artist, album, title_base, lyric_text)
+
+    # 4. data/metadata JSON + manifest
     json_fields = {
         "composer": composer, "lyricist": lyricist,
         "arranger": arranger, "producer": producer,
         "year": year, "genre": genre,
+        "album_artist": album_artist,
+        "trackNo": track_no, "discNo": disc_no,
+        "publisher": publisher,
     }
-    if cover_path:
-        json_fields["cover_path"] = cover_path
+    if _f("title") and title:
+        json_fields["title"] = title
+    if _f("artist") and artist_name:
+        json_fields["artist"] = artist_name
     _update_entry_meta(artist, album, title_base, json_fields)
     _update_manifest(file_path, json_fields)
+    # 封面 / 歌词 / 匹配标记：强制覆盖
+    if cover_path:
+        _update_entry_meta(artist, album, title_base, {"cover_path": cover_path}, force=True)
+        _update_manifest(file_path, {"cover_path": cover_path}, force=True)
+    if lyrics_path:
+        _update_entry_meta(artist, album, title_base, {"lyrics_path": lyrics_path}, force=True)
+        _update_manifest(file_path, {"lyrics_path": lyrics_path}, force=True)
+    _update_entry_meta(artist, album, title_base, {"matched": True}, force=True)
+    _update_manifest(file_path, {"matched": True}, force=True)
     return True, None
 
 
@@ -239,8 +339,9 @@ def _write_artist_avatar(name, cover_data, cover_mime):
 # 全部匹配（后台线程 + 进度轮询）
 # ================================================================
 
-async def _match_all_async(matcher, songs, artist_list):
+async def _match_all_async(matcher, songs, artist_list, config=None):
     """核心协程：遍历歌曲 → 匹配写回；遍历艺人 → 写真写回"""
+    config = config or {}
     async with aiohttp.ClientSession(timeout=matcher._timeout) as session:
         done = 0
         cancelled = False
@@ -254,7 +355,10 @@ async def _match_all_async(matcher, songs, artist_list):
             _match_state["current"] = f"歌曲：{entry.get('title')} - {entry.get('artist')}"
             try:
                 result = await matcher.get_song_metadata(
-                    session, entry.get("title"), entry.get("artist")
+                    session, entry.get("title"), entry.get("artist"),
+                    sources=config.get("sources"),
+                    fields=config.get("fields"),
+                    lyric_credits_fallback=bool(config.get("lyric_credits_fallback")),
                 )
             except Exception as e:
                 _match_state["failed"] += 1
@@ -272,7 +376,8 @@ async def _match_all_async(matcher, songs, artist_list):
 
             cover_data, cover_mime = await matcher.download_image(session, result.get("cover_url"))
             ok, err = await asyncio.to_thread(
-                _write_song_metadata, file_path, entry, result, cover_data, cover_mime
+                _write_song_metadata, file_path, entry, result, cover_data, cover_mime,
+                result.get("lyric"), config.get("fields"),
             )
             if ok:
                 composers = ", ".join(result.get("composers") or []) or "—"
@@ -286,8 +391,14 @@ async def _match_all_async(matcher, songs, artist_list):
                     extra.append(f"{result['year']}年")
                 if result.get("genre"):
                     extra.append(result["genre"])
+                if result.get("trackNo") is not None:
+                    extra.append(f"音轨 {result['trackNo']}")
+                if result.get("discNo") is not None:
+                    extra.append(f"碟 {result['discNo']}")
                 if result.get("cover_url") and cover_data:
                     extra.append("封面")
+                if result.get("lyric"):
+                    extra.append("歌词")
                 source_label = SOURCE_LABELS.get(result.get("source")) or "未知"
                 _match_state["matched"] += 1
                 _log("ok", f"歌曲 {result.get('song_name') or entry.get('title')} 通过 {source_label} 匹配成功：作曲 {composers} / 作词 {lyricists}"
@@ -333,10 +444,10 @@ async def _match_all_async(matcher, songs, artist_list):
         _match_state["current"] = None
 
 
-def _match_all_worker(matcher, songs, artist_list):
+def _match_all_worker(matcher, songs, artist_list, config):
     try:
         _reset_state(len(songs) + len(artist_list))
-        asyncio.run(_match_all_async(matcher, songs, artist_list))
+        asyncio.run(_match_all_async(matcher, songs, artist_list, config))
     except Exception as e:
         _match_state["error"] = str(e)
         _log("error", f"全部匹配异常：{e}")
@@ -348,8 +459,8 @@ def _match_all_worker(matcher, songs, artist_list):
 
 @router.post("/all")
 def match_all(payload: dict = Body(...)):
-    """遍历资料库：为缺少作曲/作词/年代/流派/封面的歌曲补全信息并写回，
-    为缺少封面的艺人补写真。立即返回，前端通过 /api/match/all/progress 轮询。
+    """遍历资料库：为缺少信息的歌曲补全并写回，为缺少封面的艺人补写真。
+    立即返回，前端通过 /api/match/all/progress 轮询。
     """
     if _match_state["running"]:
         return {"status": "error", "msg": "已有匹配任务进行中"}
@@ -357,6 +468,10 @@ def match_all(payload: dict = Body(...)):
     config = {
         "match_song": payload.get("match_song", True),
         "match_artist": payload.get("match_artist", True),
+        "sources": payload.get("sources"),
+        "fields": payload.get("fields"),
+        "skip_matched": payload.get("skip_matched", True),
+        "lyric_credits_fallback": bool(payload.get("lyric_credits_fallback")),
     }
 
     # 1. 收集需要匹配的歌曲
@@ -367,14 +482,11 @@ def match_all(payload: dict = Body(...)):
         artist = entry.get("artist")
         if not title or not artist:
             continue
-        if config["match_song"]:
-            needs = (
-                not entry.get("composer") or not entry.get("lyricist")
-                or not entry.get("year") or not entry.get("genre")
-                or not entry.get("cover_path")
-            )
-            if not needs:
-                continue
+        if not config["match_song"]:
+            continue
+        # 跳过已匹配的音乐（开关开启时）
+        if config["skip_matched"] and entry.get("matched"):
+            continue
         songs.append((file_path, entry))
 
     # 2. 收集需要写真且无封面的艺人
@@ -399,7 +511,7 @@ def match_all(payload: dict = Body(...)):
 
     matcher = MusicMatcher()
     t = threading.Thread(
-        target=_match_all_worker, args=(matcher, songs, artist_list), daemon=True
+        target=_match_all_worker, args=(matcher, songs, artist_list, config), daemon=True
     )
     t.start()
 

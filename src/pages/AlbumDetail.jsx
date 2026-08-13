@@ -3,6 +3,7 @@ import { FaPlay, FaPause, FaArrowLeft, FaEllipsisH, FaHeart, FaStepForward, FaCl
 import PlayingAnimation from "../components/PlayingAnimation";
 import useCoverColor from "../components/CoverColor";
 import { songPlayable } from "../utils/formatCheck";
+import { getAssetUrl } from "../services/api";
 
 /* ================================================================
    📀 AlbumDetail — 专辑详情页
@@ -26,6 +27,7 @@ export default function AlbumDetail({
   onDeleteSong,
   missingSongs,
   onMissingSongClick,
+  artistRecords,
 }) {
   const [menuSongIdx, setMenuSongIdx] = useState(null);
   const [panelSong, setPanelSong] = useState(null);
@@ -38,6 +40,11 @@ export default function AlbumDetail({
 
     const yearText = album.year ? `${album.year}` : "未知年份";
   const genreText = album.genre || null;
+
+  // 艺人头像：仅当匹配到艺人封面时显示
+  const artistAvatarUrl = artistRecords?.[album.artist]?.cover_url
+    ? getAssetUrl(artistRecords[album.artist].cover_url)
+    : null;
 
   // 从封面提取动态主题色（用于封面光晕）
   const themeSwatch = palette?.Vibrant || palette?.Muted || palette?.DarkVibrant || palette?.LightVibrant || null;
@@ -86,6 +93,9 @@ export default function AlbumDetail({
         <div style={styles.infoColumn}>
           <h1 style={styles.albumTitle}>{album.title}</h1>
           <p style={styles.albumArtist}>
+            {artistAvatarUrl && (
+              <img src={artistAvatarUrl} alt="" style={styles.artistAvatar} onError={(e) => { e.currentTarget.style.display = "none"; }} />
+            )}
             {onOpenArtist ? (
               <span
                 style={styles.artistLink}
@@ -106,7 +116,16 @@ export default function AlbumDetail({
             {genreText && <><span style={styles.yearGenreSep}>·</span><span style={styles.albumGenre}>{genreText}</span></>}
           </p>
                     <div style={styles.actionRow}>
-                      <button style={styles.playButton} onClick={onPlayAlbum}>
+                      <button
+                        style={{
+                          ...styles.playButton,
+                          ...(themeColor ? {
+                            background: themeColor,
+                            boxShadow: `0 6px 20px ${themeColor}55`,
+                          } : {}),
+                        }}
+                        onClick={onPlayAlbum}
+                      >
                         {isPlaying ? (
                           <FaPause size={16} /> 
                         ) : (
@@ -154,16 +173,22 @@ export default function AlbumDetail({
       <div style={styles.bottomSection} className="album-bottom">
         <div style={styles.songList}>
           {(() => {
-            // 按音轨号排序，无音轨号排最后
+            // 按碟号 + 音轨号排序（无碟号视为第 1 碟，无音轨号排最后）
             const sorted = album.songs
               .map((s, i) => ({ song: s, originalIndex: i }))
               .sort((a, b) => {
+                const da = a.song.discNo ?? 1;
+                const db = b.song.discNo ?? 1;
+                if (da !== db) return da - db;
                 const ta = a.song.trackNo ?? 9999;
                 const tb = b.song.trackNo ?? 9999;
                 return ta - tb;
               });
             const likedUrls = (playlists || []).find((p) => p.id === "liked")?.songs?.map((s) => s.url) || [];
-            return sorted.map(({ song, originalIndex }) => {
+            const discs = [...new Set(sorted.map(({ song }) => song.discNo ?? 1))].sort((a, b) => a - b);
+            const multiDisc = discs.length > 1;
+            const displayNumber = (song, fallbackIdx) => (song.trackNo != null ? song.trackNo : fallbackIdx);
+            const renderSong = ({ song, originalIndex }, displayIndex) => {
               const isActive = originalIndex === currentSongIndex;
               const isMenuOpen = menuSongIdx === originalIndex;
               const isLiked = likedUrls.includes(song.url);
@@ -197,7 +222,7 @@ export default function AlbumDetail({
                         <span style={{ width: "12px", flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
                           {isLiked && <FaHeart size={10} style={{ color: "#e94560", flexShrink: 0 }} />}
                         </span>
-                        {String(song.trackNo != null ? song.trackNo : originalIndex + 1).padStart(2, "0")}
+                        {String(displayIndex).padStart(2, "0")}
                       </span>
                     )}
                   </span>
@@ -288,7 +313,21 @@ export default function AlbumDetail({
                 </div>
               </div>
             );
-          })})()}
+            };
+            if (!multiDisc) {
+              // 单碟（或无碟信息）：保持原有展示
+              return sorted.map((item) => renderSong(item, displayNumber(item.song, item.originalIndex + 1)));
+            }
+            // 多碟：按碟分组展示
+            return discs.map((disc) => (
+              <div key={disc} style={styles.discGroup}>
+                <div style={styles.discHeader}>Disc {String(disc).padStart(2, "0")}</div>
+                {sorted
+                  .filter(({ song }) => (song.discNo ?? 1) === disc)
+                  .map((item, i) => renderSong(item, displayNumber(item.song, i + 1)))}
+              </div>
+            ));
+          })()}
           <div style={styles.songListHeader}>
             <div style={styles.dividerLine} />
             <div style={styles.songMetaRow}>
@@ -468,6 +507,12 @@ infoColumn: {
   },
     albumArtist: {
     fontSize: "18px", color: "#6b7280", margin: 0, fontWeight: 400,
+    display: "flex", alignItems: "center", gap: "8px",
+  },
+  artistAvatar: {
+    width: "28px", height: "28px", borderRadius: "50%",
+    objectFit: "cover", flexShrink: 0,
+    border: "1px solid #e5e7eb",
   },
   artistLink: {
     color: "#e94560",
@@ -595,6 +640,19 @@ infoColumn: {
   songItemActive: {
     background: "rgba(233,69,96,0.12)",
     border: "1px solid rgba(233,69,96,0.25)",
+  },
+  discGroup: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "2px",
+  },
+  discHeader: {
+    fontSize: "14px",
+    fontWeight: 600,
+    color: "#6b7280",
+    letterSpacing: "1px",
+    margin: "14px 0 6px",
+    paddingLeft: "6px",
   },
   songIndex: {
     fontSize: "13px", color: "#6b7280",

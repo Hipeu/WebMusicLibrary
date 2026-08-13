@@ -5,10 +5,38 @@ import re
 import hashlib
 import subprocess
 import sys
+import logging
 from fastapi import APIRouter, UploadFile, File, Body
 from pydantic import BaseModel
 from services.metadata_service import parse_metadata
 from services.library_config import get_library_path
+
+logger = logging.getLogger("musicload")
+
+
+def _send_to_trash(path):
+    """移入系统回收站；失败返回 False（不永久删除兜底，避免数据丢失）"""
+    try:
+        import send2trash
+        send2trash.send2trash(path)
+        return True
+    except Exception as e:
+        logger.error("移入回收站失败 %s: %s", path, e)
+        return False
+
+
+def _remove_file(path, to_trash):
+    """按开关删除文件：回收站或永久删除；返回是否成功"""
+    if not os.path.exists(path):
+        return True
+    try:
+        if to_trash:
+            return _send_to_trash(path)
+        os.remove(path)
+        return True
+    except Exception as e:
+        logger.error("删除文件失败 %s: %s", path, e)
+        return False
 
 router = APIRouter(prefix="/api/music")
 
@@ -238,6 +266,7 @@ async def upload_music(file: UploadFile = File(...)):
         "year": meta.get("year"),
         "duration": meta.get("duration"),
         "trackNo": meta.get("trackNo"),
+        "discNo": meta.get("discNo"),
         "composer": meta.get("composer"),
         "lyricist": meta.get("lyricist"),
         "publisher": meta.get("publisher"),
@@ -287,7 +316,8 @@ def list_music():
         group_artist = s.get("album_artist") or track_artist
         g = ensure_group(group_artist, album)
         cover_path = s.get("cover_path")
-        if cover_path and os.path.exists(os.path.join(DATA_DIR, cover_path)):
+        # 专辑封面取第一首有封面歌曲的封面
+        if not g["cover_url"] and cover_path and os.path.exists(os.path.join(DATA_DIR, cover_path)):
             g["cover_url"] = f"/data/{cover_path}"
         # 优先读取 data/metadata 中的元信息，manifest 兜底
         meta = {}
@@ -309,6 +339,7 @@ def list_music():
             "genre": meta.get("genre") if meta.get("genre") is not None else s.get("genre"),
             "duration": meta.get("duration") if meta.get("duration") is not None else s.get("duration"),
             "trackNo": meta.get("trackNo") if meta.get("trackNo") is not None else s.get("trackNo"),
+            "discNo": meta.get("discNo") if meta.get("discNo") is not None else s.get("discNo"),
             "year": meta.get("year") if meta.get("year") is not None else s.get("year"),
             "composer": meta.get("composer") if meta.get("composer") is not None else s.get("composer"),
             "lyricist": meta.get("lyricist") if meta.get("lyricist") is not None else s.get("lyricist"),
@@ -323,6 +354,7 @@ def list_music():
             "lyrics_url": lyrics_url,
             "file_exists": exists,
             "hash": s.get("sha256"),
+            "matched": bool(s.get("matched") or meta.get("matched")),
         })
 
     # 2. 扫描目录中未在清单内的额外音频文件（用户手动放入）
@@ -366,6 +398,7 @@ def list_music():
                         "genre": meta.get("genre"),
                         "duration": meta.get("duration"),
                         "trackNo": meta.get("trackNo"),
+                        "discNo": meta.get("discNo"),
                         "year": meta.get("year"),
                         "composer": meta.get("composer"),
                         "lyricist": meta.get("lyricist"),
@@ -378,6 +411,7 @@ def list_music():
                         "file_url": f"/library/{rel_path}",
                         "cover_url": f"/data/picture/{artist_name}/{album_name}/{data_cover}" if data_cover else None,
                         "file_exists": True,
+                        "matched": bool(meta.get("matched")),
                     })
 
     # 3. 组装结果
@@ -393,8 +427,11 @@ def list_music():
 
 
 @router.delete("/delete")
-def delete_music(artist: str, album: str, title: str):
-    """删除指定歌曲（含备份），并清理空的专辑 / 艺人目录"""
+def delete_music(artist: str, album: str, title: str, to_trash: str = "0"):
+    """删除指定歌曲（含备份），并清理空的专辑 / 艺人目录。
+    to_trash=1 时音乐文件移入系统回收站而非永久删除。
+    """
+    to_trash = to_trash == "1"
     if not artist or not album or not title:
         return {"status": "error", "msg": "指定 artist/album/title"}
 
@@ -416,23 +453,27 @@ def delete_music(artist: str, album: str, title: str):
     else:
         safe_title = sanitize_name(title) or title
 
-    # 删除音乐库中的歌曲文件（音频 / json / lrc）
+    # 定位音频文件
+    audio_path = None
     if target_path:
-        fpath = os.path.join(get_library_path(), target_path)
-        for p in (fpath, os.path.splitext(fpath)[0] + ".json", os.path.splitext(fpath)[0] + ".lrc"):
-            if os.path.exists(p):
-                try:
-                    os.remove(p)
-                except Exception:
-                    pass
+        audio_path = os.path.join(get_library_path(), target_path)
     elif os.path.exists(album_dir):
         for f in os.listdir(album_dir):
             base = os.path.splitext(f)[0]
             if base == title or base == title.replace(" ", "_"):
-                try:
-                    os.remove(os.path.join(album_dir, f))
-                except Exception:
-                    pass
+                audio_path = os.path.join(album_dir, f)
+                break
+
+    # 回收站模式：音频移入回收站失败则中止删除（保留文件，避免永久删除）
+    if to_trash and audio_path and os.path.exists(audio_path) and not _send_to_trash(audio_path):
+        return {"status": "error", "msg": "移入回收站失败（文件可能被占用），已保留文件"}
+
+    # 删除音频（回收站已移入或永久删除）+ 同目录伴随 .json/.lrc
+    if audio_path:
+        _remove_file(audio_path, to_trash)
+        base_no_ext = os.path.splitext(audio_path)[0]
+        for ext in (".json", ".lrc"):
+            _remove_file(base_no_ext + ext, to_trash)
 
     # 删除 data 备份（封面 / 歌词 / 元信息）
     remove_backup_artifacts(san_artist, san_album, safe_title)
