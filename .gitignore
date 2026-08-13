@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# 第三方 QQ 音乐 API 服务（本地依赖，不纳入版本控制）
+qq-music-api-next
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

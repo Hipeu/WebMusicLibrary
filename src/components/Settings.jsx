@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { FaSlidersH, FaSyncAlt, FaTrashAlt, FaInfoCircle, FaTimes, FaPen } from "react-icons/fa";
-import { saveSettings, getMigrationStatus } from "../services/api";
+import { FaSlidersH, FaLink, FaTrashAlt, FaInfoCircle, FaTimes, FaPen } from "react-icons/fa";
+import { saveSettings, getMigrationStatus, matchAll, getMatchAllProgress, cancelMatchAll } from "../services/api";
 
 /* ================================================================
    ⚙️ Settings — 设置悬浮窗口
@@ -14,7 +14,7 @@ export default function Settings({ show, onClose, onReset, onSettingsSaved }) {
   const menuItems = [
     { id: "appearance", label: "通用设置", icon: <FaSlidersH /> },
     { id: "edit", label: "编辑", icon: <FaPen /> },
-    { id: "sync", label: "同步设置", icon: <FaSyncAlt /> },
+    { id: "match", label: "匹配", icon: <FaLink /> },
     { id: "reset", label: "重置", icon: <FaTrashAlt /> },
     { id: "about", label: "关于", icon: <FaInfoCircle /> },
   ];
@@ -51,7 +51,7 @@ export default function Settings({ show, onClose, onReset, onSettingsSaved }) {
         <div style={styles.content}>
           {active === "appearance" && <AppearancePanel onSettingsSaved={onSettingsSaved} />}
           {active === "edit" && <EditPanel onSettingsSaved={onSettingsSaved} />}
-          {active === "sync" && <PlaceholderPanel icon={<FaSyncAlt size={40} />} title="同步设置" hint="功能即将上线，敬请期待" />}
+          {active === "match" && <MatchPanel />}
           {active === "reset" && <ResetPanel onReset={onReset} />}
           {active === "about" && <AboutPanel />}
         </div>
@@ -192,6 +192,229 @@ function EditPanel({ onSettingsSaved }) {
             }}
           />
         </button>
+      </div>
+    </div>
+  );
+}
+
+/* ================================================================
+   🎯 匹配设置面板 — QQ音乐 / iTunes / MusicBrainz 信息拉取配置
+   左侧：拉取配置开关；右侧：全部匹配功能（进度 + 结果日志）
+   ================================================================ */
+function MatchPanel() {
+  // 配置（localStorage 持久化）
+  const [matchSongEnabled, setMatchSongEnabled] = useState(
+    () => localStorage.getItem("match-song-enabled") !== "false"
+  );
+  const [matchArtistEnabled, setMatchArtistEnabled] = useState(
+    () => localStorage.getItem("match-artist-enabled") !== "false"
+  );
+
+  // 匹配状态
+  const [running, setRunning] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [progress, setProgress] = useState({ done: 0, total: 0, matched: 0, failed: 0, skipped: 0 });
+  const [log, setLog] = useState([]);
+  const [error, setError] = useState("");
+
+  function toggleSong() {
+    const next = !matchSongEnabled;
+    setMatchSongEnabled(next);
+    localStorage.setItem("match-song-enabled", String(next));
+  }
+
+  function toggleArtist() {
+    const next = !matchArtistEnabled;
+    setMatchArtistEnabled(next);
+    localStorage.setItem("match-artist-enabled", String(next));
+  }
+
+  // 轮询匹配进度
+  useEffect(() => {
+    if (!running) return;
+    const timer = setInterval(async () => {
+      try {
+        const res = await getMatchAllProgress();
+        setProgress({
+          done: res.done || 0,
+          total: res.total || 0,
+          matched: res.matched || 0,
+          failed: res.failed || 0,
+          skipped: res.skipped || 0,
+        });
+        if (res.log) setLog(res.log);
+        if (res.status === "done" || res.status === "error") {
+          setRunning(false);
+          setCancelling(false);
+          if (res.status === "error") {
+            setError(res.error || "匹配过程出现异常");
+          }
+        }
+      } catch {
+        setRunning(false);
+        setCancelling(false);
+        setError("获取匹配进度失败");
+      }
+    }, 600);
+    return () => clearInterval(timer);
+  }, [running]);
+
+  async function handleCancelMatch() {
+    if (!running) return;
+    setCancelling(true);
+    try {
+      await cancelMatchAll();
+    } catch {
+      setCancelling(false);
+      setError("取消失败，请重试");
+    }
+  }
+
+  async function handleStartMatch() {
+    if (running) return;
+    setError("");
+    setProgress({ done: 0, total: 0, matched: 0, failed: 0, skipped: 0 });
+    setLog([]);
+    try {
+      const res = await matchAll({
+        match_song: matchSongEnabled,
+        match_artist: matchArtistEnabled,
+      });
+      if (res && res.status === "error") {
+        setError(res.msg || "启动匹配失败");
+        return;
+      }
+      if (res && res.status === "done") {
+        // 无需匹配任何内容
+        setProgress({ done: 0, total: 0, matched: 0, failed: 0, skipped: 0 });
+        return;
+      }
+      setProgress({ done: 0, total: res.total || 0, matched: 0, failed: 0, skipped: 0 });
+      setRunning(true);
+    } catch {
+      setError("启动匹配失败，请确认后端已启动");
+    }
+  }
+
+  const pct = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
+
+  const logIcon = (kind) => (kind === "ok" ? "✓" : kind === "skip" ? "↷" : "✕");
+
+  return (
+    <div style={matchStyles.container}>
+      <h3 style={panelStyles.title}>匹配</h3>
+      <p style={panelStyles.desc}>通过 QQ音乐 / iTunes / MusicBrainz 拉取歌曲与艺人信息，并自动写回音乐文件</p>
+
+      {/* 左侧：拉取配置 */}
+      <div style={matchStyles.configBox}>
+        <p style={matchStyles.configTitle}>拉取配置</p>
+
+        <div style={matchStyles.toggleRow}>
+          <div style={matchStyles.toggleText}>
+            <p style={matchStyles.toggleTitle}>匹配歌曲作曲 / 作词 / 编曲 / 制作人</p>
+            <p style={matchStyles.toggleDesc}>通过 QQ音乐歌词 + MusicBrainz 拉取每首歌的词曲作者信息，并补全专辑、年代、流派与封面</p>
+          </div>
+          <button
+            style={{
+              ...panelStyles.toggleSwitch,
+              ...(matchSongEnabled ? panelStyles.toggleSwitchOn : {}),
+            }}
+            onClick={toggleSong}
+            title={matchSongEnabled ? "点击关闭" : "点击开启"}
+          >
+            <div
+              style={{
+                ...panelStyles.toggleKnob,
+                ...(matchSongEnabled ? panelStyles.toggleKnobOn : {}),
+              }}
+            />
+          </button>
+        </div>
+
+        <div style={matchStyles.toggleRow}>
+          <div style={matchStyles.toggleText}>
+            <p style={matchStyles.toggleTitle}>匹配艺人写真</p>
+            <p style={matchStyles.toggleDesc}>通过 QQ音乐 singer mid 规则获取 500x500 高清艺人写真并保存</p>
+          </div>
+          <button
+            style={{
+              ...panelStyles.toggleSwitch,
+              ...(matchArtistEnabled ? panelStyles.toggleSwitchOn : {}),
+            }}
+            onClick={toggleArtist}
+            title={matchArtistEnabled ? "点击关闭" : "点击开启"}
+          >
+            <div
+              style={{
+                ...panelStyles.toggleKnob,
+                ...(matchArtistEnabled ? panelStyles.toggleKnobOn : {}),
+              }}
+            />
+          </button>
+        </div>
+      </div>
+
+      {/* 右侧：全部匹配功能 */}
+      <div style={matchStyles.matchBox}>
+        <p style={matchStyles.configTitle}>全部匹配</p>
+        <p style={matchStyles.matchDesc}>
+          为资料库中缺少信息的歌曲批量补全词曲作者、专辑、年代、流派与封面，并为艺人补写真，自动写回音乐文件与资料库
+        </p>
+
+        <div style={matchStyles.matchHeader}>
+          <button style={matchStyles.startBtn} onClick={handleStartMatch} disabled={running}>
+            {running ? "匹配中…" : "开始匹配"}
+          </button>
+          {running && (
+            <button
+              style={matchStyles.cancelBtn}
+              onClick={handleCancelMatch}
+              disabled={cancelling}
+            >
+              {cancelling ? "取消中…" : "取消"}
+            </button>
+          )}
+          {error && <span style={matchStyles.error}>{error}</span>}
+        </div>
+
+        {progress.total > 0 && (
+          <div style={matchStyles.progressWrap}>
+            <div style={matchStyles.countRow}>
+              <span style={matchStyles.count}>已完成：{progress.done}/{progress.total}</span>
+              <span style={matchStyles.pct}>{pct}%</span>
+            </div>
+            <div style={matchStyles.track}>
+              <div style={{ ...matchStyles.fill, width: `${pct}%` }} />
+            </div>
+            <div style={matchStyles.statsRow}>
+              <span style={matchStyles.statOk}>成功 {progress.matched}</span>
+              <span style={matchStyles.statFail}>失败 {progress.failed}</span>
+              <span style={matchStyles.statSkip}>跳过 {progress.skipped}</span>
+            </div>
+          </div>
+        )}
+
+        {log.length > 0 && (
+          <div style={matchStyles.logBox}>
+            {log.map((item, i) => (
+              <div key={i} style={matchStyles.logItem}>
+                <span
+                  style={{
+                    ...matchStyles.logIcon,
+                    ...(item.kind === "ok"
+                      ? matchStyles.logIconOk
+                      : item.kind === "skip"
+                        ? matchStyles.logIconSkip
+                        : matchStyles.logIconFail),
+                  }}
+                >
+                  {logIcon(item.kind)}
+                </span>
+                <span style={matchStyles.logText}>{item.message}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -385,21 +608,6 @@ function InfoRow({ label, value }) {
     <div style={panelStyles.infoRow}>
       <span style={panelStyles.infoLabel}>{label}</span>
       <span style={panelStyles.infoValue}>{value}</span>
-    </div>
-  );
-}
-
-/* ================================================================
-   📦 占位面板
-   ================================================================ */
-function PlaceholderPanel({ icon, title, hint }) {
-  return (
-    <div style={panelStyles.container}>
-      <h3 style={panelStyles.title}>{title}</h3>
-      <div style={panelStyles.placeholder}>
-        <span style={panelStyles.placeholderIcon}>{icon}</span>
-        <p style={panelStyles.placeholderText}>{hint}</p>
-      </div>
     </div>
   );
 }
@@ -1015,5 +1223,209 @@ const migrateDialogStyles = {
     height: "100%",
     background: "#e94560",
     transition: "width 0.25s ease",
+  },
+};
+
+const matchStyles = {
+  container: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "20px",
+  },
+  configBox: {
+    border: "1px solid #f3f4f6",
+    borderRadius: "10px",
+    background: "#fafafa",
+    padding: "18px 20px",
+  },
+  configTitle: {
+    fontSize: "14px",
+    fontWeight: 600,
+    color: "#374151",
+    margin: "0 0 12px",
+  },
+  configRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: "12px",
+    marginBottom: "12px",
+  },
+  configLabel: {
+    flexShrink: 0,
+    width: "160px",
+    fontSize: "13px",
+    color: "#6b7280",
+  },
+  input: {
+    flex: 1,
+    padding: "8px 12px",
+    borderRadius: "8px",
+    border: "1px solid #d1d5db",
+    background: "#ffffff",
+    color: "#1f2937",
+    fontSize: "13px",
+    fontFamily: "inherit",
+    outline: "none",
+  },
+  toggleRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "16px",
+    padding: "12px 0",
+    borderTop: "1px solid #f3f4f6",
+  },
+  toggleText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  toggleTitle: {
+    fontSize: "13px",
+    fontWeight: 600,
+    color: "#374151",
+    margin: "0 0 2px",
+  },
+  toggleDesc: {
+    fontSize: "12px",
+    lineHeight: 1.5,
+    color: "#6b7280",
+    margin: 0,
+  },
+  matchBox: {
+    border: "1px solid #f3f4f6",
+    borderRadius: "10px",
+    background: "#fafafa",
+    padding: "18px 20px",
+  },
+  matchDesc: {
+    fontSize: "12px",
+    lineHeight: 1.6,
+    color: "#6b7280",
+    margin: "0 0 14px",
+  },
+  matchHeader: {
+    display: "flex",
+    alignItems: "center",
+    gap: "12px",
+  },
+  startBtn: {
+    flexShrink: 0,
+    padding: "9px 22px",
+    borderRadius: "8px",
+    border: "none",
+    background: "#e94560",
+    color: "#ffffff",
+    fontSize: "14px",
+    fontWeight: 600,
+    cursor: "pointer",
+    fontFamily: "inherit",
+  },
+  cancelBtn: {
+    flexShrink: 0,
+    padding: "9px 22px",
+    borderRadius: "8px",
+    border: "1px solid #d1d5db",
+    background: "#ffffff",
+    color: "#374151",
+    fontSize: "14px",
+    fontWeight: 600,
+    cursor: "pointer",
+    fontFamily: "inherit",
+  },
+  error: {
+    fontSize: "13px",
+    color: "#e94560",
+  },
+  progressWrap: {
+    marginTop: "16px",
+  },
+  countRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: "6px",
+  },
+  count: {
+    fontSize: "13px",
+    color: "#6b7280",
+  },
+  pct: {
+    fontSize: "13px",
+    fontWeight: 600,
+    color: "#374151",
+  },
+  track: {
+    height: "6px",
+    width: "100%",
+    borderRadius: "3px",
+    background: "#e5e7eb",
+    overflow: "hidden",
+  },
+  fill: {
+    height: "100%",
+    background: "#e94560",
+    transition: "width 0.3s ease",
+  },
+  statsRow: {
+    display: "flex",
+    gap: "16px",
+    marginTop: "8px",
+  },
+  statOk: {
+    fontSize: "12px",
+    color: "#16a34a",
+  },
+  statFail: {
+    fontSize: "12px",
+    color: "#e94560",
+  },
+  statSkip: {
+    fontSize: "12px",
+    color: "#9ca3af",
+  },
+  logBox: {
+    marginTop: "14px",
+    maxHeight: "200px",
+    overflowY: "auto",
+    border: "1px solid #e5e7eb",
+    borderRadius: "8px",
+    background: "#ffffff",
+    padding: "8px 12px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "4px",
+  },
+  logItem: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: "8px",
+    fontSize: "12px",
+    lineHeight: 1.5,
+  },
+  logIcon: {
+    flexShrink: 0,
+    width: "16px",
+    height: "16px",
+    borderRadius: "50%",
+    fontSize: "10px",
+    fontWeight: 700,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "#ffffff",
+    marginTop: "1px",
+  },
+  logIconOk: {
+    background: "#16a34a",
+  },
+  logIconSkip: {
+    background: "#9ca3af",
+  },
+  logIconFail: {
+    background: "#e94560",
+  },
+  logText: {
+    color: "#4b5563",
+    wordBreak: "break-word",
   },
 };

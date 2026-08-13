@@ -1,0 +1,430 @@
+import asyncio
+import json
+import os
+import threading
+
+import aiohttp
+from fastapi import APIRouter, Body
+
+from routers.musicload import load_manifest, save_manifest
+from routers.Artists import load_artists, save_artists, sanitize_name as sanitize_artist_name
+from services.library_config import get_library_path
+from services.metadata_service import write_metadata
+from services.match import MusicMatcher
+
+router = APIRouter(prefix="/api/match")
+
+# 备份目录：data/metadata / data/picture / data/artists_img（与其它路由一致）
+BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PROJECT_ROOT = os.path.dirname(BACKEND_DIR)
+DATA_DIR = os.path.join(PROJECT_ROOT, "data")
+METADATA_DIR = os.path.join(DATA_DIR, "metadata")
+PICTURE_DIR = os.path.join(DATA_DIR, "picture")
+ARTISTS_IMG_DIR = os.path.join(DATA_DIR, "artists_img")
+
+# 全部匹配进度（后台线程更新）
+_match_state = {
+    "running": False,
+    "done": 0,
+    "total": 0,
+    "matched": 0,
+    "failed": 0,
+    "skipped": 0,
+    "current": None,
+    "log": [],
+    "error": None,
+    "cancel": False,
+    "was_cancelled": False,
+}
+
+SOURCE_LABELS = {"qq": "QQ音乐", "itunes": "iTunes"}
+
+
+def _reset_state(total):
+    _match_state.update(
+        running=True, done=0, total=total, matched=0,
+        failed=0, skipped=0, current=None, log=[], error=None,
+        cancel=False, was_cancelled=False,
+    )
+
+
+def _log(kind, message):
+    _match_state["log"].append({"kind": kind, "message": message})
+    if len(_match_state["log"]) > 300:
+        _match_state["log"] = _match_state["log"][-300:]
+
+
+# ================================================================
+# 单曲匹配 / 艺人写真
+# ================================================================
+
+@router.post("/song")
+async def match_song(payload: dict = Body(...)):
+    """按 歌名+艺人 匹配：QQ音乐（主）→ iTunes（兜底）→ MusicBrainz（作曲/作词）"""
+    song_name = (payload.get("song_name") or "").strip()
+    artist_name = (payload.get("artist_name") or "").strip()
+    if not song_name or not artist_name:
+        return {"error": "缺少 song_name 或 artist_name"}
+    matcher = MusicMatcher()
+    return await matcher.match_song(song_name, artist_name)
+
+
+@router.post("/artist")
+async def match_artist(payload: dict = Body(...)):
+    """按艺人名返回 500x500 写真 URL（简介后续接入 QQ 音乐 wiki）"""
+    artist_name = (payload.get("artist_name") or "").strip()
+    if not artist_name:
+        return {"error": "缺少 artist_name"}
+    matcher = MusicMatcher()
+    return await matcher.match_artist(artist_name)
+
+
+# ================================================================
+# 写回
+# ================================================================
+
+COVER_EXT_MAP = {
+    "image/jpeg": ".jpg", "image/jpg": ".jpg",
+    "image/png": ".png", "image/webp": ".webp",
+}
+
+
+def _update_entry_meta(artist, album, title_base, fields):
+    """更新 data/metadata/{artist}/{album}/{title}.json（只覆盖非空字段）"""
+    meta_dir = os.path.join(METADATA_DIR, artist, album)
+    path = os.path.join(meta_dir, f"{title_base}.json")
+    m = {}
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                m = json.load(f)
+        except Exception:
+            m = {}
+    changed = False
+    for k, v in fields.items():
+        if v and not m.get(k):
+            m[k] = v
+            changed = True
+    if not changed:
+        return
+    try:
+        os.makedirs(meta_dir, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(m, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def _update_manifest(file_path, fields):
+    """更新 manifest 中该歌曲条目（只覆盖非空字段）"""
+    manifest = load_manifest()
+    if file_path not in manifest:
+        return
+    changed = False
+    for k, v in fields.items():
+        if v and not manifest[file_path].get(k):
+            manifest[file_path][k] = v
+            changed = True
+    if changed:
+        save_manifest(manifest)
+
+
+def _save_cover_file(artist, album, cover_data, cover_mime):
+    """保存封面到 data/picture/{artist}/{album}/cover.{ext}，返回相对路径"""
+    if not cover_data:
+        return None
+    ext = COVER_EXT_MAP.get(cover_mime, ".jpg")
+    dest_dir = os.path.join(PICTURE_DIR, artist, album)
+    try:
+        os.makedirs(dest_dir, exist_ok=True)
+        for f in os.listdir(dest_dir):
+            if f.startswith("cover"):
+                os.remove(os.path.join(dest_dir, f))
+        with open(os.path.join(dest_dir, f"cover{ext}"), "wb") as f:
+            f.write(cover_data)
+        return f"picture/{artist}/{album}/cover{ext}"
+    except Exception:
+        return None
+
+
+def _write_song_metadata(file_path, entry, result, cover_data, cover_mime):
+    """将 QQ/iTunes/MusicBrainz 匹配到的信息写回文件标签 + data 备份 + manifest（只填空缺）"""
+    abs_path = os.path.join(get_library_path(), file_path)
+    if not os.path.exists(abs_path):
+        return False, "音乐文件不存在"
+
+    artist = entry.get("artist") or "Various Artists"
+    album = entry.get("album") or "Unknown Album"
+    title_base = os.path.splitext(os.path.basename(file_path))[0]
+
+    composer = ", ".join(result.get("composers") or []) or None
+    lyricist = ", ".join(result.get("lyricists") or []) or None
+    arranger = result.get("arranger")
+    producer = result.get("producer")
+    year = result.get("year")
+    genre = result.get("genre")
+    album_name = result.get("album")
+
+    # 只写入缺失字段
+    tag_meta = {}
+    if not entry.get("composer") and composer:
+        tag_meta["composer"] = composer
+    if not entry.get("lyricist") and lyricist:
+        tag_meta["lyricist"] = lyricist
+    if not entry.get("album") and album_name:
+        tag_meta["album"] = album_name
+    if not entry.get("year") and year:
+        tag_meta["year"] = year
+    if not entry.get("genre") and genre:
+        tag_meta["genre"] = genre
+
+    has_new_fields = bool(tag_meta) or (not entry.get("composer") and composer) or (
+        not entry.get("lyricist") and lyricist
+    ) or (arranger and not entry.get("arranger")) or (producer and not entry.get("producer"))
+
+    if not has_new_fields and not cover_data:
+        return False, "没有需要写入的信息"
+
+    # 1. 写入文件内部标签
+    if tag_meta:
+        try:
+            write_metadata(abs_path, tag_meta, cover_data=cover_data, cover_mime=cover_mime)
+        except Exception:
+            return False, "写入文件标签失败"
+
+    # 2. 封面文件保存到 data/picture
+    cover_path = None
+    if cover_data:
+        cover_path = _save_cover_file(artist, album, cover_data, cover_mime)
+
+    # 3. data/metadata JSON + manifest（作曲/作词/编曲/制作人/年代/流派/封面）
+    json_fields = {
+        "composer": composer, "lyricist": lyricist,
+        "arranger": arranger, "producer": producer,
+        "year": year, "genre": genre,
+    }
+    if cover_path:
+        json_fields["cover_path"] = cover_path
+    _update_entry_meta(artist, album, title_base, json_fields)
+    _update_manifest(file_path, json_fields)
+    return True, None
+
+
+def _write_artist_avatar(name, cover_data, cover_mime):
+    """保存歌手写真到 data/artists_img/{name}/cover.{ext} 并更新 artists.json cover_url"""
+    if not cover_data:
+        return False
+    safe = sanitize_artist_name(name) or "unknown"
+    ext = COVER_EXT_MAP.get(cover_mime, ".jpg")
+    dest_dir = os.path.join(ARTISTS_IMG_DIR, safe)
+    try:
+        os.makedirs(dest_dir, exist_ok=True)
+        for f in os.listdir(dest_dir):
+            try:
+                os.remove(os.path.join(dest_dir, f))
+            except Exception:
+                pass
+        with open(os.path.join(dest_dir, f"cover{ext}"), "wb") as f:
+            f.write(cover_data)
+    except Exception:
+        return False
+    artists = load_artists()
+    rec = artists.get(name) or {}
+    rec["cover_url"] = f"/data/artists_img/{safe}/cover{ext}"
+    artists[name] = rec
+    return save_artists(artists)
+
+
+# ================================================================
+# 全部匹配（后台线程 + 进度轮询）
+# ================================================================
+
+async def _match_all_async(matcher, songs, artist_list):
+    """核心协程：遍历歌曲 → 匹配写回；遍历艺人 → 写真写回"""
+    async with aiohttp.ClientSession(timeout=matcher._timeout) as session:
+        done = 0
+        cancelled = False
+
+        for file_path, entry in songs:
+            if _match_state["cancel"]:
+                cancelled = True
+                _match_state["was_cancelled"] = True
+                _log("skip", f"已取消匹配（已处理 {done}/{_match_state['total']}）")
+                break
+            _match_state["current"] = f"歌曲：{entry.get('title')} - {entry.get('artist')}"
+            try:
+                result = await matcher.get_song_metadata(
+                    session, entry.get("title"), entry.get("artist")
+                )
+            except Exception as e:
+                _match_state["failed"] += 1
+                _log("error", f"歌曲 {entry.get('title')} - {entry.get('artist')}：{e}")
+                done += 1
+                _match_state["done"] = done
+                continue
+
+            if result.get("error"):
+                _match_state["skipped"] += 1
+                _log("skip", f"歌曲 {entry.get('title')} - {entry.get('artist')}：{result['error']}")
+                done += 1
+                _match_state["done"] = done
+                continue
+
+            cover_data, cover_mime = await matcher.download_image(session, result.get("cover_url"))
+            ok, err = await asyncio.to_thread(
+                _write_song_metadata, file_path, entry, result, cover_data, cover_mime
+            )
+            if ok:
+                composers = ", ".join(result.get("composers") or []) or "—"
+                lyricists = ", ".join(result.get("lyricists") or []) or "—"
+                extra = []
+                if result.get("arranger"):
+                    extra.append(f"编曲 {result['arranger']}")
+                if result.get("producer"):
+                    extra.append(f"制作人 {result['producer']}")
+                if result.get("year"):
+                    extra.append(f"{result['year']}年")
+                if result.get("genre"):
+                    extra.append(result["genre"])
+                if result.get("cover_url") and cover_data:
+                    extra.append("封面")
+                source_label = SOURCE_LABELS.get(result.get("source")) or "未知"
+                _match_state["matched"] += 1
+                _log("ok", f"歌曲 {result.get('song_name') or entry.get('title')} 通过 {source_label} 匹配成功：作曲 {composers} / 作词 {lyricists}"
+                     + (f"（{'，'.join(extra)}）" if extra else ""))
+            else:
+                _match_state["failed"] += 1
+                _log("error", f"歌曲 {entry.get('title')}：{err or '写入失败'}")
+            done += 1
+            _match_state["done"] = done
+
+        if not cancelled:
+            for name in artist_list:
+                if _match_state["cancel"]:
+                    cancelled = True
+                    _match_state["was_cancelled"] = True
+                    _log("skip", f"已取消匹配（已处理 {done}/{_match_state['total']}）")
+                    break
+                _match_state["current"] = f"艺人：{name}"
+                try:
+                    info = await matcher.get_artist_avatar(session, name)
+                except Exception as e:
+                    _match_state["failed"] += 1
+                    _log("error", f"艺人 {name}：{e}")
+                    done += 1
+                    _match_state["done"] = done
+                    continue
+
+                if info.get("avatar_url"):
+                    data, mime = await matcher.download_image(session, info["avatar_url"])
+                    ok = await asyncio.to_thread(_write_artist_avatar, name, data, mime)
+                    if ok:
+                        _match_state["matched"] += 1
+                        _log("ok", f"艺人 {name} 通过 QQ音乐 匹配成功：写真已保存")
+                    else:
+                        _match_state["failed"] += 1
+                        _log("error", f"艺人 {name}：写真保存失败")
+                else:
+                    _match_state["skipped"] += 1
+                    _log("skip", f"艺人 {name}：未找到写真")
+                done += 1
+                _match_state["done"] = done
+
+        _match_state["current"] = None
+
+
+def _match_all_worker(matcher, songs, artist_list):
+    try:
+        _reset_state(len(songs) + len(artist_list))
+        asyncio.run(_match_all_async(matcher, songs, artist_list))
+    except Exception as e:
+        _match_state["error"] = str(e)
+        _log("error", f"全部匹配异常：{e}")
+    finally:
+        _match_state["running"] = False
+        _match_state["cancel"] = False
+        _match_state["current"] = None
+
+
+@router.post("/all")
+def match_all(payload: dict = Body(...)):
+    """遍历资料库：为缺少作曲/作词/年代/流派/封面的歌曲补全信息并写回，
+    为缺少封面的艺人补写真。立即返回，前端通过 /api/match/all/progress 轮询。
+    """
+    if _match_state["running"]:
+        return {"status": "error", "msg": "已有匹配任务进行中"}
+
+    config = {
+        "match_song": payload.get("match_song", True),
+        "match_artist": payload.get("match_artist", True),
+    }
+
+    # 1. 收集需要匹配的歌曲
+    manifest = load_manifest()
+    songs = []
+    for file_path, entry in manifest.items():
+        title = entry.get("title")
+        artist = entry.get("artist")
+        if not title or not artist:
+            continue
+        if config["match_song"]:
+            needs = (
+                not entry.get("composer") or not entry.get("lyricist")
+                or not entry.get("year") or not entry.get("genre")
+                or not entry.get("cover_path")
+            )
+            if not needs:
+                continue
+        songs.append((file_path, entry))
+
+    # 2. 收集需要写真且无封面的艺人
+    artist_list = []
+    if config["match_artist"]:
+        artists = set()
+        for file_path, entry in manifest.items():
+            for key in ("artist", "album_artist"):
+                name = entry.get(key)
+                if name:
+                    artists.add(name)
+        artist_records = load_artists()
+        for name in sorted(artists):
+            rec = artist_records.get(name) or {}
+            if rec.get("cover_url"):
+                continue
+            artist_list.append(name)
+
+    total = len(songs) + len(artist_list)
+    if total == 0:
+        return {"status": "done", "total": 0, "msg": "没有需要匹配的歌曲或艺人"}
+
+    matcher = MusicMatcher()
+    t = threading.Thread(
+        target=_match_all_worker, args=(matcher, songs, artist_list), daemon=True
+    )
+    t.start()
+
+    return {"status": "started", "total": total, "songs": len(songs), "artists": len(artist_list)}
+
+
+@router.post("/all/cancel")
+def match_all_cancel():
+    """请求取消进行中的全部匹配（处理完当前项后停止）"""
+    if not _match_state["running"]:
+        return {"status": "error", "msg": "当前没有进行中的匹配任务"}
+    _match_state["cancel"] = True
+    return {"status": "cancelling"}
+
+
+@router.get("/all/progress")
+def match_all_progress():
+    """返回全部匹配进度"""
+    st = dict(_match_state)
+    st["log"] = list(_match_state["log"])
+    st["cancelled"] = _match_state.get("was_cancelled", False)
+    if st["running"]:
+        st["status"] = "matching"
+    elif st["error"]:
+        st["status"] = "error"
+    else:
+        st["status"] = "done"
+    return st

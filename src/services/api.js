@@ -175,6 +175,40 @@ export async function uploadArtistCover(name, file) {
   return res.json();
 }
 
+/** 匹配单曲元数据（QQ音乐→iTunes→MusicBrainz：作曲/作词/编曲/制作人/专辑/封面） */
+export async function matchSong({ song_name, artist_name }) {
+  const res = await fetch(`${BASE_URL}/api/match/song`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ song_name, artist_name }),
+  });
+  return res.json();
+}
+
+/** 启动全部匹配（后台线程执行） */
+export async function matchAll(config) {
+  const res = await fetch(`${BASE_URL}/api/match/all`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(config || {}),
+  });
+  return res.json();
+}
+
+/** 获取全部匹配进度 */
+export async function getMatchAllProgress() {
+  const res = await fetch(`${BASE_URL}/api/match/all/progress`);
+  return res.json();
+}
+
+/** 取消进行中的全部匹配 */
+export async function cancelMatchAll() {
+  const res = await fetch(`${BASE_URL}/api/match/all/cancel`, {
+    method: "POST",
+  });
+  return res.json();
+}
+
 export default {
   uploadMusic,
   getMusicList,
@@ -195,5 +229,9 @@ export default {
   saveArtist,
   deleteArtist,
   uploadArtistCover,
+  matchSong,
+  matchAll,
+  getMatchAllProgress,
+  cancelMatchAll,
   getAssetUrl,
 };

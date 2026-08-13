@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { FiPlus } from "react-icons/fi";
 import { FaEllipsisH, FaCompactDisc, FaUser, FaHeart, FaStepForward, FaClock, FaPlus, FaSortAmountDown, FaArrowUp, FaTrash, FaMusic, FaInfoCircle, FaCog, FaPlay, FaExclamationCircle, FaCheckCircle } from "react-icons/fa";
 import { readMetadata } from "../utils/MetadataReader";
-import { uploadMusic, getMusicList, getAssetUrl, deleteMusic, checkMusicFiles, updateMusicMetadata, getLyrics, getPlaylists, savePlaylists, resetAll, getResetProgress, openMusicFile, getArtists, saveArtist, deleteArtist } from "../services/api";
+import { uploadMusic, getMusicList, getAssetUrl, deleteMusic, checkMusicFiles, updateMusicMetadata, getLyrics, getPlaylists, savePlaylists, resetAll, getResetProgress, openMusicFile, getArtists, saveArtist, deleteArtist, getMatchAllProgress, cancelMatchAll } from "../services/api";
 import { saveSongToIndex, removeSongFromIndex, loadMusicIndex } from "../utils/musicIndex";
 import { normalizePlaylists, loadPlaylistCache, savePlaylistCache } from "../utils/playlistStore";
 import { isUnplayableCodec, songPlayable } from "../utils/formatCheck";
@@ -400,6 +400,87 @@ export default function MusicLibrary() {
   function handleSettingsSaved() {
     showToast("设置已保存", "success");
   }
+
+  // ---------- 全部匹配完成：刷新专辑 / 艺人数据 ----------
+  async function handleMatchDone(res) {
+    if (res?.cancelled) {
+      showToast(
+        res.done > 0 ? `已取消匹配（已处理 ${res.done} 条）` : "已取消匹配",
+        "warning",
+        3000
+      );
+      return;
+    }
+    try {
+      const data = await getMusicList();
+      if (Array.isArray(data)) {
+        const serverAlbums = buildAlbumsFromServer(data);
+        setAlbums((prev) => mergeAlbumsByTitle(prev, serverAlbums));
+      }
+    } catch (err) {
+      console.warn("匹配后刷新音乐列表失败:", err);
+    }
+    try {
+      const data = await getArtists();
+      if (data && typeof data === "object") setArtistRecords(data);
+    } catch (err) {
+      console.warn("匹配后刷新艺人数据失败:", err);
+    }
+    const matched = res?.matched || 0;
+    const skipped = res?.skipped || 0;
+    const failed = res?.failed || 0;
+    showToast(
+      skipped + failed > 0
+        ? { title: "匹配完成", content: `成功 ${matched} 条${skipped ? `，跳过 ${skipped}` : ""}${failed ? `，失败 ${failed}` : ""}` }
+        : { title: "匹配完成", content: `成功写入 ${matched} 条信息` },
+      "success",
+      4000
+    );
+  }
+
+  // ---------- 全部匹配：右上角常驻进度（与导入进度样式一致） ----------
+  const [matchState, setMatchState] = useState({
+    status: "done", running: false, done: 0, total: 0,
+    matched: 0, failed: 0, skipped: 0, current: null, error: null,
+  });
+  const matchPrevStatusRef = useRef("done");
+
+  async function handleCancelMatch() {
+    try {
+      await cancelMatchAll();
+    } catch (err) {
+      console.warn("取消匹配失败:", err);
+    }
+  }
+
+  useEffect(() => {
+    const timer = setInterval(async () => {
+      try {
+        const res = await getMatchAllProgress();
+        const status = res.status || "done";
+        setMatchState({
+          status,
+          running: status === "matching",
+          done: res.done || 0,
+          total: res.total || 0,
+          matched: res.matched || 0,
+          failed: res.failed || 0,
+          skipped: res.skipped || 0,
+          current: res.current || null,
+          error: res.error || null,
+        });
+        const prev = matchPrevStatusRef.current;
+        matchPrevStatusRef.current = status;
+        if (prev === "matching" && status !== "matching") {
+          handleMatchDone(res);
+        }
+      } catch {
+        // 后端不可用时静默，避免循环报错
+      }
+    }, 1000);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ---------- 导入音频文件 ----------
   // 上传单个文件并构建条目（优先上传后端持久化，失败回退本地导入）
@@ -3494,6 +3575,36 @@ export default function MusicLibrary() {
         onChange={handleReimportSelect}
       />
 
+      {/* ===== 匹配进度卡片（右上角，样式与导入一致） ===== */}
+      {matchState.running && matchState.total > 0 && (
+        <div style={styles.importProgress}>
+          <div style={styles.importProgressBody}>
+            <p style={styles.importProgressTitle}>正在匹配：</p>
+            <div style={styles.importProgressRow}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
+                <span style={styles.importProgressCount}>
+                  已完成：{matchState.done}/{matchState.total}
+                </span>
+              </div>
+              <button style={styles.importProgressCancel} onClick={handleCancelMatch}>
+                取消
+              </button>
+            </div>
+            {matchState.current && (
+              <p style={styles.matchProgressCurrent}>{matchState.current}</p>
+            )}
+          </div>
+          <div style={styles.importProgressTrack}>
+            <div
+              style={{
+                ...styles.importProgressFill,
+                width: `${(matchState.done / matchState.total) * 100}%`,
+              }}
+            />
+          </div>
+        </div>
+      )}
+
       {/* ===== 导入进度卡片（右上角） ===== */}
       {importProgress && importProgress.total > 0 && (
         <div style={styles.importProgress}>
@@ -4349,6 +4460,15 @@ const styles = {
     height: "100%",
     background: "#e94560",
     transition: "width 0.25s ease",
+  },
+  // 匹配进度卡片当前项（与导入卡片同布局）
+  matchProgressCurrent: {
+    margin: "8px 0 0",
+    fontSize: "13px",
+    color: "#6b7280",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
   },
   // 右上角通知（添加音乐功能条下方）
   toastNotify: {

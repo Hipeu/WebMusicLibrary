@@ -52,6 +52,15 @@ export default function ArtistsDetail({
   const showBanner = !!artistCover && !bannerImgError;
   const songCount = albums.reduce((sum, a) => sum + (a.songs?.length || 0), 0);
 
+  // 相关流派：优先用艺人编辑里保存的流派，否则自动抓取歌曲 genre 去重
+  const genres = (record?.genres && record.genres.length > 0)
+    ? record.genres
+    : (() => {
+        const set = new Set();
+        albums.forEach((a) => (a.songs || []).forEach((s) => { if (s.genre) set.add(s.genre); }));
+        return Array.from(set);
+      })();
+
   // 全部歌曲（带播放次数 / 导入时间）
   const counts = loadPlayCounts();
   const allSongs = albums.flatMap((a) =>
@@ -361,6 +370,23 @@ export default function ArtistsDetail({
           <div style={styles.bioText}>{record.bio}</div>
         </div>
       ) : null}
+
+      {/* ============================================================ */}
+      {/* ⑥ 相关流派（艺人编辑里的流派信息）                         */}
+      {/* ============================================================ */}
+      {genres.length > 0 && (
+        <div style={styles.infoSection}>
+          <h2 style={styles.sectionTitle}>相关流派</h2>
+          <div style={styles.genreList}>
+            {genres.map((g) => (
+              <span key={g} style={styles.genreChip}>{g}</span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 底部留白 */}
+      <div style={{ height: 120, flexShrink: 0 }} />
 
         </>
       )}
@@ -698,7 +724,7 @@ const styles = {
   // ⑤ 艺人简介
   // ================================================================
   infoSection: {
-    padding: "28px 48px 120px",
+    padding: "28px 48px 28px",
     flexShrink: 0,
   },
   bioText: {
@@ -707,6 +733,23 @@ const styles = {
     color: "#4b5563",
     whiteSpace: "pre-wrap",
     wordBreak: "break-word",
+  },
+  genreList: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "10px",
+    marginTop: "12px",
+  },
+  genreChip: {
+    display: "inline-flex",
+    alignItems: "center",
+    padding: "6px 16px",
+    borderRadius: "18px",
+    border: "1px solid #e5e7eb",
+    background: "#f3f4f6",
+    color: "#374151",
+    fontSize: "13px",
+    fontWeight: 500,
   },
 
   // ================================================================

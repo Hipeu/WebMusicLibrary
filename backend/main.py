@@ -9,6 +9,7 @@ from routers.Playlists import router as playlists_router
 from routers.Reset import router as reset_router
 from routers.Settings import router as settings_router
 from routers.Artists import router as artists_router
+from routers.Match import router as match_router
 from services.library_config import get_library_path
 
 app = FastAPI()
@@ -28,6 +29,7 @@ app.include_router(playlists_router)
 app.include_router(reset_router)
 app.include_router(settings_router)
 app.include_router(artists_router)
+app.include_router(match_router)
 
 # 数据备份目录（封面 / 歌词 / 元信息）
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
