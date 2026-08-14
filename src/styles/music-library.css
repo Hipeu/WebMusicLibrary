@@ -58,10 +58,34 @@
   from { transform: translateX(120%); }
   to { transform: translateX(0); }
 }
-/* 右上角弹窗：向右滑出（反向） */
+/* 右上角弹窗：向右滑出（反向，同时淡出消除阴影残留） */
 @keyframes slideOutRight {
-  from { transform: translateX(0); }
-  to { transform: translateX(120%); }
+  from { transform: translateX(0); opacity: 1; }
+  to { transform: translateX(120%); opacity: 0; }
+}
+/* 右上角弹窗：纯淡出消失 */
+@keyframes fadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+/* 活动面板：从右侧滑入（覆盖除顶栏外内容） */
+@keyframes slideInPanelRight {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+/* 活动面板：向右滑出（反向，同时淡出） */
+@keyframes slideOutPanelRight {
+  from { transform: translateX(0); opacity: 1; }
+  to { transform: translateX(100%); opacity: 0; }
+}
+/* 活动面板背景遮罩：逐渐变暗 */
+@keyframes fadeInDim {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes fadeOutDim {
+  from { opacity: 1; }
+  to { opacity: 0; }
 }
 .mini-cover-hover:hover {
   transform: scale(1.08);

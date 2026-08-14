@@ -21,7 +21,6 @@ export default function useCoverColor(coverUrl) {
       .then((result) => {
         if (!cancelled) {
           setPalette(result);
-          console.log("[CoverColor] 提取成功:", coverUrl, !!result?.Vibrant?.hex);
         }
       })
       .catch((err) => {

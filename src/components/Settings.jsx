@@ -6,7 +6,7 @@ import { saveSettings, getMigrationStatus, matchAll, cancelMatchAll } from "../s
    ⚙️ Settings — 设置悬浮窗口
    左侧功能栏 + 右侧内容区
    ================================================================ */
-export default function Settings({ show, onClose, onReset, onSettingsSaved, matchState, onOpenMatchDetail }) {
+export default function Settings({ show, onClose, onReset, onSettingsSaved, matchState, onOpenMatchDetail, onMatchStarted, onRefreshLibrary }) {
   const [active, setActive] = useState("appearance");
 
   if (!show) return null;
@@ -49,9 +49,9 @@ export default function Settings({ show, onClose, onReset, onSettingsSaved, matc
 
         {/* 右侧内容区 */}
         <div style={styles.content}>
-          {active === "appearance" && <AppearancePanel onSettingsSaved={onSettingsSaved} />}
+          {active === "appearance" && <AppearancePanel onSettingsSaved={onSettingsSaved} onRefreshLibrary={onRefreshLibrary} />}
           {active === "edit" && <EditPanel onSettingsSaved={onSettingsSaved} />}
-          {active === "match" && <MatchPanel matchState={matchState} onOpenMatchDetail={onOpenMatchDetail} />}
+          {active === "match" && <MatchPanel matchState={matchState} onOpenMatchDetail={onOpenMatchDetail} onMatchStarted={onMatchStarted} onSettingsSaved={onSettingsSaved} />}
           {active === "reset" && <ResetPanel onReset={onReset} />}
           {active === "about" && <AboutPanel />}
         </div>
@@ -63,7 +63,7 @@ export default function Settings({ show, onClose, onReset, onSettingsSaved, matc
 /* ================================================================
    📦 外观设置面板
    ================================================================ */
-function AppearancePanel({ onSettingsSaved }) {
+function AppearancePanel({ onSettingsSaved, onRefreshLibrary }) {
   const [theme, setTheme] = useState(
     localStorage.getItem("app-theme") || "system"
   );
@@ -106,6 +106,25 @@ function AppearancePanel({ onSettingsSaved }) {
       <ImportSettings onSettingsSaved={onSettingsSaved} />
 
       <ArtistSettings onSettingsSaved={onSettingsSaved} />
+
+      <RefreshLibrary onRefreshLibrary={onRefreshLibrary} />
+    </div>
+  );
+}
+
+/* ================================================================
+   🔄 更新资料库 — 扫描资料库内所有项目并更新状态
+   ================================================================ */
+function RefreshLibrary({ onRefreshLibrary }) {
+  return (
+    <div style={{ marginTop: "28px" }}>
+      <h3 style={panelStyles.title}>更新资料库</h3>
+      <div style={panelStyles.locationRow}>
+        <p style={panelStyles.locationDesc}>扫描资料库内所有项目并更新状态</p>
+        <button style={panelStyles.modifyBtn} onClick={() => onRefreshLibrary?.()}>
+          更新资料库
+        </button>
+      </div>
     </div>
   );
 }
@@ -205,8 +224,8 @@ function EditPanel({ onSettingsSaved }) {
       </div>
       <div style={panelStyles.toggleRow}>
         <div style={panelStyles.toggleText}>
-          <p style={panelStyles.toggleTitle}>将删除的音乐移动至回收站</p>
-          <p style={panelStyles.toggleDesc}>开启后，删除音乐文件时移入系统回收站而非永久删除；关闭则直接删除</p>
+          <p style={panelStyles.toggleTitle}>删除时移动至项目 trash 文件夹</p>
+          <p style={panelStyles.toggleDesc}>开启后，删除的文件将发送到项目下的trash文件夹；关闭则直接删除</p>
         </div>
         <button
           style={{
@@ -241,7 +260,7 @@ const MATCH_SOURCES = [
   ["qq", "QQ音乐"], ["itunes", "iTunes"], ["musicbrainz", "MusicBrainz"],
 ];
 
-function MatchPanel({ matchState, onOpenMatchDetail }) {
+function MatchPanel({ matchState, onOpenMatchDetail, onMatchStarted, onSettingsSaved }) {
   // 元信息字段开关（localStorage 持久化，默认全开）
   const [fields, setFields] = useState(() => {
     const o = {};
@@ -277,37 +296,38 @@ function MatchPanel({ matchState, onOpenMatchDetail }) {
   const [error, setError] = useState("");
 
   function toggleField(k) {
-    setFields((prev) => {
-      const next = { ...prev, [k]: !prev[k] };
-      localStorage.setItem(`match-field-${k}`, next[k] ? "1" : "0");
-      return next;
-    });
+    const next = !fields[k];
+    setFields((prev) => ({ ...prev, [k]: next }));
+    localStorage.setItem(`match-field-${k}`, next ? "1" : "0");
+    onSettingsSaved?.();
   }
 
   function toggleSource(k) {
-    setSources((prev) => {
-      const next = { ...prev, [k]: !prev[k] };
-      localStorage.setItem(`match-source-${k}`, next[k] ? "1" : "0");
-      return next;
-    });
+    const next = !sources[k];
+    setSources((prev) => ({ ...prev, [k]: next }));
+    localStorage.setItem(`match-source-${k}`, next ? "1" : "0");
+    onSettingsSaved?.();
   }
 
   function toggleSkipMatched() {
     const next = !skipMatched;
     setSkipMatched(next);
     localStorage.setItem("match-skip-matched", next ? "1" : "0");
+    onSettingsSaved?.();
   }
 
   function toggleLyricFallback() {
     const next = !lyricFallback;
     setLyricFallback(next);
     localStorage.setItem("match-lyric-fallback", next ? "1" : "0");
+    onSettingsSaved?.();
   }
 
   function toggleArtist() {
     const next = !matchArtistEnabled;
     setMatchArtistEnabled(next);
     localStorage.setItem("match-artist-enabled", String(next));
+    onSettingsSaved?.();
   }
 
   async function handleCancelMatch() {
@@ -337,6 +357,10 @@ function MatchPanel({ matchState, onOpenMatchDetail }) {
         setError(res.msg || "启动匹配失败");
         return;
       }
+      if (res && res.status === "started") {
+        // 通知 Library 启动按需轮询
+        onMatchStarted?.();
+      }
       // 进行中/已完成状态由 Library 轮询驱动
     } catch {
       setError("启动匹配失败，请确认后端已启动");
@@ -351,121 +375,12 @@ function MatchPanel({ matchState, onOpenMatchDetail }) {
       <h3 style={panelStyles.title}>匹配</h3>
       <p style={panelStyles.desc}>通过 QQ音乐 / iTunes / MusicBrainz 拉取歌曲与艺人信息，并自动写回音乐文件</p>
 
-      {/* 左侧：拉取配置 */}
-      <div style={matchStyles.configBox}>
-        <p style={matchStyles.configTitle}>匹配字段</p>
-        <div style={matchStyles.fieldGrid}>
-          {MATCH_FIELDS.map(([k, label]) => (
-            <div key={k} style={matchStyles.fieldChip}>
-              <button
-                style={{
-                  ...matchStyles.miniSwitch,
-                  ...(fields[k] ? matchStyles.miniSwitchOn : {}),
-                }}
-                onClick={() => toggleField(k)}
-                title={fields[k] ? "点击关闭" : "点击开启"}
-              >
-                <div
-                  style={{
-                    ...matchStyles.miniKnob,
-                    ...(fields[k] ? matchStyles.miniKnobOn : {}),
-                  }}
-                />
-              </button>
-              <span style={matchStyles.fieldChipLabel}>{label}</span>
-            </div>
-          ))}
-        </div>
-
-        <p style={{ ...matchStyles.configTitle, marginTop: "16px" }}>匹配源（可多选）</p>
-        <div style={matchStyles.sourceRow}>
-          {MATCH_SOURCES.map(([k, label]) => (
-            <button
-              key={k}
-              style={{
-                ...matchStyles.sourceChip,
-                ...(sources[k] ? matchStyles.sourceChipOn : {}),
-              }}
-              onClick={() => toggleSource(k)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* 右侧：全部匹配功能 */}
+      {/* 全部匹配（置顶） */}
       <div style={matchStyles.matchBox}>
         <p style={matchStyles.configTitle}>全部匹配</p>
         <p style={matchStyles.matchDesc}>
           为资料库中缺少信息的歌曲补全所选字段，并为艺人补写真；文件内已存在的信息不会被覆盖
         </p>
-
-        <div style={matchStyles.toggleRow}>
-          <div style={matchStyles.toggleText}>
-            <p style={matchStyles.toggleTitle}>跳过已匹配的音乐</p>
-            <p style={matchStyles.toggleDesc}>开启后，已匹配过的歌曲不再重复匹配；关闭则全量重匹配</p>
-          </div>
-          <button
-            style={{
-              ...panelStyles.toggleSwitch,
-              ...(skipMatched ? panelStyles.toggleSwitchOn : {}),
-            }}
-            onClick={toggleSkipMatched}
-            title={skipMatched ? "点击关闭" : "点击开启"}
-          >
-            <div
-              style={{
-                ...panelStyles.toggleKnob,
-                ...(skipMatched ? panelStyles.toggleKnobOn : {}),
-              }}
-            />
-          </button>
-        </div>
-
-        <div style={matchStyles.toggleRow}>
-          <div style={matchStyles.toggleText}>
-            <p style={matchStyles.toggleTitle}>通过歌词寻找作曲者、作词者和发布者信息</p>
-            <p style={matchStyles.toggleDesc}>如果多个源无法匹配到上述信息则尝试在歌词中寻找</p>
-          </div>
-          <button
-            style={{
-              ...panelStyles.toggleSwitch,
-              ...(lyricFallback ? panelStyles.toggleSwitchOn : {}),
-            }}
-            onClick={toggleLyricFallback}
-            title={lyricFallback ? "点击关闭" : "点击开启"}
-          >
-            <div
-              style={{
-                ...panelStyles.toggleKnob,
-                ...(lyricFallback ? panelStyles.toggleKnobOn : {}),
-              }}
-            />
-          </button>
-        </div>
-
-        <div style={matchStyles.toggleRow}>
-          <div style={matchStyles.toggleText}>
-            <p style={matchStyles.toggleTitle}>匹配艺人写真</p>
-            <p style={matchStyles.toggleDesc}>通过 QQ音乐 singer mid 规则获取 500x500 高清艺人写真并保存</p>
-          </div>
-          <button
-            style={{
-              ...panelStyles.toggleSwitch,
-              ...(matchArtistEnabled ? panelStyles.toggleSwitchOn : {}),
-            }}
-            onClick={toggleArtist}
-            title={matchArtistEnabled ? "点击关闭" : "点击开启"}
-          >
-            <div
-              style={{
-                ...panelStyles.toggleKnob,
-                ...(matchArtistEnabled ? panelStyles.toggleKnobOn : {}),
-              }}
-            />
-          </button>
-        </div>
 
         <div style={matchStyles.matchHeader}>
           <button style={matchStyles.startBtn} onClick={handleStartMatch} disabled={running}>
@@ -508,6 +423,120 @@ function MatchPanel({ matchState, onOpenMatchDetail }) {
             </button>
           </div>
         )}
+      </div>
+
+      {/* 匹配字段 + 匹配源 */}
+      <div style={matchStyles.configBox}>
+        <p style={matchStyles.configTitle}>匹配字段</p>
+        <div style={matchStyles.fieldGrid}>
+          {MATCH_FIELDS.map(([k, label]) => (
+            <div key={k} style={matchStyles.fieldChip}>
+              <button
+                style={{
+                  ...matchStyles.miniSwitch,
+                  ...(fields[k] ? matchStyles.miniSwitchOn : {}),
+                }}
+                onClick={() => toggleField(k)}
+                title={fields[k] ? "点击关闭" : "点击开启"}
+              >
+                <div
+                  style={{
+                    ...matchStyles.miniKnob,
+                    ...(fields[k] ? matchStyles.miniKnobOn : {}),
+                  }}
+                />
+              </button>
+              <span style={matchStyles.fieldChipLabel}>{label}</span>
+            </div>
+          ))}
+        </div>
+
+        <p style={{ ...matchStyles.configTitle, marginTop: "16px" }}>匹配源（可多选）</p>
+        <div style={matchStyles.sourceRow}>
+          {MATCH_SOURCES.map(([k, label]) => (
+            <button
+              key={k}
+              style={{
+                ...matchStyles.sourceChip,
+                ...(sources[k] ? matchStyles.sourceChipOn : {}),
+              }}
+              onClick={() => toggleSource(k)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* 功能设置 */}
+      <div style={matchStyles.configBox}>
+        <p style={matchStyles.configTitle}>功能设置</p>
+
+        <div style={matchStyles.toggleRow}>
+          <div style={matchStyles.toggleText}>
+            <p style={matchStyles.toggleTitle}>跳过已匹配的音乐</p>
+            <p style={matchStyles.toggleDesc}>已匹配音乐不再参与匹配</p>
+          </div>
+          <button
+            style={{
+              ...panelStyles.toggleSwitch,
+              ...(skipMatched ? panelStyles.toggleSwitchOn : {}),
+            }}
+            onClick={toggleSkipMatched}
+            title={skipMatched ? "点击关闭" : "点击开启"}
+          >
+            <div
+              style={{
+                ...panelStyles.toggleKnob,
+                ...(skipMatched ? panelStyles.toggleKnobOn : {}),
+              }}
+            />
+          </button>
+        </div>
+
+        <div style={matchStyles.toggleRow}>
+          <div style={matchStyles.toggleText}>
+            <p style={matchStyles.toggleTitle}>通过歌词寻找作曲者、作词者和发布者信息</p>
+            <p style={matchStyles.toggleDesc}>匹配源无法获取上述信息时通过LRC获取</p>
+          </div>
+          <button
+            style={{
+              ...panelStyles.toggleSwitch,
+              ...(lyricFallback ? panelStyles.toggleSwitchOn : {}),
+            }}
+            onClick={toggleLyricFallback}
+            title={lyricFallback ? "点击关闭" : "点击开启"}
+          >
+            <div
+              style={{
+                ...panelStyles.toggleKnob,
+                ...(lyricFallback ? panelStyles.toggleKnobOn : {}),
+              }}
+            />
+          </button>
+        </div>
+
+        <div style={matchStyles.toggleRow}>
+          <div style={matchStyles.toggleText}>
+            <p style={matchStyles.toggleTitle}>匹配艺人写真</p>
+            <p style={matchStyles.toggleDesc}>通过源获取艺人封面</p>
+          </div>
+          <button
+            style={{
+              ...panelStyles.toggleSwitch,
+              ...(matchArtistEnabled ? panelStyles.toggleSwitchOn : {}),
+            }}
+            onClick={toggleArtist}
+            title={matchArtistEnabled ? "点击关闭" : "点击开启"}
+          >
+            <div
+              style={{
+                ...panelStyles.toggleKnob,
+                ...(matchArtistEnabled ? panelStyles.toggleKnobOn : {}),
+              }}
+            />
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -1324,6 +1353,8 @@ const matchStyles = {
     display: "flex",
     flexDirection: "column",
     gap: "20px",
+    // 顶部避让右上角关闭按钮（X）
+    paddingTop: "36px",
   },
   configBox: {
     border: "1px solid #f3f4f6",

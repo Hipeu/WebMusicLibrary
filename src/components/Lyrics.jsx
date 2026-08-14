@@ -10,8 +10,11 @@ import { useRef, useEffect } from "react";
  *   lyricsData  — { type: 'timed' | 'plain', lines: [...] }
  *   currentTime — 当前播放时间（秒），仅 timed 模式使用
  */
-export default function Lyrics({ lyricsData, currentTime, onSeek }) {
+export default function Lyrics({ lyricsData, currentTime, onSeek, activeColor = "#e94560" }) {
   const scrollRef = useRef(null);
+
+  // 当前行高亮色（跟随封面发光色；默认 #e94560），背景为同色 8% 透明度
+  const activeBg = activeColor.length === 7 ? `${activeColor}14` : "rgba(233,69,96,0.08)";
 
     // timed 模式：找到当前应该高亮的行
   const currentIndex =
@@ -45,6 +48,7 @@ export default function Lyrics({ lyricsData, currentTime, onSeek }) {
             style={{
               ...styles.line,
               ...(i === currentIndex ? styles.activeLine : {}),
+              ...(i === currentIndex ? { color: activeColor, background: activeBg } : {}),
               ...(i < currentIndex ? styles.pastLine : {}),
               cursor: "pointer",
             }}
@@ -108,8 +112,7 @@ const styles = {
     fontSize: "17px",
     transform: "scale(1.02)",
     background: "rgba(233,69,96,0.08)",
-  },
-  pastLine: {
+  },  pastLine: {
     color: "#9ca3af",
     fontSize: "14px",
   },

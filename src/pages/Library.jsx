@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { FiPlus } from "react-icons/fi";
-import { FaEllipsisH, FaCompactDisc, FaUser, FaHeart, FaStepForward, FaClock, FaPlus, FaSortAmountDown, FaArrowUp, FaTrash, FaMusic, FaInfoCircle, FaCog, FaPlay, FaExclamationCircle, FaCheckCircle, FaTimes } from "react-icons/fa";
+import { FaEllipsisH, FaCompactDisc, FaUser, FaHeart, FaStepForward, FaClock, FaPlus, FaSortAmountDown, FaArrowUp, FaTrash, FaMusic, FaInfoCircle, FaCog, FaPlay, FaExclamationCircle, FaCheckCircle, FaTimes, FaBell } from "react-icons/fa";
 import { readMetadata } from "../utils/MetadataReader";
 import { uploadMusic, getMusicList, getAssetUrl, deleteMusic, checkMusicFiles, updateMusicMetadata, getLyrics, getPlaylists, savePlaylists, resetAll, getResetProgress, openMusicFile, getArtists, saveArtist, deleteArtist, getMatchAllProgress, cancelMatchAll } from "../services/api";
 import { saveSongToIndex, removeSongFromIndex, loadMusicIndex } from "../utils/musicIndex";
@@ -62,6 +62,14 @@ function deleteToTrashEnabled() {
   return localStorage.getItem("delete-to-trash") === "1";
 }
 
+/** 通知时间显示：HH:MM */
+function formatNotifTime(ts) {
+  if (!ts) return "";
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return "";
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
 /** 生成本地专辑 id（模块级包装，避免在组件函数内直接调用 Date.now/Math.random） */
 function newAlbumId() {
   return Date.now().toString() + Math.random().toString(36).slice(2, 6);
@@ -114,6 +122,7 @@ function buildAlbumsFromIndex(index) {
       modification_time: s.modification_time,
       hash: s.hash || null,
       matched: !!s.matched,
+      match_source: s.match_source || null,
     });
   });
   return Array.from(albumMap.values()).map((a) => ({
@@ -151,6 +160,7 @@ function buildAlbumsFromServer(data) {
         modification_time: s.modification_time,
         hash: s.hash || null,
         matched: !!s.matched,
+        match_source: s.match_source || null,
       }));
       if (songs.length === 0) continue;
       const firstSong = songs[0];
@@ -196,6 +206,15 @@ function mergeAlbumsByTitle(prev, newAlbums) {
   }
   // 兜底：过滤空专辑（防止残留空专辑卡片）
   return Array.from(merged.values()).filter((a) => a.songs.length > 0);
+}
+
+/** 用服务端最新专辑重建资料库：按「专辑艺人|专辑名」去重，服务端优先；
+ *  丢弃已被服务端覆盖的同 key 本地专辑（真正仅本地的保留），避免残留旧信息 / 重复专辑卡片 */
+function mergeServerAlbums(prev, serverAlbums) {
+  const keyOf = (a) => `${a.album_artist || a.artist || ""}|${a.title}`;
+  const serverKeys = new Set(serverAlbums.map(keyOf));
+  const keptLocal = prev.filter((a) => !serverKeys.has(keyOf(a)));
+  return [...keptLocal.map((a) => ({ ...a, songs: [...a.songs] })), ...serverAlbums];
 }
 
 /** 根据编辑返回的歌曲信息构建本地索引条目（保留 duration/bitrate 等只读字段） */
@@ -253,21 +272,28 @@ export default function MusicLibrary() {
   const audioRef = useRef(null);
   const fileInputRef = useRef(null);
   const reimportInputRef = useRef(null);
-  const [toastMsg, setToastMsg] = useState(null); // 右上角通知
-  const [toastType, setToastType] = useState("warning"); // "warning" | "success"
-  const [toastLeaving, setToastLeaving] = useState(false);
-  const [toastEntered, setToastEntered] = useState(false);
-  const toastAutoRef = useRef(null);
-  const [importProgress, setImportProgress] = useState(null); // 导入进度 { done, total }
-  const [importCurrentCover, setImportCurrentCover] = useState(null); // 正在导入的音乐封面
+  // ---------- 懒加载（无限滚动）：主内容区为滚动容器，初始 40 条 ----------
+  const [visibleCount, setVisibleCount] = useState(40);
+  const mainAreaRef = useRef(null);
+  const sentinelRef = useRef(null);
+  // 编辑当前播放歌曲被移动时的无缝续播恢复点 { newUrl, time, playing }
+  const editRestoreRef = useRef(null);
+  // ---------- 统一通知（活动） ----------
+  const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [leavingNotifId, setLeavingNotifId] = useState(null);
+  const [hoveredNotifId, setHoveredNotifId] = useState(null);
+  const notifIdRef = useRef(0);
+  const importNotifIdRef = useRef(null);
+  const matchNotifIdRef = useRef(null);
+  const albumMatchNotifIdRef = useRef(null);
+  // 匹配轮询按需：仅匹配进行中才轮询
+  const matchPollRef = useRef(null);
+  const matchActiveRef = useRef(false);
+  const [showActivity, setShowActivity] = useState(false);
+  const [activityLeaving, setActivityLeaving] = useState(false);
   const importCancelledRef = useRef(false);
   const importAbortRef = useRef(null);
-  const [importCardHidden, setImportCardHidden] = useState(false); // 本次导入进度卡片是否被关闭
-  const [importCardLeaving, setImportCardLeaving] = useState(false);
-  const [importCardEntered, setImportCardEntered] = useState(false);
-  const [importDoneEntered, setImportDoneEntered] = useState(false);
-  const [importDoneLeaving, setImportDoneLeaving] = useState(false);
-  const [importDoneSummary, setImportDoneSummary] = useState(null); // 导入完成摘要 { duplicate, unplayable, count }
   const [isDragOver, setIsDragOver] = useState(false); // 拖拽文件悬浮在可导入区域
   const dragExcludedRef = useRef(false); // 当前是否悬浮在排除区（侧栏/顶栏/底部播放条）
   const [importPending, setImportPending] = useState(null); // 不可播放格式导入确认 { entries, unplayable, unplayableSkippedList, duplicateSkippedList, skippedNonMusic }
@@ -411,55 +437,250 @@ export default function MusicLibrary() {
     );
   }
 
-  // ---------- 右上角通知 ----------
-  // msg 可为字符串，或 { title, content, action } 结构（title+content+按钮）
-  // 默认不自动消失；点击关闭按钮或鼠标移入再移出后消失（带滑出动画）
-  // opts: { noClose?: boolean, autoDismiss?: number(ms) }
-  function showToast(msg, type = "warning", opts = {}) {
-    if (toastAutoRef.current) clearTimeout(toastAutoRef.current);
-    setToastLeaving(false);
-    setToastEntered(false);
-    setToastMsg(msg);
-    setToastType(type);
-    if (opts.autoDismiss) {
-      toastAutoRef.current = setTimeout(() => dismissToast(), opts.autoDismiss);
-    }
+  // ---------- 统一通知（活动） ----------
+  // 通知字段：{ id, kind, title, content, time, action?, ongoing, progress:{done,total}?, cover?, popup }
+  // 规则：所有通知无 X；鼠标移入再移出即消失；非进行中 3.5s 自动消失；进行中不自动消失
+  function addNotification({ kind = "info", title = "", content, action, ongoing = false, progress = null, cover = null, transient = false }) {
+    const id = ++notifIdRef.current;
+    setNotifications((prev) => [
+      ...prev,
+      { id, kind, title, content, action, ongoing, progress, cover, time: Date.now(), popup: true, transient },
+    ]);
+    // 瞬态通知（如「设置已保存」）不计入未读、不进活动盒子
+    if (!transient) setUnreadCount((c) => c + 1);
+    if (!ongoing) scheduleAutoDismiss(id);
+    return id;
   }
 
-  function dismissToast() {
-    if (!toastMsg) return;
-    setToastLeaving(true);
+  function updateNotification(id, patch) {
+    setNotifications((prev) => prev.map((n) => {
+      if (n.id !== id) return n;
+      const next = { ...n, ...patch };
+      if (n.ongoing && patch.ongoing === false) scheduleAutoDismiss(id);
+      return next;
+    }));
+  }
+
+  function scheduleAutoDismiss(id) {
+    setTimeout(() => dismissNotificationAnim(id), 3500);
+  }
+
+  function dismissNotification(id) {
+    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, popup: false } : n)));
+  }
+
+  function dismissNotificationAnim(id) {
+    if (leavingNotifId === id) return;
+    setLeavingNotifId(id);
     setTimeout(() => {
-      setToastMsg(null);
-      setToastLeaving(false);
-      setToastEntered(false);
+      setLeavingNotifId(null);
+      dismissNotification(id);
     }, 250);
   }
 
-  // ---------- 设置保存成功提示 ----------
+  // 兼容旧调用：统一写入活动通知
+  function showToast(msg, type = "warning") {
+    if (msg && typeof msg === "object") {
+      addNotification({ kind: type, title: msg.title, content: msg.content, action: msg.action });
+    } else {
+      addNotification({ kind: type, title: msg || "" });
+    }
+  }
+
+  // ---------- 活动面板开关 ----------
+  function closeActivity() {
+    if (activityLeaving) return;
+    setActivityLeaving(true);
+    setTimeout(() => {
+      setActivityLeaving(false);
+      setShowActivity(false);
+    }, 280);
+  }
+
+  // 活动盒内「查看详情」：先关闭活动盒再打开匹配详情
+  function openMatchDetailFromCard() {
+    setActivityLeaving(false);
+    setShowActivity(false);
+    openMatchDetail("all");
+  }
+
+  // 专辑匹配独立进度（MusicEdit 上报）
+  function handleAlbumMatchProgress({ status, done, total, message, skipped }) {
+    if (status === "start") {
+      albumMatchNotifIdRef.current = addNotification({
+        kind: "progress_album_match", title: "正在匹配专辑", ongoing: true,
+        progress: { done: 0, total }, content: null,
+      });
+    } else if (status === "update" && albumMatchNotifIdRef.current) {
+      updateNotification(albumMatchNotifIdRef.current, { progress: { done, total } });
+    } else if (status === "done" && albumMatchNotifIdRef.current) {
+      updateNotification(albumMatchNotifIdRef.current, {
+        ongoing: false, progress: null, popup: true,
+        kind: (skipped || 0) > 0 ? "warning" : "success",
+        title: "专辑匹配完成", content: message || `已匹配 ${done} 首歌曲`,
+      });
+    }
+  }
+
+  // ---------- 匹配轮询（按需：仅匹配进行中） ----------
+  async function pollMatchProgress() {
+    try {
+      const res = await getMatchAllProgress();
+      const status = res.status || "done";
+      setMatchState({
+        status,
+        running: status === "matching",
+        done: res.done || 0,
+        total: res.total || 0,
+        matched: res.matched || 0,
+        failed: res.failed || 0,
+        skipped: res.skipped || 0,
+        current: res.current || null,
+        error: res.error || null,
+        log: res.log || [],
+        cancelled: !!res.cancelled,
+      });
+      const prev = matchPrevStatusRef.current;
+      matchPrevStatusRef.current = status;
+      if (status === "matching" && prev !== "matching") {
+        matchNotifIdRef.current = addNotification({
+          kind: "progress_match", title: "正在匹配", ongoing: true,
+          progress: { done: 0, total: res.total || 0 }, content: res.current || null,
+        });
+      } else if (status === "matching" && matchNotifIdRef.current) {
+        updateNotification(matchNotifIdRef.current, {
+          progress: { done: res.done || 0, total: res.total || 0 },
+          content: res.current || null,
+        });
+      }
+      if (prev === "matching" && status !== "matching") {
+        handleMatchDone(res);
+        stopMatchPoll();
+      }
+    } catch {
+      // 后端不可用时静默
+    }
+  }
+
+  function startMatchPoll() {
+    if (matchPollRef.current) return;
+    matchActiveRef.current = true;
+    pollMatchProgress();
+    matchPollRef.current = setInterval(pollMatchProgress, 1000);
+  }
+
+  function stopMatchPoll() {
+    matchActiveRef.current = false;
+    if (matchPollRef.current) {
+      clearInterval(matchPollRef.current);
+      matchPollRef.current = null;
+    }
+  }
+
+  // 进度卡片（弹出区与活动面板共用）：导入可取消 / 匹配可查看详情 / 专辑纯进度
+  const renderProgressCard = (n, { style, ...rest } = {}) => {
+    const pct = n.progress && n.progress.total > 0
+      ? Math.round((n.progress.done / n.progress.total) * 100)
+      : 0;
+    const container = { ...styles.toastNotify, ...styles.toastNotifyCard, ...styles.notifCard, ...(style || {}) };
+    if (n.kind === "progress_import") {
+      return (
+        <div style={container} {...rest}>
+          <p style={styles.importProgressTitle}>{n.title}</p>
+          <div style={styles.importProgressRow}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
+              <div style={styles.importProgressCover}>
+                <span style={styles.importProgressCoverPlaceholder}><FaMusic size={15} /></span>
+                {n.cover && (
+                  <img src={n.cover} alt="" onError={(e) => { e.currentTarget.style.display = "none"; }} style={styles.importProgressCoverImg} />
+                )}
+              </div>
+              <span style={styles.importProgressCount}>
+                已导入：{n.progress?.done || 0}/{n.progress?.total || 0}
+              </span>
+            </div>
+            <button style={styles.importProgressCancel} onClick={handleCancelImport}>取消</button>
+          </div>
+          <div style={{ ...styles.importProgressTrack, marginTop: "12px" }}>
+            <div style={{ ...styles.importProgressFill, width: `${pct}%` }} />
+          </div>
+        </div>
+      );
+    }
+    if (n.kind === "progress_album_match") {
+      return (
+        <div style={container} {...rest}>
+          <p style={styles.importProgressTitle}>{n.title}</p>
+          <div style={styles.importProgressRow}>
+            <span style={styles.importProgressCount}>
+              已匹配：{n.progress?.done || 0}/{n.progress?.total || 0}
+            </span>
+          </div>
+          {n.content && <p style={styles.matchProgressCurrent}>{n.content}</p>}
+          <div style={{ ...styles.importProgressTrack, marginTop: "12px" }}>
+            <div style={{ ...styles.importProgressFill, width: `${pct}%` }} />
+          </div>
+        </div>
+      );
+    }
+    if (n.kind === "progress_update") {
+      return (
+        <div style={container} {...rest}>
+          <p style={styles.importProgressTitle}>{n.title}</p>
+          <div style={styles.importProgressRow}>
+            <span style={styles.importProgressCount}>
+              已更新：{n.progress?.done || 0}/{n.progress?.total || 0}
+            </span>
+          </div>
+          <div style={{ ...styles.importProgressTrack, marginTop: "12px" }}>
+            <div style={{ ...styles.importProgressFill, width: `${pct}%` }} />
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div style={container} {...rest}>
+        <p style={styles.importProgressTitle}>{n.title}</p>
+        <div style={styles.importProgressRow}>
+          <span style={styles.importProgressCount}>
+            已完成：{n.progress?.done || 0}/{n.progress?.total || 0}
+          </span>
+          <button style={styles.importProgressCancel} onClick={openMatchDetailFromCard}>查看详情</button>
+        </div>
+        {n.content && <p style={styles.matchProgressCurrent}>{n.content}</p>}
+        <div style={{ ...styles.importProgressTrack, marginTop: "12px" }}>
+          <div style={{ ...styles.importProgressFill, width: `${pct}%` }} />
+        </div>
+      </div>
+    );
+  };
+
+  // ---------- 设置保存成功提示（瞬态：弹出即消失，不进活动盒子、不计未读） ----------
   function handleSettingsSaved() {
-    showToast("设置已保存", "success", { noClose: true, autoDismiss: 2500 });
+    addNotification({ kind: "success", title: "设置已保存", transient: true });
   }
 
   // ---------- 全部匹配完成：刷新专辑 / 艺人数据 + 匹配结束通知 ----------
   async function handleMatchDone(res) {
     if (res?.cancelled) {
-      showToast(
-        res.done > 0 ? `已取消匹配（已处理 ${res.done} 条）` : "已取消匹配",
-        "warning"
-      );
+      // 取消匹配：部分歌曲已写回，先刷新资料库数据（仅库内状态，不整页刷新）
+      await refreshFromServer();
+      if (matchNotifIdRef.current) {
+        updateNotification(matchNotifIdRef.current, {
+          kind: "warning", ongoing: false, progress: null, popup: true,
+          title: "已取消匹配",
+          content: `已匹配 ${res.matched || 0} 首歌曲`,
+          action: { label: "查看详情", onClick: () => openMatchDetail("all") },
+        });
+      }
       return;
     }
     try {
       const data = await getMusicList();
       if (Array.isArray(data)) {
         const serverAlbums = buildAlbumsFromServer(data);
-        // 整体替换服务端专辑（使匹配写入的歌曲信息 / 封面 / 碟号等同步显示），
-        // 保留仅存在于本地索引的专辑
-        setAlbums((prev) => {
-          const localOnly = prev.filter((a) => !a.id.startsWith("server-"));
-          return [...localOnly.map((a) => ({ ...a, songs: [...a.songs] })), ...serverAlbums];
-        });
+        // 整体替换服务端专辑（去重本地重复专辑），使匹配写入的信息同步显示
+        setAlbums((prev) => mergeServerAlbums(prev, serverAlbums));
         // 同步本地索引（离线缓存保持一致）
         serverAlbums.forEach((a) =>
           (a.songs || []).forEach((s) => {
@@ -483,6 +704,7 @@ export default function MusicLibrary() {
               file_path: s.file_path,
               cover_path: s.coverURL ? s.coverURL.replace(/^.*?\/data\//, "") : null,
               hash: s.hash,
+              match_source: s.match_source,
               importTime: Date.now(),
               modification_time: s.modification_time,
             });
@@ -502,8 +724,10 @@ export default function MusicLibrary() {
     const skipped = res?.skipped || 0;
     const failed = res?.failed || 0;
     const hasFail = skipped + failed > 0;
-    showToast(
-      {
+    if (matchNotifIdRef.current) {
+      updateNotification(matchNotifIdRef.current, {
+        ongoing: false, progress: null, popup: true,
+        kind: hasFail ? "warning" : "success",
         title: "匹配结束",
         content: hasFail
           ? `成功 ${matched} 条，失败 ${failed}，跳过 ${skipped}`
@@ -511,12 +735,11 @@ export default function MusicLibrary() {
         action: hasFail
           ? { label: "查看详情", onClick: () => openMatchDetail("failed") }
           : undefined,
-      },
-      hasFail ? "warning" : "success"
-    );
+      });
+    }
   }
 
-  // ---------- 全部匹配：右上角常驻进度（与导入进度样式一致） ----------
+  // ---------- 全部匹配：进度数据（供设置面板 / 详情窗口 / 进度通知使用） ----------
   const [matchState, setMatchState] = useState({
     status: "done", running: false, done: 0, total: 0,
     matched: 0, failed: 0, skipped: 0, current: null, error: null,
@@ -525,9 +748,6 @@ export default function MusicLibrary() {
   const matchPrevStatusRef = useRef("done");
   const [showMatchDetail, setShowMatchDetail] = useState(false);
   const [matchDetailFilter, setMatchDetailFilter] = useState("all");
-  const [matchCardHidden, setMatchCardHidden] = useState(false); // 本次匹配进度卡片是否被关闭
-  const [matchCardLeaving, setMatchCardLeaving] = useState(false);
-  const [matchCardEntered, setMatchCardEntered] = useState(false);
 
   function openMatchDetail(filter = "all") {
     setMatchDetailFilter(filter);
@@ -542,71 +762,17 @@ export default function MusicLibrary() {
     }
   }
 
-  // 匹配进度卡片关闭（本次运行期间隐藏，新一次匹配重新显示）
-  function dismissMatchCard() {
-    if (matchCardLeaving) return;
-    setMatchCardLeaving(true);
-    setTimeout(() => {
-      setMatchCardHidden(true);
-      setMatchCardLeaving(false);
-      setMatchCardEntered(false);
-    }, 250);
-  }
-
-  // 导入进度卡片关闭（本次导入期间隐藏，新一次导入重新显示）
-  function dismissImportCard() {
-    if (importCardLeaving) return;
-    setImportCardLeaving(true);
-    setTimeout(() => {
-      setImportCardHidden(true);
-      setImportCardLeaving(false);
-      setImportCardEntered(false);
-    }, 250);
-  }
-
-  // 导入完成摘要卡片关闭
-  function dismissImportDone() {
-    if (importDoneLeaving) return;
-    setImportDoneLeaving(true);
-    setTimeout(() => {
-      setImportDoneSummary(null);
-      setImportDoneLeaving(false);
-      setImportDoneEntered(false);
-    }, 250);
-  }
-
+  // 挂载时一次性探测：若后端已有匹配在跑则启动轮询（兼容刷新后继续显示）
   useEffect(() => {
-    const timer = setInterval(async () => {
+    (async () => {
       try {
         const res = await getMatchAllProgress();
-        const status = res.status || "done";
-        setMatchState({
-          status,
-          running: status === "matching",
-          done: res.done || 0,
-          total: res.total || 0,
-          matched: res.matched || 0,
-          failed: res.failed || 0,
-          skipped: res.skipped || 0,
-          current: res.current || null,
-          error: res.error || null,
-          log: res.log || [],
-          cancelled: !!res.cancelled,
-        });
-        const prev = matchPrevStatusRef.current;
-        matchPrevStatusRef.current = status;
-        if (status === "matching" && prev !== "matching") {
-          // 新一次匹配开始 → 重新显示卡片
-          setMatchCardHidden(false);
-        }
-        if (prev === "matching" && status !== "matching") {
-          handleMatchDone(res);
-        }
+        if ((res.status || "done") === "matching") startMatchPoll();
       } catch {
-        // 后端不可用时静默，避免循环报错
+        // 后端不可用时静默
       }
-    }, 1000);
-    return () => clearInterval(timer);
+    })();
+    return () => stopMatchPoll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -704,7 +870,7 @@ export default function MusicLibrary() {
     });
   }
 
-  // 导入完成上报：合并进 albums，并按结果弹「导入完成」success toast
+  // 导入完成上报：合并进 albums，并将导入进度通知更新为「导入完成」
   function finishImportResult(entries, opts = {}) {
     const { duplicate = [], unplayable = [], nonMusic = 0 } = opts;
     finishImport(entries);
@@ -716,24 +882,28 @@ export default function MusicLibrary() {
     else if (hasUnplayable) parts.push("无法播放歌曲已跳过");
     if (nonMusic > 0) parts.push(`已忽略 ${nonMusic} 个非音乐文件`);
     const content = parts.join("；");
+    const hasSkip = hasDup || hasUnplayable;
 
-    if (hasDup || hasUnplayable) {
-      // 默认不弹导入结果 toast；由导入完成摘要卡片提供「查看详情」入口
-      setImportDoneSummary({
-        duplicate,
-        unplayable,
-        count: (duplicate.length || 0) + (unplayable.length || 0),
+    // 更新导入进度通知为「导入完成」（非进行中 → 3.5s 后自动消失；有跳过时提供「查看详情」）
+    if (importNotifIdRef.current) {
+      updateNotification(importNotifIdRef.current, {
+        ongoing: false, progress: null, cover: null, popup: true,
+        kind: hasSkip ? "warning" : "success",
+        title: "导入完成",
+        content: hasSkip
+          ? `已导入 ${entries.length} 首，${content}`
+          : entries.length > 0
+            ? `已导入 ${entries.length} 首歌曲`
+            : content || "已添加到资料库",
+        action: hasSkip
+          ? { label: "查看详情", onClick: () => setImportSkipDetail({ duplicate, unplayable }) }
+          : undefined,
       });
-      return;
+    } else if (entries.length > 0) {
+      showToast({ title: "导入完成", content }, "success");
     }
 
-    if (entries.length > 0) {
-      showToast(content ? { title: "导入完成", content } : { title: "导入完成" }, "success", 3000);
-      return;
-    }
-
-    // 完全没有音乐可导入
-    if (nonMusic > 0) showToast(`已忽略 ${nonMusic} 个非音乐文件`, "warning");
+    if (nonMusic > 0 && !hasSkip && entries.length === 0) showToast(`已忽略 ${nonMusic} 个非音乐文件`, "warning");
   }
 
   // 一致性确认继续后推进：导入该文件并处理下一项 / 收尾
@@ -856,10 +1026,12 @@ export default function MusicLibrary() {
     importCancelledRef.current = false;
     const abort = new AbortController();
     importAbortRef.current = abort;
-    setImportCurrentCover(null);
-    setImportDoneSummary(null);
-    setImportCardHidden(false);
-    if (musicFiles.length > 0) setImportProgress({ done: 0, total: musicFiles.length });
+    if (musicFiles.length > 0) {
+      importNotifIdRef.current = addNotification({
+        kind: "progress_import", title: "正在导入", ongoing: true,
+        progress: { done: 0, total: musicFiles.length }, cover: null,
+      });
+    }
 
     // 设置开关：开启时跳过不支持播放的格式（默认开启，不做任何导入）
     const skipUnplayable = localStorage.getItem("import-skip-unplayable") !== "false";
@@ -889,8 +1061,7 @@ export default function MusicLibrary() {
         // 解析失败按普通文件处理
       }
       if (importCancelledRef.current) break;
-      // 更新当前导入音乐的封面（无封面则占位）
-      setImportCurrentCover(meta?.coverURL || null);
+      if (importNotifIdRef.current) updateNotification(importNotifIdRef.current, { cover: meta?.coverURL || null });
 
       const mTitle = meta?.title || f.name.replace(/\.[^/.]+$/, "");
       const mArtist = meta?.artist || "";
@@ -931,7 +1102,7 @@ export default function MusicLibrary() {
           }
         }
         done++;
-        setImportProgress({ done, total: musicFiles.length });
+        if (importNotifIdRef.current) updateNotification(importNotifIdRef.current, { progress: { done, total: musicFiles.length } });
         continue;
       }
 
@@ -939,7 +1110,7 @@ export default function MusicLibrary() {
         // 元信息不匹配（查找流程）→ 待确认（仅新增）
         pendingFiles.push({ file: f, meta, replace: false });
         done++;
-        setImportProgress({ done, total: musicFiles.length });
+        if (importNotifIdRef.current) updateNotification(importNotifIdRef.current, { progress: { done, total: musicFiles.length } });
         continue;
       }
 
@@ -959,20 +1130,15 @@ export default function MusicLibrary() {
         }
       }
       done++;
-      setImportProgress({ done, total: musicFiles.length });
+      if (importNotifIdRef.current) updateNotification(importNotifIdRef.current, { progress: { done, total: musicFiles.length } });
     }
 
     if (importCancelledRef.current) {
       // 取消：保留已导入部分，丢弃未处理的队列
       abort.abort();
-      setImportProgress(null);
-      setImportCurrentCover(null);
       finishImportResult(entries, { duplicate: duplicateSkippedList, unplayable: unplayableSkippedList, nonMusic: skippedNonMusic });
       return;
     }
-
-    setImportProgress(null);
-    setImportCurrentCover(null);
 
     // 先处理一致性确认队列，再处理不可播放确认
     if (pendingFiles.length > 0) {
@@ -1093,6 +1259,9 @@ export default function MusicLibrary() {
     function handleOpenAlbumDetail(albumId) {
       setDetailAlbumId(albumId);
       setDetailArtistName(null);
+      // 进入专辑详情：按需检测该专辑歌曲是否缺失
+      const album = albums.find((a) => a.id === albumId);
+      if (album) runFileCheck((album.songs || []).map((s) => s.file_path));
     }
 
         // ---------- 从卡片播放按钮播放/暂停 ----------
@@ -1153,6 +1322,9 @@ export default function MusicLibrary() {
   // ---------- 打开播放列表详情 ----------
   function handleOpenPlaylistDetail(playlistId) {
     setDetailPlaylistId(playlistId);
+    // 进入播放列表详情：按需检测该播放列表歌曲是否缺失
+    const pl = playlists.find((p) => p.id === playlistId);
+    if (pl) runFileCheck((pl.songs || []).map((s) => s.file_path));
   }
 
     // ---------- 关闭播放列表详情 ----------
@@ -1322,6 +1494,12 @@ export default function MusicLibrary() {
       setDetailArtistName(null);
     }
     setActiveNav(val);
+    // 切换导航时重置懒加载计数（避免旧视图的可见条数影响新视图）
+    setVisibleCount(40);
+    // 进入主视图（资料库/专辑/歌曲/播放列表）时按需全量检测缺失文件
+    if (["library", "albums", "songs", "playlists"].includes(val)) {
+      runFileCheck(allLibraryPaths());
+    }
         // 切换导航时退出多选模式
     handleCancelSelect();
                 // 切换导航时关闭单曲菜单和专辑菜单
@@ -1901,22 +2079,117 @@ export default function MusicLibrary() {
       setEditTarget(target);
     }
 
+    // 播放器多功能菜单「详细信息」→ 打开歌曲编辑器（自动定位所属专辑）
+    function handleOpenEditFromPlayer(song) {
+      if (!song) return;
+      let albumId = song.albumId || null;
+      if (!albumId) {
+        const found = albums.find((a) =>
+          (a.songs || []).some((s) => (s.file_path && s.file_path === song.file_path) || (s.url && s.url === song.url))
+        );
+        albumId = found?.id || null;
+      }
+      handleOpenMusicEdit({ type: "song", data: { ...song, albumId } });
+    }
+
     async function refreshFromServer() {
       try {
         const data = await getMusicList();
         if (!Array.isArray(data)) return;
         const serverAlbums = buildAlbumsFromServer(data);
-        setAlbums((prev) => {
-          // 服务端专辑整体以最新结果替换（移除已改名/已删除的旧歌曲、同步最新音轨号）
-          const localOnly = prev.filter((a) => !a.id.startsWith("server-"));
-          return [...localOnly.map((a) => ({ ...a, songs: [...a.songs] })), ...serverAlbums];
-        });
+        setAlbums((prev) => mergeServerAlbums(prev, serverAlbums));
       } catch (err) {
         console.warn("刷新服务端专辑失败:", err);
       }
     }
 
-    async function handleSaveEdit(target, form, editCoverFile, matched) {
+    // ---------- 按需检测缺失文件（不再全局轮询） ----------
+    // opts.onProgress(done, total)：提供时按每块 100 条分块调用并回报进度（供更新资料库进度条）
+    async function runFileCheck(paths, opts = {}) {
+      const uniq = Array.from(new Set((paths || []).filter(Boolean)));
+      if (uniq.length === 0) return;
+      const hasProgress = typeof opts.onProgress === "function";
+      const BATCH = 100;
+      const batchCount = Math.ceil(uniq.length / BATCH);
+      const missing = new Set();
+      try {
+        if (!hasProgress) {
+          // 无进度需求：保持单次批量调用（导航切换等触发，低开销）
+          const res = await checkMusicFiles(uniq);
+          Object.entries(res.exists || {}).forEach(([p, exists]) => {
+            if (!exists) missing.add(p);
+          });
+        } else {
+          for (let i = 0; i < batchCount; i++) {
+            const batch = uniq.slice(i * BATCH, (i + 1) * BATCH);
+            const res = await checkMusicFiles(batch);
+            Object.entries(res.exists || {}).forEach(([p, exists]) => {
+              if (!exists) missing.add(p);
+            });
+            opts.onProgress(i + 1, batchCount);
+          }
+        }
+        setMissingSongs((prev) => {
+          const keep = new Set([...prev].filter((p) => !uniq.includes(p)));
+          missing.forEach((p) => keep.add(p));
+          return keep;
+        });
+      } catch (err) {
+        console.warn("文件存在性检测失败:", err);
+        if (hasProgress) opts.onProgress(batchCount, batchCount);
+      }
+    }
+
+    function allLibraryPaths() {
+      const paths = [];
+      const seen = new Set();
+      albums.forEach((a) =>
+        (a.songs || []).forEach((s) => {
+          if (s.file_path && !seen.has(s.file_path)) {
+            seen.add(s.file_path);
+            paths.push(s.file_path);
+          }
+        })
+      );
+      return paths;
+    }
+
+    // ---------- 更新资料库：刷新专辑 + 全量检测缺失标记（带进度条） ----------
+    async function handleRefreshLibrary() {
+      const paths = allLibraryPaths();
+      const batchCount = Math.ceil(paths.length / 100);
+      const total = paths.length > 0 ? batchCount + 1 : 1; // 列表刷新算 1 步
+      let notifId = null;
+      try {
+        notifId = addNotification({
+          kind: "progress_update", title: "正在更新资料库", ongoing: true,
+          progress: { done: 0, total }, content: null,
+        });
+        await refreshFromServer();
+        updateNotification(notifId, { progress: { done: 1, total } });
+        if (paths.length > 0) {
+          await runFileCheck(paths, {
+            onProgress: (done) => updateNotification(notifId, { progress: { done: done + 1, total } }),
+          });
+        }
+        updateNotification(notifId, {
+          ongoing: false, progress: null, popup: true, kind: "success",
+          title: "资料库已更新", content: null,
+        });
+      } catch (err) {
+        console.warn("更新资料库失败:", err);
+        if (notifId) {
+          updateNotification(notifId, {
+            ongoing: false, progress: null, popup: true, kind: "warning",
+            title: "更新资料库失败", content: null,
+          });
+        } else {
+          showToast("更新资料库失败", "warning");
+        }
+      }
+    }
+
+    async function handleSaveEdit(target, form, editCoverFile, matched, matchSource) {
       const removedPaths = [];
       const addedSongs = [];
       try {
@@ -1938,7 +2211,9 @@ export default function MusicLibrary() {
               : undefined,
             genre: form.genre || undefined,
             year: form.year ? String(form.year) : undefined,
-            publisher: form.publisher || undefined,
+            publisher: form.publisher !== undefined && form.publisher !== null
+              ? (String(form.publisher).trim() === "" ? " " : String(form.publisher))
+              : undefined,
             ...(editCoverFile ? { cover: editCoverFile } : {}),
           };
           for (const song of albumData.songs || []) {
@@ -1974,10 +2249,13 @@ export default function MusicLibrary() {
                 : undefined,
             composer: form.composer || undefined,
             lyricist: form.lyricist || undefined,
-            publisher: form.publisher || undefined,
+            publisher: form.publisher !== undefined && form.publisher !== null
+              ? (String(form.publisher).trim() === "" ? " " : String(form.publisher))
+              : undefined,
             comment: form.comment || undefined,
             lyrics: form.lyrics || undefined,
             ...(matched ? { matched: "1" } : {}),
+            ...(matchSource ? { match_source: matchSource } : {}),
             ...(editCoverFile ? { cover: editCoverFile } : {}),
           });
           if (res?.status === "ok" && res.song) {
@@ -1989,7 +2267,47 @@ export default function MusicLibrary() {
         if (removedPaths.length > 0) {
           removedPaths.forEach((p) => removeSongFromIndex(p));
           addedSongs.forEach((s) => saveSongToIndex(s));
+
+          // ---- 无缝播放：当前播放歌曲若被物理移动（URL 变化），切换到独立播放源并记录恢复点 ----
+          const movedIdx = currentSong?.file_path ? removedPaths.indexOf(currentSong.file_path) : -1;
+          const movedSong = movedIdx >= 0 ? addedSongs[movedIdx] : null;
+          if (movedIdx >= 0 && movedSong?.file_path && movedSong.file_path !== currentSong.file_path) {
+            setCurrentAlbumId(null);
+            setCurrentPlaylistId(null);
+            setPlayQueue([movedSong]);
+            setCurrentSongIndex(0);
+            editRestoreRef.current = { newUrl: movedSong.url, time: currentTime, playing: isPlaying };
+          }
+
           await refreshFromServer();
+
+          // 标题/艺人/专辑被改名会导致后端物理移动文件（file_path 变化），
+          // 同步各播放列表中的旧快照，避免残留旧信息
+          const movedByPath = new Map();
+          const movedByUrl = new Map();
+          removedPaths.forEach((oldPath, i) => {
+            const newSong = addedSongs[i];
+            if (!newSong || !newSong.file_path || newSong.file_path === oldPath) return;
+            movedByPath.set(oldPath, newSong);
+            movedByUrl.set(getAssetUrl(`/library/${oldPath}`), newSong);
+          });
+          if (movedByPath.size > 0) {
+            setPlaylists((prev) =>
+              prev.map((pl) => {
+                let changed = false;
+                const songs = (pl.songs || []).map((s) => {
+                  const live = (s.file_path && movedByPath.get(s.file_path))
+                    || (!s.file_path && s.url && movedByUrl.get(s.url));
+                  if (live) {
+                    changed = true;
+                    return live;
+                  }
+                  return s;
+                });
+                return changed ? { ...pl, songs } : pl;
+              })
+            );
+          }
 
           // ---- 导航策略 ----
           let navigateHome = false;
@@ -2201,6 +2519,23 @@ export default function MusicLibrary() {
     reconcile();
   }, []);
 
+  // ---------- 懒加载：监听 sentinel 进入主内容区视口时追加 40 条 ----------
+  useEffect(() => {
+    const container = mainAreaRef.current;
+    const sentinel = sentinelRef.current;
+    if (!container || !sentinel) return;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setVisibleCount((c) => c + 40);
+        }
+      },
+      { root: container, rootMargin: "300px" }
+    );
+    obs.observe(sentinel);
+    return () => obs.disconnect();
+  }, [activeNav]);
+
   // ---------- 播放列表：后端合并（后端为准，空则用本地缓存做种子） ----------
   useEffect(() => {
     let cancelled = false;
@@ -2273,38 +2608,6 @@ export default function MusicLibrary() {
     );
   }, [albums]);
 
-  // ---------- 定期检测缺失的音乐文件（用户可能在资源管理器删除） ----------
-  useEffect(() => {
-    let timer;
-    async function checkMissing() {
-      // 收集所有带 file_path 的歌曲
-      const paths = [];
-      const seen = new Set();
-      albums.forEach((a) =>
-        a.songs.forEach((s) => {
-          if (s.file_path && !seen.has(s.file_path)) {
-            seen.add(s.file_path);
-            paths.push(s.file_path);
-          }
-        })
-      );
-      if (paths.length === 0) return;
-      try {
-        const res = await checkMusicFiles(paths);
-        const missing = new Set();
-        Object.entries(res.exists || {}).forEach(([p, exists]) => {
-          if (!exists) missing.add(p);
-        });
-        setMissingSongs(missing);
-      } catch (err) {
-        // 后端不可用时不标记缺失
-        console.warn("文件存在性检测失败:", err);
-      }
-    }
-    checkMissing();
-    timer = setInterval(checkMissing, 10000);
-    return () => clearInterval(timer);
-  }, [albums]);
   useEffect(() => {
     if (currentAlbumId && isPlaying && currentAlbumId !== prevAlbumIdRef.current) {
       prevAlbumIdRef.current = currentAlbumId;
@@ -2518,6 +2821,18 @@ export default function MusicLibrary() {
                       }}
                     />
                   </div>
+                  {/* 活动（铃铛）按钮 */}
+                  <button
+                    className="upload-btn"
+                    style={{ ...styles.importBtn, position: "relative" }}
+                    onClick={() => { setShowActivity(true); setUnreadCount(0); }}
+                    title="活动"
+                  >
+                    <FaBell size={18} />
+                    {unreadCount > 0 && (
+                      <span style={styles.bellBadge}>{unreadCount}</span>
+                    )}
+                  </button>
                   {/* 设置按钮 */}
                   <button
                     className="upload-btn"
@@ -2637,7 +2952,7 @@ export default function MusicLibrary() {
                   /* ================================================================ */
                   /* 专辑视图                                                         */
                   /* ================================================================ */
-                                    <main style={styles.mainArea}>
+                                    <main style={styles.mainArea} ref={mainAreaRef}>
                     <div style={styles.sortBar}>
                       {["recent_add", "favorite", "time", "matched", "unmatched"].map((tag) => {
                         const label =
@@ -2712,8 +3027,9 @@ export default function MusicLibrary() {
                         <p style={styles.emptyHint}>点击右上角「导入音乐」按钮添加你的音乐文件</p>
                       </div>
                     ) : (
+                      <>
                       <div style={styles.albumGrid}>
-                        {sorted.map((album) => {
+                        {sorted.slice(0, visibleCount).map((album) => {
                           const isActive = album.id === currentAlbumId;
                           return (
                             <div
@@ -2763,6 +3079,8 @@ export default function MusicLibrary() {
                           );
                         })}
                       </div>
+                      <div ref={sentinelRef} style={{ height: 1 }} />
+                      </>
                     )}
                   )()}
                     {/* 专辑操作菜单 */}
@@ -2894,7 +3212,7 @@ export default function MusicLibrary() {
                                   /* ================================================================ */
                                   /* 歌曲视图（平坦列表，显示所有专辑的所有歌曲）                   */
                                   /* ================================================================ */
-                                                                                                                                        <main style={styles.mainArea} className={isSelecting ? "multi-select-active" : ""}>
+                                                                                                                                        <main style={styles.mainArea} ref={mainAreaRef} className={isSelecting ? "multi-select-active" : ""}>
                                     {isSelecting ? (
                                       /* ----- 多选模式：固定在页面顶部，不随滚动移动 ----- */
                                       <div style={styles.multiSelectBarSticky}>
@@ -3025,6 +3343,7 @@ export default function MusicLibrary() {
                         return b.id?.localeCompare?.(a.id || "") || 0;
                       });
                                             return (
+                        <>
                         <div style={styles.songTable}>
                           {/* 表头 */}
                                                     <div style={styles.songTableHeader}>
@@ -3037,7 +3356,7 @@ export default function MusicLibrary() {
                             <div style={styles.songColMenu}></div>
                           </div>
                                                     {/* 歌曲行 */}
-                           {sortedSongs.map((song, idx) => {
+                           {sortedSongs.slice(0, visibleCount).map((song, idx) => {
                             const isActive = currentAlbumId === song.albumId && currentSongIndex === albums.find((a) => a.id === song.albumId)?.songs.findIndex((s) => s.title === song.title && s.url === song.url);
                             const albumLocalIdx = albums.find((a) => a.id === song.albumId)?.songs.findIndex((s) => s.url === song.url) ?? idx;
                             const songKey = `${song.albumId}-${albumLocalIdx}`;
@@ -3153,7 +3472,8 @@ export default function MusicLibrary() {
                             );
                           })}
                         </div>
-                                            );
+                        <div ref={sentinelRef} style={{ height: 1 }} />
+                        </>);
                     })()}
 
                     {/* 单曲操作菜单 */}
@@ -3222,13 +3542,13 @@ export default function MusicLibrary() {
                             <button style={styles.confirmDeleteBtn} onClick={handleConfirmDelete}>
                               确认删除
                             </button>
-                            <button style={styles.confirmCancelBtn} onClick={handleCancelSelect}>
-                              取消
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    )}
+                             <button style={styles.confirmCancelBtn} onClick={handleCancelSelect}>
+                               取消
+                             </button>
+                           </div>
+                         </div>
+                       </div>
+                     )}
                   </main>
                                 ) : activeNav === "playlists" ? (
                                   /* ================================================================ */
@@ -3316,7 +3636,7 @@ export default function MusicLibrary() {
                                   /* ================================================================ */
                                   /* 资料库视图（默认）— 可排序的专辑卡片 + 播放列表卡片混合排列    */
                                   /* ================================================================ */
-                                  <main style={styles.mainArea}>
+                                  <main style={styles.mainArea} ref={mainAreaRef}>
                                     <div style={styles.sortBar}>
                                       {/* 下拉选框：最近添加 / 最近播放 */}
                                       <select
@@ -3355,9 +3675,10 @@ export default function MusicLibrary() {
                                         <p style={styles.emptyHint}>点击右上角「导入音乐」按钮添加你的音乐文件</p>
                                       </div>
                                     ) : (
+                                      <>
                                       <div style={styles.libraryGrid}>
                                         {/* 专辑卡片 */}
-                                        {librarySortedAlbums.map((album) => {
+                                        {librarySortedAlbums.slice(0, visibleCount).map((album) => {
                                           const isActive = album.id === currentAlbumId;
                                           return (
                                             <div
@@ -3406,8 +3727,7 @@ export default function MusicLibrary() {
                                             </div>
                                           );
                                         })}
-
-                                                                                                                                {/* 播放列表卡片 */}
+                                                                                                                                 {/* 播放列表卡片 */}
                                                                 {playlists.map((pl) => (
                                           <div
                                             key={pl.id}
@@ -3439,13 +3759,15 @@ export default function MusicLibrary() {
                                                 <span style={styles.albumMenuDotsInline}>···</span>
                                               </button>
                                             </div>
-                                            <p style={styles.albumArtist}>播放列表</p>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    )}
+                                             <p style={styles.albumArtist}>播放列表</p>
+                                           </div>
+                                         ))}
+                                       </div>
+                                       <div ref={sentinelRef} style={{ height: 1 }} />
+                                       </>
+                                     )}
 
-                                    {/* 专辑操作菜单 */}
+                                     {/* 专辑操作菜单 */}
                                     {albumMenu && (
                                       <>
                                         <div style={styles.contextOverlay} onClick={handleCloseAlbumMenu} />
@@ -3709,13 +4031,17 @@ export default function MusicLibrary() {
           handleOpenPlaylistDetail(playlistId);
         }}
         onUnplayableSong={(song) => setUnplayableDialogSong(song)}
+        onOpenEdit={handleOpenEditFromPlayer}
+        editRestoreRef={editRestoreRef}
       />
 
       <MusicEdit
+        key={editTarget ? `${editTarget.type}-${editTarget.data?.file_path || editTarget.data?.id || ""}` : "none"}
         target={editTarget}
         onClose={() => setEditTarget(null)}
         onSave={handleSaveEdit}
         onRefresh={refreshFromServer}
+        onAlbumMatchProgress={handleAlbumMatchProgress}
       />
 
       {artistEditTarget && (
@@ -3737,6 +4063,8 @@ export default function MusicLibrary() {
         onSettingsSaved={handleSettingsSaved}
         matchState={matchState}
         onOpenMatchDetail={() => openMatchDetail("all")}
+        onMatchStarted={startMatchPoll}
+        onRefreshLibrary={handleRefreshLibrary}
       />
 
       {/* ===== 匹配详情独立窗口 ===== */}
@@ -3773,184 +4101,161 @@ export default function MusicLibrary() {
         onChange={handleReimportSelect}
       />
 
-      {/* ===== 匹配进度卡片（右上角） ===== */}
-      {!matchCardHidden && matchState.running && matchState.total > 0 && (
-        <div
-          style={{
-            ...styles.importProgress,
-            ...(matchCardLeaving ? { animation: "slideOutRight 0.25s ease forwards" } : { animation: "slideInRight 0.25s ease" }),
-          }}
-          onMouseEnter={() => setMatchCardEntered(true)}
-          onMouseLeave={() => {
-            if (matchCardEntered) dismissMatchCard();
-            setMatchCardEntered(false);
-          }}
-        >
-          <button style={styles.popupCloseBtn} onClick={dismissMatchCard} title="关闭">
-            <FaTimes size={13} />
-          </button>
-          <div style={styles.importProgressBody}>
-            <p style={styles.importProgressTitle}>正在匹配：</p>
-            <div style={styles.importProgressRow}>
-              <span style={styles.importProgressCount}>
-                已完成：{matchState.done}/{matchState.total}
-              </span>
-              <button style={styles.importProgressCancel} onClick={() => openMatchDetail("all")}>
-                查看详情
-              </button>
-            </div>
-            {matchState.current && (
-              <p style={styles.matchProgressCurrent}>{matchState.current}</p>
-            )}
-          </div>
-          <div style={styles.importProgressTrack}>
-            <div
-              style={{
-                ...styles.importProgressFill,
-                width: `${(matchState.done / matchState.total) * 100}%`,
-              }}
-            />
-          </div>
-        </div>
-      )}
+      {/* ===== 右上角通知堆叠（统一通知） ===== */}
+      {notifications.some((n) => n.popup) && (
+        <div style={styles.notifyStack}>
+          {notifications.filter((n) => n.popup).map((n) => {
+            const leaving = n.id === leavingNotifId;
+            const anim = leaving
+              ? { animation: "fadeOut 0.25s ease forwards" }
+              : { animation: "slideInRight 0.25s ease" };
+            const hoverProps = {
+              onMouseEnter: () => setHoveredNotifId(n.id),
+              onMouseLeave: () => {
+                if (hoveredNotifId === n.id) dismissNotificationAnim(n.id);
+                setHoveredNotifId(null);
+              },
+            };
 
-      {/* ===== 导入进度卡片（右上角） ===== */}
-      {!importCardHidden && importProgress && importProgress.total > 0 && (
-        <div
-          style={{
-            ...styles.importProgress,
-            ...(importCardLeaving ? { animation: "slideOutRight 0.25s ease forwards" } : { animation: "slideInRight 0.25s ease" }),
-          }}
-          onMouseEnter={() => setImportCardEntered(true)}
-          onMouseLeave={() => {
-            if (importCardEntered) dismissImportCard();
-            setImportCardEntered(false);
-          }}
-        >
-          <button style={styles.popupCloseBtn} onClick={dismissImportCard} title="关闭">
-            <FaTimes size={13} />
-          </button>
-          <div style={styles.importProgressBody}>
-            <p style={styles.importProgressTitle}>正在添加到资料库：</p>
-            <div style={styles.importProgressRow}>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
-                <div style={styles.importProgressCover}>
-                  <span style={styles.importProgressCoverPlaceholder}><FaMusic size={15} /></span>
-                  {importCurrentCover && (
-                    <img
-                      src={importCurrentCover}
-                      alt=""
-                      onError={(e) => { e.currentTarget.style.display = "none"; }}
-                      style={styles.importProgressCoverImg}
-                    />
+            if (n.kind === "progress_import" || n.kind === "progress_match" || n.kind === "progress_album_match" || n.kind === "progress_update") {
+              return renderProgressCard(n, { key: n.id, style: anim, ...hoverProps });
+            }
+
+            // toast 类通知
+            const isSuccess = n.kind === "success";
+            return (
+              <div
+                key={n.id}
+                style={{
+                  ...styles.toastNotify,
+                  position: "static",
+                  ...(n.content || n.action ? styles.toastNotifyCard : {}),
+                  ...(isSuccess ? styles.toastNotifySuccess : {}),
+                  ...anim,
+                }}
+                {...hoverProps}
+              >
+                {isSuccess ? (
+                  <FaCheckCircle size={20} style={{ color: "#ffffff", flexShrink: 0 }} />
+                ) : (
+                  <FaExclamationCircle size={20} style={{ color: "#f59e0b", flexShrink: 0 }} />
+                )}
+                <div style={styles.toastCardBody}>
+                  <p style={{ ...styles.toastCardTitle, ...(isSuccess ? styles.toastCardTitleSuccess : {}) }}>{n.title}</p>
+                  {n.content && (
+                    <p style={{ ...styles.toastCardContent, ...(isSuccess ? styles.toastCardContentSuccess : {}) }}>{n.content}</p>
                   )}
                 </div>
-                <span style={styles.importProgressCount}>
-                  已导入：{importProgress.done}/{importProgress.total}
-                </span>
-              </div>
-              <button style={styles.importProgressCancel} onClick={handleCancelImport}>
-                取消
-              </button>
-            </div>
-          </div>
-          <div style={styles.importProgressTrack}>
-            <div
-              style={{
-                ...styles.importProgressFill,
-                width: `${(importProgress.done / importProgress.total) * 100}%`,
-              }}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* ===== 导入完成摘要卡片（有重复/无法播放跳过时显示） ===== */}
-      {importDoneSummary && (
-        <div
-          style={{
-            ...styles.importProgress,
-            ...(importDoneLeaving ? { animation: "slideOutRight 0.25s ease forwards" } : { animation: "slideInRight 0.25s ease" }),
-          }}
-          onMouseEnter={() => setImportDoneEntered(true)}
-          onMouseLeave={() => {
-            if (importDoneEntered) dismissImportDone();
-            setImportDoneEntered(false);
-          }}
-        >
-          <button style={styles.popupCloseBtn} onClick={dismissImportDone} title="关闭">
-            <FaTimes size={13} />
-          </button>
-          <div style={styles.importProgressBody}>
-            <p style={styles.importProgressTitle}>导入完成</p>
-            <div style={styles.importProgressRow}>
-              <span style={styles.importProgressCount}>
-                有 {importDoneSummary.count} 条重复 / 无法播放歌曲已跳过
-              </span>
-              <button
-                style={styles.importProgressCancel}
-                onClick={() => setImportSkipDetail(importDoneSummary)}
-              >
-                查看详情
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ===== 右上角通知（添加音乐功能条下方） ===== */}
-      {toastMsg && (
-        <div
-          style={{
-            ...styles.toastNotify,
-            ...(typeof toastMsg === "object" ? styles.toastNotifyCard : {}),
-            ...(toastType === "success" ? styles.toastNotifySuccess : {}),
-            ...(toastLeaving ? { animation: "slideOutRight 0.25s ease forwards" } : { animation: "slideInRight 0.25s ease" }),
-          }}
-          onMouseEnter={() => setToastEntered(true)}
-          onMouseLeave={() => {
-            if (toastEntered) dismissToast();
-            setToastEntered(false);
-          }}
-        >
-          {!toastMsg.noClose && (
-            <button style={styles.toastCloseBtn} onClick={dismissToast} title="关闭">
-              <FaTimes size={13} />
-            </button>
-          )}
-          {typeof toastMsg === "object" ? (
-            <>
-              {toastType === "success" ? (
-                <FaCheckCircle size={20} style={{ color: "#ffffff", flexShrink: 0 }} />
-              ) : (
-                <FaExclamationCircle size={20} style={{ color: "#f59e0b", flexShrink: 0 }} />
-              )}
-              <div style={styles.toastCardBody}>
-                <p style={{ ...styles.toastCardTitle, ...(toastType === "success" ? styles.toastCardTitleSuccess : {}) }}>{toastMsg.title}</p>
-                {toastMsg.content && (
-                  <p style={{ ...styles.toastCardContent, ...(toastType === "success" ? styles.toastCardContentSuccess : {}) }}>{toastMsg.content}</p>
+                {n.action && (
+                  <button style={isSuccess ? styles.toastCardActionSuccess : styles.toastCardAction} onClick={n.action.onClick}>
+                    {n.action.label}
+                  </button>
                 )}
               </div>
-              {toastMsg.action && (
-                <button
-                  style={toastType === "success" ? styles.toastCardActionSuccess : styles.toastCardAction}
-                  onClick={toastMsg.action.onClick}
-                >
-                  {toastMsg.action.label}
-                </button>
-              )}
-            </>
-          ) : (
-            <>
-              {toastType === "success" ? (
-                <FaCheckCircle size={24} style={{ color: "#ffffff" }} />
-              ) : (
-                <FaExclamationCircle size={24} style={{ color: "#f59e0b" }} />
-              )}
-              <span>{toastMsg}</span>
-            </>
-          )}
+            );
+          })}
         </div>
+      )}
+
+      {/* ===== 活动面板（铃铛入口） ===== */}
+      {showActivity && (
+        <>
+          <div
+            style={{
+              ...styles.activityBackdrop,
+              ...(activityLeaving ? { animation: "fadeOutDim 0.28s ease forwards" } : { animation: "fadeInDim 0.28s ease" }),
+            }}
+            onClick={closeActivity}
+          />
+          <div
+            style={{
+              ...styles.activityPanel,
+              ...(activityLeaving ? { animation: "slideOutPanelRight 0.28s ease forwards" } : { animation: "slideInPanelRight 0.28s ease" }),
+            }}
+          >
+            <div style={styles.activityHeader}>
+              <h3 style={styles.activityTitle}>活动</h3>
+              {/* 关闭按钮在上，「全部已读」在下（右对齐）；无可见消息时隐藏 */}
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "16px" }}>
+                <button style={styles.activityClose} onClick={closeActivity} title="关闭">
+                  <FaTimes size={16} />
+                </button>
+                {notifications.some((n) => !n.transient) && (
+                  <button
+                    style={styles.activityReadAllBtn}
+                    onClick={() => { setNotifications([]); setUnreadCount(0); }}
+                    title="全部已读"
+                  >
+                    全部已读
+                  </button>
+                )}
+              </div>
+            </div>
+            <div style={styles.activityList}>
+              {(() => {
+                // 瞬态通知（设置已保存等）不进入活动盒子
+                const visible = notifications.filter((n) => !n.transient);
+                const sorted = [...visible].sort((a, b) => {
+                  if (a.ongoing !== b.ongoing) return a.ongoing ? -1 : 1;
+                  return b.time - a.time;
+                });
+                if (sorted.length === 0) {
+                  return <p style={styles.activityEmpty}>暂无活动</p>;
+                }
+                return sorted.map((n) => {
+                  // 进行中的进度卡片：复用弹出区卡片（含取消 / 查看详情 / 专辑进度 / 更新资料库）
+                  if (n.ongoing && (n.kind === "progress_import" || n.kind === "progress_match" || n.kind === "progress_album_match" || n.kind === "progress_update")) {
+                    return renderProgressCard(n, { key: n.id, style: { width: "100%", maxWidth: "none" } });
+                  }
+                  const pct = n.progress && n.progress.total > 0
+                    ? Math.round((n.progress.done / n.progress.total) * 100)
+                    : 0;
+                  const iconStyle =
+                    n.kind === "success" ? styles.activityItemIconSuccess
+                      : n.kind === "warning" ? styles.activityItemIconWarn
+                        : n.kind === "error" ? styles.activityItemIconErr
+                          : n.kind.startsWith("progress") ? styles.activityItemIconRun
+                            : styles.activityItemIconInfo;
+                  const iconText =
+                    n.kind === "success" ? "✓"
+                      : n.kind === "warning" ? "!"
+                        : n.kind === "error" ? "✕"
+                          : n.kind.startsWith("progress") ? "▶"
+                            : "•";
+                  return (
+                    <div key={n.id} style={styles.activityItem}>
+                      <span style={{ ...styles.activityItemIcon, ...iconStyle }}>{iconText}</span>
+                      <div style={styles.activityBody}>
+                        <p style={styles.activityItemTitle}>{n.title}</p>
+                        {n.content && <p style={styles.activityItemContent}>{n.content}</p>}
+                        {n.ongoing && n.progress && (
+                          <div style={styles.activityTrack}>
+                            <div style={{ ...styles.activityFill, width: `${pct}%` }} />
+                          </div>
+                        )}
+                        {n.action && (
+                          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "6px" }}>
+                            <button
+                              style={styles.activityActionBtn}
+                              onClick={() => {
+                                setActivityLeaving(false);
+                                setShowActivity(false);
+                                n.action.onClick();
+                              }}
+                            >
+                              {n.action.label}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                      <span style={styles.activityTime}>{formatNotifTime(n.time)}</span>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+          </div>
+        </>
       )}
 
       {/* ===== 不受支持格式导入确认浮窗 ===== */}
@@ -4757,6 +5062,200 @@ const styles = {
     justifyContent: "center",
     fontFamily: "inherit",
   },
+  // ===== 统一通知堆叠（右上角弹出区） =====
+  notifyStack: {
+    position: "fixed",
+    top: "76px",
+    right: "24px",
+    zIndex: 1500,
+    display: "flex",
+    flexDirection: "column",
+    gap: "10px",
+    maxHeight: "calc(100vh - 96px)",
+    overflow: "hidden",
+    alignItems: "flex-end",
+  },
+  // 进度卡片统一为通知卡片容器（列布局 + 固定宽度）
+  notifCard: {
+    position: "static",
+    flexDirection: "column",
+    alignItems: "stretch",
+    width: "360px",
+    boxSizing: "border-box",
+  },
+  // ===== 顶栏铃铛徽标 =====
+  bellBadge: {
+    position: "absolute",
+    top: "-4px",
+    right: "-4px",
+    minWidth: "16px",
+    height: "16px",
+    padding: "0 4px",
+    borderRadius: "8px",
+    background: "#e94560",
+    color: "#ffffff",
+    fontSize: "10px",
+    fontWeight: 700,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    boxSizing: "border-box",
+  },
+  // ===== 活动面板 =====
+  // 背景遮罩：全屏（含顶部栏）逐渐变暗
+  activityBackdrop: {
+    position: "fixed",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    background: "rgba(0,0,0,0.35)",
+    zIndex: 1400,
+  },
+  // 面板：右侧向左约 30% 宽度，从右滑入（覆盖顶部栏）
+  activityPanel: {
+    position: "fixed",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    width: "30%",
+    minWidth: "320px",
+    maxWidth: "520px",
+    background: "#ffffff",
+    boxShadow: "-8px 0 30px rgba(0,0,0,0.15)",
+    zIndex: 1401,
+    display: "flex",
+    flexDirection: "column",
+  },
+  activityHeader: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: "16px 24px",
+    borderBottom: "1px solid #e5e7eb",
+    flexShrink: 0,
+  },
+  activityTitle: {
+    fontSize: "20px",
+    fontWeight: 700,
+    color: "#1f2937",
+    margin: 0,
+  },
+  activityClose: {
+    width: "34px",
+    height: "34px",
+    borderRadius: "50%",
+    border: "none",
+    background: "#f3f4f6",
+    color: "#6b7280",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontFamily: "inherit",
+  },
+  activityReadAllBtn: {
+    padding: "5px 14px",
+    borderRadius: "14px",
+    border: "1px solid #e5e7eb",
+    background: "#ffffff",
+    color: "#6b7280",
+    fontSize: "12px",
+    fontWeight: 500,
+    cursor: "pointer",
+    fontFamily: "inherit",
+    transition: "all 0.15s",
+  },
+  activityList: {
+    flex: 1,
+    overflowY: "auto",
+    padding: "16px 24px 40px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "10px",
+  },
+  activityEmpty: {
+    fontSize: "14px",
+    color: "#9ca3af",
+    textAlign: "center",
+    margin: "40px 0",
+  },
+  activityItem: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: "12px",
+    padding: "12px 14px",
+    borderRadius: "12px",
+    border: "1px solid #e5e7eb",
+    background: "#ffffff",
+  },
+  activityItemIcon: {
+    flexShrink: 0,
+    width: "22px",
+    height: "22px",
+    borderRadius: "50%",
+    fontSize: "12px",
+    fontWeight: 700,
+    color: "#ffffff",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: "1px",
+  },
+  activityItemIconSuccess: { background: "#16a34a" },
+  activityItemIconWarn: { background: "#f59e0b" },
+  activityItemIconErr: { background: "#e94560" },
+  activityItemIconRun: { background: "#e94560" },
+  activityItemIconInfo: { background: "#9ca3af" },
+  activityBody: {
+    flex: 1,
+    minWidth: 0,
+    display: "flex",
+    flexDirection: "column",
+    gap: "3px",
+  },
+  activityItemTitle: {
+    fontSize: "14px",
+    fontWeight: 600,
+    color: "#1f2937",
+    margin: 0,
+  },
+  activityItemContent: {
+    fontSize: "13px",
+    color: "#6b7280",
+    lineHeight: 1.5,
+    margin: 0,
+    wordBreak: "break-word",
+  },
+  activityTrack: {
+    height: "5px",
+    borderRadius: "3px",
+    background: "#e5e7eb",
+    overflow: "hidden",
+    marginTop: "4px",
+  },
+  activityFill: {
+    height: "100%",
+    background: "#e94560",
+    transition: "width 0.25s ease",
+  },
+  activityTime: {
+    flexShrink: 0,
+    fontSize: "11px",
+    color: "#9ca3af",
+    marginTop: "2px",
+  },
+  activityActionBtn: {
+    padding: "5px 14px",
+    borderRadius: "14px",
+    border: "1px solid #e94560",
+    background: "#ffffff",
+    color: "#e94560",
+    fontSize: "12px",
+    fontWeight: 600,
+    cursor: "pointer",
+    fontFamily: "inherit",
+  },
   // 红色进度条（紧贴卡片底边，满 = 到右侧）
   importProgressTrack: {
     height: "6px",
@@ -4792,8 +5291,7 @@ const styles = {
     color: "#374151",
     fontSize: "18px",
     fontWeight: 500,
-    boxShadow: "0 8px 30px rgba(0,0,0,0.18)",
-    border: "1px solid #f3f4f6",
+    border: "1px solid #e5e7eb",
   },
   toastNotifySuccess: {
     background: "#22c55e",

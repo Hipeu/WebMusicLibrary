@@ -7,7 +7,7 @@ import LyricImport from "../components/LyricImport";
    ✏️ MusicEdit — 编辑音乐元信息弹窗
    右上角「匹配」：歌曲匹配填入表单 / 专辑匹配逐首写回
    ================================================================ */
-export default function MusicEdit({ target, onClose, onSave, onRefresh }) {
+export default function MusicEdit({ target, onClose, onSave, onRefresh, onAlbumMatchProgress }) {
   const [form, setForm] = useState({});
   const [editCover, setEditCover] = useState(null);
   const [editCoverFile, setEditCoverFile] = useState(null);
@@ -15,6 +15,8 @@ export default function MusicEdit({ target, onClose, onSave, onRefresh }) {
   const [matching, setMatching] = useState(false);
   const [matchMsg, setMatchMsg] = useState("");
   const [didMatch, setDidMatch] = useState(false);
+  const [albumDidMatch, setAlbumDidMatch] = useState(false);
+  const [lastSource, setLastSource] = useState(null);
   const [lyricImportOpen, setLyricImportOpen] = useState(false);
   const coverInputRef = useRef(null);
   const isAlbum = target?.type === "album";
@@ -24,6 +26,10 @@ export default function MusicEdit({ target, onClose, onSave, onRefresh }) {
     ? (data?.songs || []).some((s) => s.matched)
     : false;
   const songMatched = isAlbum ? albumMatched : !!data?.matched;
+  // 匹配源展示：多源斜杠分隔；专辑取各歌并集
+  const matchSourceDisplay = isAlbum
+    ? Array.from(new Set((data?.songs || []).map((s) => s.match_source).filter(Boolean))).map(matchSourceLabel).join(" / ")
+    : matchSourceLabel(data?.match_source);
 
   useEffect(() => {
     if (!target) return;
@@ -82,32 +88,47 @@ export default function MusicEdit({ target, onClose, onSave, onRefresh }) {
     try {
       const config = buildMatchConfig();
       if (isAlbum) {
-        // 专辑：逐首匹配并直接写回（仅填空缺），完成后刷新
+        // 专辑：逐首匹配并直接写回（仅填空缺），完成后刷新；独立进度通知
         const songs = data.songs || [];
         let doneCount = 0;
+        let okCount = 0;
+        let skipCount = 0;
+        onAlbumMatchProgress?.({ status: "start", total: songs.length });
         for (const song of songs) {
           if (song.file_path) {
-            const res = await matchSong({ song_name: song.title, artist_name: song.artist, ...config });
+            const res = await matchSong({ song_name: song.title, artist_name: song.artist, file_path: song.file_path || "", ...config });
             if (res && !res.error) {
+              // 仅填空缺：源匹配其余字段，LRC 保底只补 作曲/作词/发布者，已有值不覆盖
               const payload = {};
-              if (res.composers?.length) payload.composer = res.composers.join(", ");
-              if (res.lyricists?.length) payload.lyricist = res.lyricists.join(", ");
-              if (res.album) payload.album = res.album;
-              if (res.album_artist) payload.album_artist = res.album_artist;
-              if (res.year) payload.year = res.year;
-              if (res.genre) payload.genre = res.genre;
-              if (res.trackNo != null) payload.trackNo = res.trackNo;
-              if (res.discNo != null) payload.discNo = res.discNo;
-              if (res.publisher) payload.publisher = res.publisher;
-              if (res.arranger) payload.arranger = res.arranger;
-              if (res.producer) payload.producer = res.producer;
-              if (res.lyric) payload.lyrics = res.lyric;
-              await updateMusicMetadata({ file_path: song.file_path, ...payload, matched: "1" });
+              if (!song.composer && res.composers?.length) payload.composer = res.composers.join(", ");
+              if (!song.lyricist && res.lyricists?.length) payload.lyricist = res.lyricists.join(", ");
+              if (!song.album && res.album) payload.album = res.album;
+              if (!song.album_artist && res.album_artist) payload.album_artist = res.album_artist;
+              if (!song.year && res.year) payload.year = res.year;
+              if (!song.genre && res.genre) payload.genre = res.genre;
+              if (song.trackNo == null && res.trackNo != null) payload.trackNo = res.trackNo;
+              if (song.discNo == null && res.discNo != null) payload.discNo = res.discNo;
+              if (!song.publisher && res.publisher) payload.publisher = res.publisher;
+              if (!song.arranger && res.arranger) payload.arranger = res.arranger;
+              if (!song.producer && res.producer) payload.producer = res.producer;
+              if (!song.lyrics && res.lyric) payload.lyrics = res.lyric;
+              await updateMusicMetadata({ file_path: song.file_path, ...payload, matched: "1", match_source: res.source });
+              okCount++;
+            } else {
+              skipCount++;
             }
+          } else {
+            skipCount++;
           }
           doneCount++;
+          onAlbumMatchProgress?.({ status: "update", done: doneCount, total: songs.length });
           setMatchMsg(`正在匹配 ${doneCount}/${songs.length}`);
         }
+        setAlbumDidMatch(true);
+        const doneMessage = skipCount > 0
+          ? `匹配成功 ${okCount} 首，跳过 ${skipCount} 首`
+          : `匹配成功 ${okCount} 首`;
+        onAlbumMatchProgress?.({ status: "done", done: doneCount, total: songs.length, message: doneMessage, skipped: skipCount });
         onRefresh?.();
         setMatchMsg("专辑匹配完成，已写回音乐文件");
       } else {
@@ -115,6 +136,7 @@ export default function MusicEdit({ target, onClose, onSave, onRefresh }) {
         const res = await matchSong({
           song_name: form.title || data.title || "",
           artist_name: form.artist || data.artist || "",
+          file_path: data.file_path || "",
           ...config,
         });
         if (res && res.error) {
@@ -138,6 +160,7 @@ export default function MusicEdit({ target, onClose, onSave, onRefresh }) {
           return next;
         });
         setDidMatch(true);
+        setLastSource(res.source || null);
         setMatchMsg("匹配完成，请确认后保存");
       }
     } catch {
@@ -162,7 +185,7 @@ export default function MusicEdit({ target, onClose, onSave, onRefresh }) {
 
   // 导入 LRC / 歌词文件，填入歌词表单
   function handleSave() {
-    onSave?.(target, form, editCoverFile, didMatch);
+    onSave?.(target, form, editCoverFile, didMatch, lastSource);
     onClose();
   }
 
@@ -179,7 +202,7 @@ export default function MusicEdit({ target, onClose, onSave, onRefresh }) {
         {/* 右上角：单项匹配 */}
         <button style={styles.matchBtn} onClick={handleMatch} disabled={matching} title="按设置中的字段与源进行匹配">
           <FaLink size={13} style={{ marginRight: 6 }} />
-          {matching ? "匹配中…" : isAlbum ? "匹配专辑" : "匹配"}
+          {matching ? "匹配中…" : (didMatch || albumDidMatch) ? "✔已匹配" : (isAlbum ? "匹配专辑" : "匹配")}
         </button>
         {matchMsg && <p style={styles.matchMsg}>{matchMsg}</p>}
 
@@ -369,6 +392,13 @@ export default function MusicEdit({ target, onClose, onSave, onRefresh }) {
                   {songMatched ? "已匹配" : "未匹配"}
                 </span>
               </div>
+              {matchSourceDisplay && (
+                <div style={styles.typeRow}>
+                  <span style={styles.typeIcon}><FaCodeBranch size={13} /></span>
+                  <span style={styles.typeLabel}>匹配源</span>
+                  <span style={styles.typeValue}>{matchSourceDisplay}</span>
+                </div>
+              )}
               <div style={styles.typeRow}>
                 <span style={styles.typeIcon}><FaCalendarAlt size={13} /></span>
                 <span style={styles.typeLabel}>添加时间</span>
@@ -427,6 +457,14 @@ function formatDuration(seconds) {
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
   return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+/** 匹配源 → 中文标签（多源以 / 分隔） */
+function matchSourceLabel(source) {
+  if (!source) return "";
+  const LABELS = { qq: "QQ音乐", itunes: "iTunes", musicbrainz: "MusicBrainz" };
+  const parts = String(source).split(/[^\w]+/).map((s) => s.trim()).filter(Boolean);
+  return parts.map((s) => LABELS[s] || s).join(" / ");
 }
 
 /** 发布者预输入：设置「编辑发布者默认携带发布符号和日期」开启且有年份时，返回 "℗ 年份 "，否则空字符串 */

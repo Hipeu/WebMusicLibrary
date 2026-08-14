@@ -37,6 +37,8 @@ export default function MusicPlayer({
   onNavigateToArtist,
   onNavigateToPlaylist,
   onUnplayableSong,
+  onOpenEdit,
+  editRestoreRef,
 }) {
     const [showDetail, setShowDetail] = useState(false);
   const [lyricsData, setLyricsData] = useState(null);
@@ -46,6 +48,8 @@ export default function MusicPlayer({
     const [isFavorited, setIsFavorited] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef(null);
+  // 编辑导致当前歌曲换路径时的恢复点 { time, playing }（待 metadata 就绪后生效）
+  const restoreStateRef = useRef(null);
   const [playMode, setPlayMode] = useState("sequential"); // "sequential" | "loop" | "loop-one" | "shuffle"
   const [showPlaylistPanel, setShowPlaylistPanel] = useState(false);
   const [playlistSearch, setPlaylistSearch] = useState("");
@@ -109,6 +113,8 @@ export default function MusicPlayer({
       }
     : {};
   const coverGlowDisplay = themeColor ? {} : { display: "none" };
+  // 歌词跟随发光色；优先用偏深可读的 swatch
+  const lyricActiveColor = (palette?.DarkVibrant || palette?.DarkMuted || palette?.Vibrant || palette?.Muted || themeSwatch)?.hex || "#e94560";
 
   function formatTime(seconds) {
     if (isNaN(seconds)) return "00:00";
@@ -215,6 +221,18 @@ export default function MusicPlayer({
     if (audioRef.current) {
       setDuration(audioRef.current.duration);
     }
+    // 编辑导致换路径的无缝续播：恢复播放位置并保持原播放/暂停状态
+    if (restoreStateRef.current && audioRef.current) {
+      const rs = restoreStateRef.current;
+      restoreStateRef.current = null;
+      audioRef.current.currentTime = rs.time || 0;
+      if (rs.playing) {
+        audioRef.current.play().catch(() => setIsPlaying(false));
+      } else {
+        setIsPlaying(false);
+      }
+      return;
+    }
     audioRef.current?.play().catch(() => setIsPlaying(false));
   }
 
@@ -275,6 +293,29 @@ export default function MusicPlayer({
     if (!currentSong) return;
     if (currentSong.url === prevSongUrlRef.current) return;
     prevSongUrlRef.current = currentSong.url;
+
+    // 编辑当前播放歌曲导致换路径：无缝续播（保留位置 / 播放状态，跳过播放计数）
+    const restore = editRestoreRef?.current;
+    if (restore && restore.newUrl === currentSong.url) {
+      if (editRestoreRef) editRestoreRef.current = null;
+      if (audioRef.current) {
+        restoreStateRef.current = { time: restore.time || 0, playing: !!restore.playing };
+        audioRef.current.load();
+      }
+      // 更新最近播放为最新歌曲对象
+      if (setPlaylists) {
+        setPlaylists((prev) =>
+          prev.map((pl) => {
+            if (pl.id === "recent") {
+              const filtered = pl.songs.filter((s) => s.url !== currentSong.url && s.file_path !== currentSong.file_path);
+              return { ...pl, songs: [currentSong, ...filtered] };
+            }
+            return pl;
+          })
+        );
+      }
+      return;
+    }
 
     setLyricsData(null);
     // 有文件路径 → 置为加载中；无文件路径 → 无歌词
@@ -559,7 +600,10 @@ export default function MusicPlayer({
                                             </button>
                                             <button
                                               style={styles.coverMenuItem}
-                                              onClick={() => { setShowMenu(false); switchTab("info"); }}
+                                              onClick={() => {
+                                                setShowMenu(false);
+                                                onOpenEdit?.(currentSong);
+                                              }}
                                             >
                                               <FaInfoCircle size={14} style={{ marginRight: "10px" }} />
                                               详细信息
@@ -667,7 +711,9 @@ export default function MusicPlayer({
                                                 style={{
                                                   ...styles.detailSongItem,
                                                   ...(displayCurrentIdx === idx ? styles.detailSongItemActive : {}),
+                                                  ...(displayCurrentIdx === idx && themeColor ? { background: `${themeColor}26`, border: `1px solid ${themeColor}4D` } : {}),
                                                   ...(isQueueSong ? styles.detailQueueSongItem : {}),
+                                                  ...(isQueueSong && themeColor ? { borderLeft: `3px solid ${themeColor}` } : {}),
                                                 }}
                                                 onClick={() => {
                                                   if (!songPlayable(song)) {
@@ -685,12 +731,12 @@ export default function MusicPlayer({
                                                       <FaExclamationCircle size={12} title="该格式无法播放" style={{ color: "#f59e0b", marginRight: "5px", flexShrink: 0 }} />
                                                     )}
                                                     {song.title}
-                                                    {isQueueSong && <span style={styles.detailQueueTag}> 待播</span>}
+                                                    {isQueueSong && <span style={{ ...styles.detailQueueTag, ...(themeColor ? { color: themeColor } : {}) }}> 待播</span>}
                                                   </p>
                                                   <p style={styles.detailSongArtist}>{song.artist}</p>
                                                 </div>
                                                 {displayCurrentIdx === idx && (
-                                                  <span style={styles.detailPlayingIndicator}>{isPlaying ? "▶" : "⏸"}</span>
+                                                  <span style={{ ...styles.detailPlayingIndicator, ...(themeColor ? { color: themeColor } : {}) }}>{isPlaying ? "▶" : "⏸"}</span>
                                                 )}
                                               </div>
                                             );
@@ -703,6 +749,7 @@ export default function MusicPlayer({
                                           <Lyrics
                                             lyricsData={lyricsData}
                                             currentTime={currentTime}
+                                            activeColor={lyricActiveColor}
                                             onSeek={(time) => {
                                               if (audioRef.current) {
                                                 audioRef.current.currentTime = time;
@@ -754,6 +801,16 @@ export default function MusicPlayer({
                                               <span style={styles.infoLabel}>添加时间</span>
                                               <span style={styles.infoValue}>{currentSong.importTime ? formatTimestamp(currentSong.importTime) : "未知"}</span>
                                             </div>
+                                            <div style={styles.infoRow}>
+                                              <span style={styles.infoLabel}>匹配状态</span>
+                                              <span style={styles.infoValue}>{currentSong.matched ? "已匹配" : "未匹配"}</span>
+                                            </div>
+                                            {currentSong.match_source && (
+                                              <div style={styles.infoRow}>
+                                                <span style={styles.infoLabel}>匹配源</span>
+                                                <span style={styles.infoValue}>{matchSourceLabel(currentSong.match_source)}</span>
+                                              </div>
+                                            )}
                                           </div>
                                         </div>
                                       )}
@@ -766,6 +823,7 @@ export default function MusicPlayer({
                                           style={{
                                             ...styles.capsuleBtn,
                                             ...(detailTab === "songs" ? styles.capsuleBtnActive : {}),
+                                            ...(detailTab === "songs" && themeColor ? { background: themeColor, boxShadow: `0 4px 16px ${themeColor}66` } : {}),
                                           }}
                                           onClick={() => switchTab("songs")}
                                         >
@@ -776,6 +834,7 @@ export default function MusicPlayer({
                                           style={{
                                             ...styles.capsuleBtn,
                                             ...(detailTab === "lyrics" ? styles.capsuleBtnActive : {}),
+                                            ...(detailTab === "lyrics" && themeColor ? { background: themeColor, boxShadow: `0 4px 16px ${themeColor}66` } : {}),
                                             ...(hasLyrics === false ? styles.capsuleBtnDisabled : {}),
                                           }}
                                           disabled={hasLyrics === false}
@@ -789,6 +848,7 @@ export default function MusicPlayer({
                                           style={{
                                             ...styles.capsuleBtn,
                                             ...(detailTab === "info" ? styles.capsuleBtnActive : {}),
+                                            ...(detailTab === "info" && themeColor ? { background: themeColor, boxShadow: `0 4px 16px ${themeColor}66` } : {}),
                                           }}
                                           onClick={() => switchTab("info")}
                                         >
@@ -864,6 +924,14 @@ function formatDuration(seconds) {
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
   return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+/** 匹配源 → 中文标签（多源以 / 分隔）；无则返回空串 */
+function matchSourceLabel(source) {
+  if (!source) return "";
+  const LABELS = { qq: "QQ音乐", itunes: "iTunes", musicbrainz: "MusicBrainz" };
+  const parts = String(source).split(/[^\w]+/).map((s) => s.trim()).filter(Boolean);
+  return parts.map((s) => LABELS[s] || s).join(" / ");
 }
 
 function formatTimestamp(ts) {

@@ -182,6 +182,7 @@ async def edit_music(
     producer: str = Form(None),
     lyrics: str = Form(None),
     matched: str = Form(None),
+    match_source: str = Form(None),
     cover: UploadFile = File(None),
 ):
     """编辑歌曲元信息：同时写入音频文件内部标签 + data 备份 JSON + manifest。
@@ -222,11 +223,14 @@ async def edit_music(
     provided = {"title": title, "artist": artist, "album": album,
                 "genre": genre, "year": year,
                 "composer": composer, "lyricist": lyricist,
-                "publisher": publisher, "comment": comment,
+                "comment": comment,
                 "arranger": arranger, "producer": producer}
     for k, v in provided.items():
         if v is not None and str(v).strip() != "":
             cur[k] = v
+
+    # 需从文件标签中删除的字段
+    clear_fields = set()
 
     # 碟号：显式传空串则清除为 None
     if discNo is not None:
@@ -245,13 +249,20 @@ async def edit_music(
             cur["discNo"] = None
 
     # 专辑艺人：显式传空/空白串则清除为 None
-    clear_fields = set()
     if album_artist is not None:
         if str(album_artist).strip() == "":
             cur["album_artist"] = None
             clear_fields.add("album_artist")
         else:
             cur["album_artist"] = str(album_artist)
+
+    # 发布者：显式传空/空白串则清除为 None（LRC 提取的发布者可通过再编辑删除）
+    if publisher is not None:
+        if str(publisher).strip() == "":
+            cur["publisher"] = None
+            clear_fields.add("publisher")
+        else:
+            cur["publisher"] = str(publisher)
 
     # 音轨号：显式传空串则清除为 None（与音乐文件内无编号一致）；否则转 int
     if trackNo is not None:
@@ -352,6 +363,9 @@ async def edit_music(
     # 匹配状态：本次匹配(1) 或 保留原有标记
     new_matched = bool(matched == "1" or cur.get("matched") or entry.get("matched"))
     json_data["matched"] = new_matched
+    # 匹配源：显式传入则更新，否则保留原有标记
+    new_match_source = (match_source or "").strip() or cur.get("match_source") or entry.get("match_source")
+    json_data["match_source"] = new_match_source or None
     try:
         with open(os.path.join(meta_dir, f"{new_title}.json"), "w", encoding="utf-8") as f:
             json.dump(json_data, f, ensure_ascii=False, indent=2)
@@ -383,6 +397,7 @@ async def edit_music(
         "lyrics_path": f"Lyrics/{new_artist}/{new_album}/{new_title}.lrc",
         "modification_time": json_data["modification_time"],
         "matched": json_data["matched"],
+        "match_source": json_data["match_source"],
     }
     del manifest[file_path]
     manifest[new_rel] = new_entry

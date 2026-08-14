@@ -434,6 +434,11 @@ def _write_id3(audio, meta, cover_data, cover_mime, lyrics, clear_fields=None):
             tags.delall("TPE2")
         except Exception:
             pass
+    if clear_fields and "publisher" in clear_fields:
+        try:
+            tags.delall("TPUB")
+        except Exception:
+            pass
     if lyrics is not None:
         try:
             tags.delall("USLT")
@@ -474,6 +479,12 @@ def _write_vorbis(audio, meta, cover_data, cover_mime, lyrics, clear_fields=None
             tags.pop("albumartist", None)
         except Exception:
             pass
+    if clear_fields and "publisher" in clear_fields:
+        for k in ("publisher", "label"):
+            try:
+                tags.pop(k, None)
+            except Exception:
+                pass
     if lyrics is not None:
         tags["lyrics"] = [str(lyrics)]
     if cover_data is not None and isinstance(audio, FLAC):
@@ -522,6 +533,11 @@ def _write_mp4(audio, meta, cover_data, cover_mime, lyrics, clear_fields=None):
     if clear_fields and "album_artist" in clear_fields:
         try:
             tags.pop("aART", None)
+        except Exception:
+            pass
+    if clear_fields and "publisher" in clear_fields:
+        try:
+            tags.pop("cprt", None)
         except Exception:
             pass
     if lyrics is not None:

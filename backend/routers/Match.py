@@ -9,8 +9,8 @@ from fastapi import APIRouter, Body
 from routers.musicload import load_manifest, save_manifest
 from routers.Artists import load_artists, save_artists, sanitize_name as sanitize_artist_name
 from services.library_config import get_library_path
-from services.metadata_service import write_metadata
-from services.match import MusicMatcher
+from services.metadata_service import write_metadata, parse_metadata
+from services.match import MusicMatcher, parse_lyric_credits
 
 router = APIRouter(prefix="/api/match")
 
@@ -64,17 +64,25 @@ async def match_song(payload: dict = Body(...)):
     """按 歌名+艺人 匹配：QQ音乐（主）→ iTunes（兜底）→ MusicBrainz（作曲/作词）
 
     config: {sources:{qq,itunes,musicbrainz}, fields:{...}, lyric_credits_fallback}
+    可选 file_path：传入时用该歌本地歌词做 credits 兜底（QQ 歌词不可用时）
     """
     song_name = (payload.get("song_name") or "").strip()
     artist_name = (payload.get("artist_name") or "").strip()
     if not song_name or not artist_name:
         return {"error": "缺少 song_name 或 artist_name"}
+    file_path = payload.get("file_path")
+    local_lyrics = None
+    if file_path:
+        manifest = load_manifest()
+        entry = manifest.get(file_path) or {}
+        local_lyrics = _read_local_lyrics(file_path, entry)
     matcher = MusicMatcher()
     return await matcher.match_song(
         song_name, artist_name,
         sources=payload.get("sources"),
         fields=payload.get("fields"),
         lyric_credits_fallback=bool(payload.get("lyric_credits_fallback")),
+        local_lyrics=local_lyrics,
     )
 
 
@@ -259,7 +267,10 @@ def _write_song_metadata(file_path, entry, result, cover_data, cover_mime, lyric
         or has_lyric
     )
 
-    if not has_new_fields and not cover_data:
+    # 匹配到源但尚未记录时也允许写回（仅记录来源，不写文件标签）
+    new_match_source = bool(result.get("source")) and not entry.get("match_source")
+
+    if not has_new_fields and not cover_data and not new_match_source:
         return False, "没有需要写入的信息"
 
     # 1. 写入文件内部标签（含封面与歌词）
@@ -307,6 +318,10 @@ def _write_song_metadata(file_path, entry, result, cover_data, cover_mime, lyric
         _update_manifest(file_path, {"lyrics_path": lyrics_path}, force=True)
     _update_entry_meta(artist, album, title_base, {"matched": True}, force=True)
     _update_manifest(file_path, {"matched": True}, force=True)
+    # 匹配源：每次匹配以最新结果为准（强制覆盖）
+    if result.get("source"):
+        _update_entry_meta(artist, album, title_base, {"match_source": result["source"]}, force=True)
+        _update_manifest(file_path, {"match_source": result["source"]}, force=True)
     return True, None
 
 
@@ -339,13 +354,52 @@ def _write_artist_avatar(name, cover_data, cover_mime):
 # 全部匹配（后台线程 + 进度轮询）
 # ================================================================
 
+def _read_local_lyrics(file_path, entry=None):
+    """读取歌曲本地歌词用于 credits 兜底：优先 data/Lyrics 备份，其次文件内嵌歌词"""
+    entry = entry or {}
+    lp = entry.get("lyrics_path")
+    if lp:
+        p = os.path.join(DATA_DIR, lp)
+        if os.path.exists(p):
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    return f.read()
+            except Exception:
+                pass
+    abs_path = os.path.join(get_library_path(), file_path)
+    if os.path.exists(abs_path):
+        try:
+            meta = parse_metadata(abs_path)
+            return meta.get("lyrics") or None
+        except Exception:
+            pass
+    return None
+
+
+def _missing_credits(result, fields=None):
+    """标记已启用且仍缺失的 credits 字段（仅作曲/作词/发布者），供 LRC 保底阶段使用"""
+    def f(k):
+        return bool((fields or {}).get(k, True))
+    missing = set()
+    if f("composer") and not result.get("composers"):
+        missing.add("composer")
+    if f("lyricist") and not result.get("lyricists"):
+        missing.add("lyricist")
+    if f("publisher") and not result.get("publisher"):
+        missing.add("publisher")
+    return missing
+
+
 async def _match_all_async(matcher, songs, artist_list, config=None):
-    """核心协程：遍历歌曲 → 匹配写回；遍历艺人 → 写真写回"""
+    """核心协程：阶段 A 联网匹配写回并标记缺 credits 的歌曲；
+    阶段 B 对标记歌曲做本地 LRC 保底（正在补充剩余信息）；最后艺人写真"""
     config = config or {}
     async with aiohttp.ClientSession(timeout=matcher._timeout) as session:
         done = 0
         cancelled = False
+        need_lrc = []  # [(file_path, entry, missing_fields)]
 
+        # ============ 阶段 A：联网匹配 ============
         for file_path, entry in songs:
             if _match_state["cancel"]:
                 cancelled = True
@@ -358,7 +412,7 @@ async def _match_all_async(matcher, songs, artist_list, config=None):
                     session, entry.get("title"), entry.get("artist"),
                     sources=config.get("sources"),
                     fields=config.get("fields"),
-                    lyric_credits_fallback=bool(config.get("lyric_credits_fallback")),
+                    lyric_credits_fallback=False,  # 阶段 A 只联网，LRC 保底统一放阶段 B
                 )
             except Exception as e:
                 _match_state["failed"] += 1
@@ -368,46 +422,105 @@ async def _match_all_async(matcher, songs, artist_list, config=None):
                 continue
 
             if result.get("error"):
-                _match_state["skipped"] += 1
-                _log("skip", f"歌曲 {entry.get('title')} - {entry.get('artist')}：{result['error']}")
-                done += 1
-                _match_state["done"] = done
-                continue
-
-            cover_data, cover_mime = await matcher.download_image(session, result.get("cover_url"))
-            ok, err = await asyncio.to_thread(
-                _write_song_metadata, file_path, entry, result, cover_data, cover_mime,
-                result.get("lyric"), config.get("fields"),
-            )
-            if ok:
-                composers = ", ".join(result.get("composers") or []) or "—"
-                lyricists = ", ".join(result.get("lyricists") or []) or "—"
-                extra = []
-                if result.get("arranger"):
-                    extra.append(f"编曲 {result['arranger']}")
-                if result.get("producer"):
-                    extra.append(f"制作人 {result['producer']}")
-                if result.get("year"):
-                    extra.append(f"{result['year']}年")
-                if result.get("genre"):
-                    extra.append(result["genre"])
-                if result.get("trackNo") is not None:
-                    extra.append(f"音轨 {result['trackNo']}")
-                if result.get("discNo") is not None:
-                    extra.append(f"碟 {result['discNo']}")
-                if result.get("cover_url") and cover_data:
-                    extra.append("封面")
-                if result.get("lyric"):
-                    extra.append("歌词")
-                source_label = SOURCE_LABELS.get(result.get("source")) or "未知"
-                _match_state["matched"] += 1
-                _log("ok", f"歌曲 {result.get('song_name') or entry.get('title')} 通过 {source_label} 匹配成功：作曲 {composers} / 作词 {lyricists}"
-                     + (f"（{'，'.join(extra)}）" if extra else ""))
+                # 若后续 LRC 保底会尝试补全，则暂不计 skip（成败由阶段 B 决定）
+                will_lrc = bool(config.get("lyric_credits_fallback")) and bool(
+                    _missing_credits(result, config.get("fields"))
+                )
+                if not will_lrc:
+                    _match_state["skipped"] += 1
+                    _log("skip", f"歌曲 {entry.get('title')} - {entry.get('artist')}：{result['error']}")
             else:
-                _match_state["failed"] += 1
-                _log("error", f"歌曲 {entry.get('title')}：{err or '写入失败'}")
+                cover_data, cover_mime = await matcher.download_image(session, result.get("cover_url"))
+                ok, err = await asyncio.to_thread(
+                    _write_song_metadata, file_path, entry, result, cover_data, cover_mime,
+                    result.get("lyric"), config.get("fields"),
+                )
+                if ok:
+                    composers = ", ".join(result.get("composers") or []) or "—"
+                    lyricists = ", ".join(result.get("lyricists") or []) or "—"
+                    extra = []
+                    if result.get("arranger"):
+                        extra.append(f"编曲 {result['arranger']}")
+                    if result.get("producer"):
+                        extra.append(f"制作人 {result['producer']}")
+                    if result.get("year"):
+                        extra.append(f"{result['year']}年")
+                    if result.get("genre"):
+                        extra.append(result["genre"])
+                    if result.get("trackNo") is not None:
+                        extra.append(f"音轨 {result['trackNo']}")
+                    if result.get("discNo") is not None:
+                        extra.append(f"碟 {result['discNo']}")
+                    if result.get("cover_url") and cover_data:
+                        extra.append("封面")
+                    if result.get("lyric"):
+                        extra.append("歌词")
+                    source_label = SOURCE_LABELS.get(result.get("source")) or "未知"
+                    _match_state["matched"] += 1
+                    _log("ok", f"歌曲 {result.get('song_name') or entry.get('title')} 通过 {source_label} 匹配成功：作曲 {composers} / 作词 {lyricists}"
+                         + (f"（{'，'.join(extra)}）" if extra else ""))
+                else:
+                    _match_state["failed"] += 1
+                    _log("error", f"歌曲 {entry.get('title')}：{err or '写入失败'}")
+
+            # 标记仍缺 作曲/作词/发布者 的歌曲 → 阶段 B 做本地 LRC 保底
+            if bool(config.get("lyric_credits_fallback")):
+                missing = _missing_credits(result, config.get("fields"))
+                if missing:
+                    need_lrc.append((file_path, entry, missing, bool(result.get("error"))))
             done += 1
             _match_state["done"] = done
+
+        # ============ 阶段 B：本地 LRC 保底（正在补充剩余信息） ============
+        if need_lrc and not cancelled:
+            _match_state["total"] += len(need_lrc)
+            for file_path, entry, missing, phase_a_errored in need_lrc:
+                if _match_state["cancel"]:
+                    cancelled = True
+                    _match_state["was_cancelled"] = True
+                    _log("skip", f"已取消匹配（已处理 {done}/{_match_state['total']}）")
+                    break
+                _match_state["current"] = f"正在补充剩余信息：{entry.get('title')} - {entry.get('artist')}"
+                local = _read_local_lyrics(file_path, entry)
+                credits = parse_lyric_credits(local) if local else {}
+                patch = {}
+                if "composer" in missing and credits.get("composer"):
+                    patch["composers"] = [c.strip() for c in credits["composer"].split("/") if c.strip()]
+                if "lyricist" in missing and credits.get("lyricist"):
+                    patch["lyricists"] = [l.strip() for l in credits["lyricist"].split("/") if l.strip()]
+                if "publisher" in missing and credits.get("publisher"):
+                    pub = credits["publisher"]
+                    if not pub.startswith("℗"):
+                        year = entry.get("year")
+                        if year:
+                            pub = f"℗ {year} {pub}"
+                    patch["publisher"] = pub
+                if patch:
+                    # 阶段 A 可能已写入部分字段，重载 manifest entry 只补真缺失项
+                    fresh_entry = load_manifest().get(file_path) or entry
+                    ok, err = await asyncio.to_thread(
+                        _write_song_metadata, file_path, fresh_entry, patch, None, None, None,
+                        config.get("fields"),
+                    )
+                    if ok:
+                        filled_parts = []
+                        if "composer" in missing and patch.get("composers"):
+                            filled_parts.append("作曲")
+                        if "lyricist" in missing and patch.get("lyricists"):
+                            filled_parts.append("作词")
+                        if "publisher" in missing and patch.get("publisher"):
+                            filled_parts.append("发布者")
+                        _match_state["matched"] += 1
+                        _log("ok", f"歌曲 {entry.get('title')} LRC 保底补充：{'、'.join(filled_parts)}")
+                    else:
+                        _match_state["failed"] += 1
+                        _log("error", f"歌曲 {entry.get('title')}：LRC 保底写入失败（{err or '无信息'}）")
+                elif phase_a_errored:
+                    # 联网阶段未命中且 LRC 也无可补信息 → 计为跳过
+                    _match_state["skipped"] += 1
+                    _log("skip", f"歌曲 {entry.get('title')}：联网与 LRC 保底均未找到信息")
+                done += 1
+                _match_state["done"] = done
 
         if not cancelled:
             for name in artist_list:

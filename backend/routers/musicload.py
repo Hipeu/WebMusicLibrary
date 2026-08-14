@@ -14,14 +14,25 @@ from services.library_config import get_library_path
 logger = logging.getLogger("musicload")
 
 
+def _trash_dir():
+    """项目根目录下的 trash 文件夹（音乐文件删除后移入此处，可手动找回）"""
+    return os.path.join(PROJECT_ROOT, "trash")
+
+
 def _send_to_trash(path):
-    """移入系统回收站；失败返回 False（不永久删除兜底，避免数据丢失）"""
+    """将文件移入项目 trash 文件夹（保留 Artist/Album 相对结构）；失败返回 False（不永久删除兜底）"""
     try:
-        import send2trash
-        send2trash.send2trash(path)
+        lib = os.path.normpath(get_library_path())
+        full = os.path.normpath(path)
+        rel = os.path.relpath(full, lib)
+        if rel.startswith(".."):
+            rel = os.path.basename(full)
+        dest = os.path.join(_trash_dir(), rel)
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        shutil.move(full, dest)
         return True
     except Exception as e:
-        logger.error("移入回收站失败 %s: %s", path, e)
+        logger.error("移入 trash 文件夹失败 %s: %s", path, e)
         return False
 
 
@@ -355,6 +366,7 @@ def list_music():
             "file_exists": exists,
             "hash": s.get("sha256"),
             "matched": bool(s.get("matched") or meta.get("matched")),
+            "match_source": meta.get("match_source") if meta.get("match_source") is not None else s.get("match_source"),
         })
 
     # 2. 扫描目录中未在清单内的额外音频文件（用户手动放入）
@@ -412,6 +424,7 @@ def list_music():
                         "cover_url": f"/data/picture/{artist_name}/{album_name}/{data_cover}" if data_cover else None,
                         "file_exists": True,
                         "matched": bool(meta.get("matched")),
+                        "match_source": meta.get("match_source"),
                     })
 
     # 3. 组装结果
@@ -429,7 +442,7 @@ def list_music():
 @router.delete("/delete")
 def delete_music(artist: str, album: str, title: str, to_trash: str = "0"):
     """删除指定歌曲（含备份），并清理空的专辑 / 艺人目录。
-    to_trash=1 时音乐文件移入系统回收站而非永久删除。
+    to_trash=1 时音乐文件移入项目 trash 文件夹而非永久删除。
     """
     to_trash = to_trash == "1"
     if not artist or not album or not title:
@@ -464,9 +477,9 @@ def delete_music(artist: str, album: str, title: str, to_trash: str = "0"):
                 audio_path = os.path.join(album_dir, f)
                 break
 
-    # 回收站模式：音频移入回收站失败则中止删除（保留文件，避免永久删除）
+    # 回收站模式：音频移入 trash 文件夹失败则中止删除（保留文件，避免永久删除）
     if to_trash and audio_path and os.path.exists(audio_path) and not _send_to_trash(audio_path):
-        return {"status": "error", "msg": "移入回收站失败（文件可能被占用），已保留文件"}
+        return {"status": "error", "msg": "移入 trash 文件夹失败（文件可能被占用），已保留文件"}
 
     # 删除音频（回收站已移入或永久删除）+ 同目录伴随 .json/.lrc
     if audio_path:

@@ -15,6 +15,12 @@ dist-ssr
 # 第三方 QQ 音乐 API 服务（本地依赖，不纳入版本控制）
 qq-music-api-next
 
+# 删除的音乐移入的回收文件夹（本地保留，不纳入版本控制）
+trash/
+
+# 本地数据（备份的封面/歌词/元信息/艺人/播放列表，不纳入版本控制）
+data/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

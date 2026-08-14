@@ -66,9 +66,10 @@ def parse_lyric_credits(text):
     支持：
       - LRC 时间戳前缀 [mm:ss.xx] / [mm:ss]
       - 全称 作词/作曲/编曲/制作人 与繁体 作詞/編曲
+      - 英文 Lyrics by / Composed by（作曲、作词；多名字以 / 分隔）
       - 简写 词/曲（仅头部区域，避免正文误匹配）
       - 合并标签 作词/作曲：周杰伦
-      - 发布者：SP / OP / 版权 / 发行 / 出品（SP 优先）
+      - 发布者：SP / OP / 版权 / 出品 / Published by（优先级 SP → OP → 版权 → 出品 → Published by）
 
     返回 {lyricist, composer, arranger, producer, publisher}
     """
@@ -77,8 +78,8 @@ def parse_lyric_credits(text):
         return credits
 
     full = [
-        ("lyricist", re.compile(r"^(?:作词|作詞)\s*[:：]\s*(.+)$")),
-        ("composer", re.compile(r"^作曲\s*[:：]\s*(.+)$")),
+        ("lyricist", re.compile(r"^(?:作词|作詞|Lyrics by)\s*[:：]\s*(.+)$", re.I)),
+        ("composer", re.compile(r"^(?:作曲|Composed by)\s*[:：]\s*(.+)$", re.I)),
         ("arranger", re.compile(r"^(?:编曲|編曲)\s*[:：]\s*(.+)$")),
         ("producer", re.compile(r"^制作人\s*[:：]\s*(.+)$")),
     ]
@@ -88,10 +89,13 @@ def parse_lyric_credits(text):
     ]
     combined = re.compile(r"^(?:作词|作詞)/(?:作曲)\s*[:：]\s*(.+)$")
     combined_short = re.compile(r"^词/曲\s*[:：]\s*(.+)$")
-    # 发布者：SP 优先，其次 OP / 版权 / 发行 / 出品（独立扫描，不受头部行数限制）
+    # 发布者：SP / OP / 版权 / 出品 / Published by，优先级 SP → OP → 版权 → 出品 → Published by
     publisher_patterns = [
         re.compile(r"^SP\s*[:：]\s*(.+)$", re.I),
-        re.compile(r"^(?:OP|版权|发行|出品)\s*[:：]\s*(.+)$", re.I),
+        re.compile(r"^OP\s*[:：]\s*(.+)$", re.I),
+        re.compile(r"^版权\s*[:：]\s*(.+)$"),
+        re.compile(r"^出品\s*[:：]\s*(.+)$"),
+        re.compile(r"^Published by\s*[:：]\s*(.+)$", re.I),
     ]
 
     found = set()
@@ -148,7 +152,7 @@ def parse_lyric_credits(text):
         if len(found) >= 4 or content_lines > 12:
             break
 
-    # 独立扫描发布者（SP 优先，其次 OP/版权/发行/出品）
+    # 独立扫描发布者（SP → OP → 版权 → 出品，命中即停）
     def _scan_publisher(pat):
         for raw in text.splitlines():
             line = _TS_PREFIX_RE.sub("", raw).strip()
@@ -161,9 +165,10 @@ def parse_lyric_credits(text):
                     return v
         return None
 
-    credits["publisher"] = _scan_publisher(publisher_patterns[0])
-    if not credits["publisher"]:
-        credits["publisher"] = _scan_publisher(publisher_patterns[1])
+    for pat in publisher_patterns:
+        credits["publisher"] = _scan_publisher(pat)
+        if credits["publisher"]:
+            break
 
     return credits
 
@@ -491,12 +496,13 @@ class MusicMatcher:
     # 主入口：合并 QQ / iTunes / MusicBrainz 匹配结果
     # ================================================================
 
-    async def get_song_metadata(self, session, song_name, artist_name, sources=None, fields=None, lyric_credits_fallback=False):
+    async def get_song_metadata(self, session, song_name, artist_name, sources=None, fields=None, lyric_credits_fallback=False, local_lyrics=None):
         """按 歌名+艺人 匹配：QQ音乐（主）→ iTunes（兜底）→ MusicBrainz（作曲/作词）。
 
         - sources: {qq, itunes, musicbrainz} 布尔，控制调用哪些源
         - fields:  各元信息字段开关，控制收集哪些字段（封面/写真始终收集）
         - lyric_credits_fallback: 其它源未匹配到 作曲/作词/编曲/制作人/发布者 时，用歌词兜底
+        - local_lyrics: 歌曲本地歌词（data/Lyrics 备份或内嵌），QQ 歌词不可用时用于 credits 兜底
         """
         logger.info("正在匹配歌曲: %s - %s", song_name, artist_name)
 
@@ -605,8 +611,14 @@ class MusicMatcher:
                 result["cover_url"] = itunes_item.get("cover_url")
 
         if qq_item is None and itunes_item is None:
-            # 仅 MusicBrainz 源时，仍继续尝试词曲作者
-            if not (_s("musicbrainz") and (_f("composer") or _f("lyricist"))):
+            # 仍有 MusicBrainz 信用路径或 LRC 保底可补 作曲/作词/发布者 时，不提前报错
+            has_mb_credits = _s("musicbrainz") and (_f("composer") or _f("lyricist"))
+            has_lrc_credits = (
+                lyric_credits_fallback
+                and (_f("composer") or _f("lyricist") or _f("publisher"))
+                and bool(local_lyrics or lyric_text)
+            )
+            if not has_mb_credits and not has_lrc_credits:
                 result["error"] = f"在 QQ音乐 / iTunes 中未找到该歌曲（{song_name} - {artist_name}）"
                 return result
 
@@ -622,19 +634,23 @@ class MusicMatcher:
                     if l and l not in result["lyricists"]:
                         result["lyricists"].append(l)
 
-        # 4. 歌词兜底：其它源未匹配到 作曲/作词/编曲/制作人/发布者 时尝试
+        # 本地歌词兜底：QQ 歌词不可用时用歌曲自身 LRC（data/Lyrics 备份或内嵌），仅用于 credits 提取
+        if not lyric_text and local_lyrics:
+            lyric_text = local_lyrics
+
+        # 4. 歌词兜底：其它源未匹配到 作曲/作词/发布者 时尝试（仅补这三项）
         if lyric_credits_fallback and lyric_text:
             credits = parse_lyric_credits(lyric_text)
             if _f("composer") and not result["composers"] and credits["composer"]:
-                result["composers"] = [credits["composer"]]
+                result["composers"] = [c.strip() for c in credits["composer"].split("/") if c.strip()]
             if _f("lyricist") and not result["lyricists"] and credits["lyricist"]:
-                result["lyricists"] = [credits["lyricist"]]
-            if _f("arranger") and not result["arranger"] and credits["arranger"]:
-                result["arranger"] = credits["arranger"]
-            if _f("producer") and not result["producer"] and credits["producer"]:
-                result["producer"] = credits["producer"]
+                result["lyricists"] = [l.strip() for l in credits["lyricist"].split("/") if l.strip()]
             if _f("publisher") and not result["publisher"] and credits["publisher"]:
-                result["publisher"] = credits["publisher"]
+                pub = credits["publisher"]
+                # 匹配到发布者时随匹配结果直接携带 ℗ 年份（编辑预填属单独功能，不干预）
+                if result.get("year") and not pub.startswith("℗"):
+                    pub = f"℗ {result['year']} {pub}"
+                result["publisher"] = pub
 
         if not result.get("source") and qq_item is None and itunes_item is None:
             result["source"] = "musicbrainz"
@@ -686,12 +702,13 @@ class MusicMatcher:
     # 独立会话便捷入口
     # ================================================================
 
-    async def match_song(self, song_name, artist_name, sources=None, fields=None, lyric_credits_fallback=False):
+    async def match_song(self, song_name, artist_name, sources=None, fields=None, lyric_credits_fallback=False, local_lyrics=None):
         async with aiohttp.ClientSession(timeout=self._timeout) as session:
             return await self.get_song_metadata(
                 session, song_name, artist_name,
                 sources=sources, fields=fields,
                 lyric_credits_fallback=lyric_credits_fallback,
+                local_lyrics=local_lyrics,
             )
 
     async def match_lyric_standalone(self, song_name, artist_name, sources=None):

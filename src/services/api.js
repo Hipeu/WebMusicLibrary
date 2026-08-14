@@ -27,7 +27,7 @@ export async function getMusicList() {
   return res.json();
 }
 
-/** 删除音乐库中的歌曲（toTrash=true 时移入回收站） */
+/** 删除音乐库中的歌曲（toTrash=true 时移入项目 trash 文件夹） */
 export async function deleteMusic(artist, album, title, toTrash) {
   const params = new URLSearchParams({ artist, album, title });
   if (toTrash) params.append("to_trash", "1");
@@ -176,12 +176,13 @@ export async function uploadArtistCover(name, file) {
   return res.json();
 }
 
-/** 匹配单曲元数据（QQ音乐→iTunes→MusicBrainz），可携带 sources/fields/lyric_credits_fallback 配置 */
-export async function matchSong({ song_name, artist_name, sources, fields, lyric_credits_fallback }) {
+/** 匹配单曲元数据（QQ音乐→iTunes→MusicBrainz），可携带 sources/fields/lyric_credits_fallback 配置；
+ *  file_path 用于后端读取本地歌词做 credits 兜底 */
+export async function matchSong({ song_name, artist_name, sources, fields, lyric_credits_fallback, file_path }) {
   const res = await fetch(`${BASE_URL}/api/match/song`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ song_name, artist_name, sources, fields, lyric_credits_fallback }),
+    body: JSON.stringify({ song_name, artist_name, sources, fields, lyric_credits_fallback, file_path }),
   });
   return res.json();
 }
