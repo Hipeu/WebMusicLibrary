@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "backend": "cd backend && pip install -r requirements.txt && python -m uvicorn main:app --reload --port 8000",
     "qqapi": "cd qq-music-api-next && npm start",
-    "start": "concurrently \"npm run dev\" \"npm run backend\" \"npm run qqapi\""
+    "ncmapi": "cd ncm-api && node app.js",
+    "start": "concurrently \"npm run dev\" \"npm run backend\" \"npm run qqapi\" \"npm run ncmapi\""
   },
   "dependencies": {
     "@lottiefiles/dotlottie-react": "^0.19.9",

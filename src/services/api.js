@@ -187,12 +187,34 @@ export async function matchSong({ song_name, artist_name, sources, fields, lyric
   return res.json();
 }
 
-/** 在线歌词多源匹配，返回 { status, results:[{source, source_label, song_name, artist, album, lyric}] } */
-export async function matchLyric({ song_name, artist_name, sources }) {
+/** 单曲匹配多候选（分页），返回 { status, total, results:[{source, source_label, song_name, artist, album, album_artist, year, genre, trackNo, discNo, cover_url, composers, lyricists, arranger, producer, publisher}] } */
+export async function matchSongCandidates({ song_name, artist_name, file_path, sources, fields, lyric_credits_fallback, offset, limit }) {
+  const res = await fetch(`${BASE_URL}/api/match/song/candidates`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ song_name, artist_name, file_path, sources, fields, lyric_credits_fallback, offset, limit }),
+  });
+  return res.json();
+}
+
+/** 通过后端同源代理下载封面（规避 CDN 跨域），返回 Blob 或 null */
+export async function fetchCoverProxy(coverUrl) {
+  if (!coverUrl) return null;
+  try {
+    const res = await fetch(`${BASE_URL}/api/match/cover?url=${encodeURIComponent(coverUrl)}`);
+    if (!res.ok) return null;
+    return await res.blob();
+  } catch {
+    return null;
+  }
+}
+
+/** 在线歌词多源匹配（分页），返回 { status, total, results:[{source, source_label, song_name, artist, album, lyric}] } */
+export async function matchLyric({ song_name, artist_name, sources, offset, limit }) {
   const res = await fetch(`${BASE_URL}/api/match/lyric`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ song_name, artist_name, sources }),
+    body: JSON.stringify({ song_name, artist_name, sources, offset, limit }),
   });
   return res.json();
 }

@@ -28,6 +28,8 @@ MAX_MB_WORKS = 3
 MB_BASE = "https://musicbrainz.org/ws/2"
 # qq-music-api 本地服务（与 npm start 一并启动，默认端口 3200）
 QQ_API_BASE = os.environ.get("QQ_MUSIC_API_BASE", "http://localhost:3200")
+# 网易云音乐 api-enhanced 本地服务（默认端口 3000）
+NCM_API_BASE = os.environ.get("NCM_MUSIC_API_BASE", "http://localhost:3000")
 ITUNES_SEARCH = "https://itunes.apple.com/search"
 
 # QQ CDN 高清图规则（已实测：T002 专辑封面带 _1 后缀；T001 歌手写真不带）
@@ -174,13 +176,14 @@ def parse_lyric_credits(text):
 
 
 class MusicMatcher:
-    def __init__(self, timeout=10, qq_api_base=None):
+    def __init__(self, timeout=10, qq_api_base=None, ncm_api_base=None):
         # MusicBrainz 要求必须提供 User-Agent，否则会被封禁 IP
         self.mb_headers = {
             "User-Agent": "MusicMatchAgent/1.0 ( your-email@example.com )",
             "Accept": "application/json",
         }
         self.qq_api_base = (qq_api_base or QQ_API_BASE).rstrip("/")
+        self.ncm_api_base = (ncm_api_base or NCM_API_BASE).rstrip("/")
         self._timeout = aiohttp.ClientTimeout(total=timeout)
         # MusicBrainz 限速：锁 + 上次请求时间
         self._mb_lock = asyncio.Lock()
@@ -386,6 +389,70 @@ class MusicMatcher:
             })
         return items
 
+    # ================================================================
+    # 网易云音乐（api-enhanced 本地服务）
+    # ================================================================
+
+    async def _ncm_get(self, session, path, params=None):
+        """GET 请求网易云本地服务"""
+        url = f"{self.ncm_api_base}/{path}"
+        return await self._api_get(session, url, params=params)
+
+    async def ncm_search(self, session, song_name, artist_name, limit=10):
+        """网易云搜索，返回标准化候选列表（ar/al 短字段）"""
+        data = await self._ncm_get(
+            session, "cloudsearch",
+            {"keywords": f"{song_name} {artist_name}", "type": 1, "limit": limit},
+        )
+        songs = ((data.get("result") or {}).get("songs")) or []
+        items = []
+        for it in songs:
+            ar = it.get("ar") or []
+            al = it.get("al") or {}
+            year = None
+            pub = it.get("publishTime")
+            if pub:
+                try:
+                    year = str(time.strftime("%Y", time.localtime(int(pub) / 1000)))
+                except Exception:
+                    year = None
+            pic = al.get("picUrl")
+            cover = f"{pic}?param=500y500" if pic else None
+            items.append({
+                "title": it.get("name"),
+                "artist": ar[0].get("name") if ar else None,
+                "album": al.get("name"),
+                "album_artist": ar[0].get("name") if ar else None,
+                "year": year,
+                "cover_url": cover,
+                "ncm_id": it.get("id"),
+            })
+        return items
+
+    async def ncm_lyric(self, session, ncm_id):
+        """网易云歌词纯文本（LRC 格式）"""
+        data = await self._ncm_get(session, "lyric", {"id": ncm_id})
+        return (data.get("lrc") or {}).get("lyric")
+
+    async def ncm_song_creators(self, session, ncm_id):
+        """网易云歌曲创作者：作曲/作词/编曲/制作人（songCreatorsRoleVos）"""
+        data = await self._ncm_get(session, "song/creators", {"id": ncm_id})
+        vos = ((data.get("data") or {}).get("songCreatorsRoleVos")) or []
+        out = {"composers": [], "lyricists": [], "arranger": None, "producer": None}
+        role_map = {"作曲": "composers", "作词": "lyricists", "编曲": "arranger", "制作人": "producer"}
+        for v in vos:
+            key = role_map.get(v.get("roleName"))
+            if not key:
+                continue
+            names = [c.get("artistName") for c in (v.get("creatorMetaVOS") or []) if c.get("artistName")]
+            if key in ("composers", "lyricists"):
+                for n in names:
+                    if n and n not in out[key]:
+                        out[key].append(n)
+            else:
+                out[key] = ", ".join(names) if names else None
+        return out
+
     async def download_image(self, session, url):
         """下载图片，返回 (bytes, mime)"""
         if not url:
@@ -497,9 +564,9 @@ class MusicMatcher:
     # ================================================================
 
     async def get_song_metadata(self, session, song_name, artist_name, sources=None, fields=None, lyric_credits_fallback=False, local_lyrics=None):
-        """按 歌名+艺人 匹配：QQ音乐（主）→ iTunes（兜底）→ MusicBrainz（作曲/作词）。
+        """按 歌名+艺人 匹配：QQ音乐（主）→ 网易云 → iTunes（兜底）→ MusicBrainz（作曲/作词）。
 
-        - sources: {qq, itunes, musicbrainz} 布尔，控制调用哪些源
+        - sources: {qq, netease, itunes, musicbrainz} 布尔，控制调用哪些源
         - fields:  各元信息字段开关，控制收集哪些字段（封面/写真始终收集）
         - lyric_credits_fallback: 其它源未匹配到 作曲/作词/编曲/制作人/发布者 时，用歌词兜底
         - local_lyrics: 歌曲本地歌词（data/Lyrics 备份或内嵌），QQ 歌词不可用时用于 credits 兜底
@@ -509,7 +576,7 @@ class MusicMatcher:
         all_fields = {"title", "artist", "album", "year", "track_disc", "genre",
                       "album_artist", "composer", "lyricist", "lyric",
                       "publisher", "arranger", "producer"}
-        all_sources = {"qq", "itunes", "musicbrainz"}
+        all_sources = {"qq", "netease", "itunes", "musicbrainz"}
         fields = fields or {k: True for k in all_fields}
         sources = sources or {k: True for k in all_sources}
 
@@ -548,6 +615,15 @@ class MusicMatcher:
                 qq_item = self._pick_best(candidates, song_name, artist_name)[0]
             except Exception as e:
                 logger.warning("QQ 搜索失败 %s - %s: %s", song_name, artist_name, e)
+
+        # 1.5 网易云搜索（QQ 之后的兜底源）
+        ncm_item = None
+        if _s("netease"):
+            try:
+                ncm_candidates = await self.ncm_search(session, song_name, artist_name)
+                ncm_item = self._pick_best(ncm_candidates, song_name, artist_name)[0]
+            except Exception as e:
+                logger.warning("网易云搜索失败 %s - %s: %s", song_name, artist_name, e)
 
         # 2. iTunes 兜底搜索（同时用于补年代/流派）
         itunes_item = None
@@ -590,7 +666,44 @@ class MusicMatcher:
                     if _f("year") and not result["year"]:
                         result["year"] = album_info.get("year")
 
-        if itunes_item and not qq_item:
+        if not qq_item and ncm_item:
+            result.update(
+                song_name=ncm_item.get("title") or song_name if _f("title") else song_name,
+                artist=ncm_item.get("artist") or artist_name if _f("artist") else artist_name,
+                album=ncm_item.get("album") if _f("album") else None,
+                album_artist=ncm_item.get("album_artist") if _f("album_artist") else None,
+                year=ncm_item.get("year") if _f("year") else None,
+                cover_url=ncm_item.get("cover_url"),
+                source="netease",
+            )
+            # 歌词全文（字段启用 或 需要歌词兜底时拉取）
+            if ncm_item.get("ncm_id") and (_f("lyric") or lyric_credits_fallback):
+                try:
+                    lyric_text = await self.ncm_lyric(session, ncm_item["ncm_id"])
+                    if _f("lyric"):
+                        result["lyric"] = lyric_text or None
+                except Exception as e:
+                    logger.warning("网易云歌词失败 %s: %s", ncm_item["ncm_id"], e)
+            # 歌曲创作者：作曲/作词/编曲/制作人（任一启用才请求）
+            if ncm_item.get("ncm_id") and (_f("composer") or _f("lyricist") or _f("arranger") or _f("producer")):
+                try:
+                    creators = await self.ncm_song_creators(session, ncm_item["ncm_id"])
+                    if _f("composer"):
+                        for c in creators.get("composers") or []:
+                            if c and c not in result["composers"]:
+                                result["composers"].append(c)
+                    if _f("lyricist"):
+                        for l in creators.get("lyricists") or []:
+                            if l and l not in result["lyricists"]:
+                                result["lyricists"].append(l)
+                    if _f("arranger") and not result["arranger"] and creators.get("arranger"):
+                        result["arranger"] = creators["arranger"]
+                    if _f("producer") and not result["producer"] and creators.get("producer"):
+                        result["producer"] = creators["producer"]
+                except Exception as e:
+                    logger.warning("网易云创作者失败 %s: %s", ncm_item["ncm_id"], e)
+
+        if itunes_item and not qq_item and not ncm_item:
             result.update(
                 song_name=itunes_item.get("title") or song_name if _f("title") else song_name,
                 artist=itunes_item.get("artist") or artist_name if _f("artist") else artist_name,
@@ -601,16 +714,22 @@ class MusicMatcher:
                 cover_url=itunes_item.get("cover_url"),
                 source="itunes",
             )
-        elif itunes_item and qq_item:
-            # QQ 已命中：用 iTunes 补年代/流派/封面兜底
-            if _f("year") and not result["year"]:
-                result["year"] = itunes_item.get("year")
-            if _f("genre") and not result["genre"]:
-                result["genre"] = itunes_item.get("genre")
-            if not result["cover_url"]:
-                result["cover_url"] = itunes_item.get("cover_url")
+        elif qq_item:
+            # QQ 已命中：用 网易云 / iTunes 补年份/流派/封面兜底
+            if ncm_item:
+                if _f("year") and not result["year"]:
+                    result["year"] = ncm_item.get("year")
+                if not result["cover_url"]:
+                    result["cover_url"] = ncm_item.get("cover_url")
+            if itunes_item:
+                if _f("year") and not result["year"]:
+                    result["year"] = itunes_item.get("year")
+                if _f("genre") and not result["genre"]:
+                    result["genre"] = itunes_item.get("genre")
+                if not result["cover_url"]:
+                    result["cover_url"] = itunes_item.get("cover_url")
 
-        if qq_item is None and itunes_item is None:
+        if qq_item is None and ncm_item is None and itunes_item is None:
             # 仍有 MusicBrainz 信用路径或 LRC 保底可补 作曲/作词/发布者 时，不提前报错
             has_mb_credits = _s("musicbrainz") and (_f("composer") or _f("lyricist"))
             has_lrc_credits = (
@@ -619,7 +738,7 @@ class MusicMatcher:
                 and bool(local_lyrics or lyric_text)
             )
             if not has_mb_credits and not has_lrc_credits:
-                result["error"] = f"在 QQ音乐 / iTunes 中未找到该歌曲（{song_name} - {artist_name}）"
+                result["error"] = f"在 QQ音乐 / 网易云 / iTunes 中未找到该歌曲（{song_name} - {artist_name}）"
                 return result
 
         # 3. MusicBrainz 兜底作曲 / 作词
@@ -652,31 +771,222 @@ class MusicMatcher:
                     pub = f"℗ {result['year']} {pub}"
                 result["publisher"] = pub
 
-        if not result.get("source") and qq_item is None and itunes_item is None:
+        if not result.get("source") and qq_item is None and ncm_item is None and itunes_item is None:
             result["source"] = "musicbrainz"
         return result
 
-    async def match_lyric(self, session, song_name, artist_name, sources=None):
-        """在线歌词多源匹配：返回 [{source, source_label, song_name, artist, album, lyric}]"""
-        results = []
+    @staticmethod
+    def _score_candidate(cand, song_name, artist_name, title_key="title", artist_key="artist"):
+        """候选相似度打分（歌名 0.6 + 艺人 0.4），用于多结果排序（最佳靠前）"""
+        title = cand.get(title_key) or ""
+        artist = cand.get(artist_key) or ""
+        title_score = max(
+            fuzz.token_set_ratio(title, song_name),
+            fuzz.partial_ratio(title, song_name),
+        ) if title else 0
+        artist_score = fuzz.partial_ratio(artist, artist_name) if artist else 0
+        return title_score * 0.6 + artist_score * 0.4
+
+    async def match_lyric(self, session, song_name, artist_name, sources=None, offset=0, limit=6):
+        """在线歌词多源匹配（分页，最佳靠前）：返回 {total, results:[{source, source_label, song_name, artist, album, lyric}]}"""
+        all_cands = []  # (score, source, cand)
         if sources is None or sources.get("qq", True):
             try:
-                candidates = await self.qq_search(session, f"{song_name} {artist_name}")
-                best = self._pick_best(candidates, song_name, artist_name)[0]
-                if best and best.get("songmid"):
-                    lyric = await self.qq_lyric(session, best["songmid"])
-                    if lyric:
-                        results.append({
-                            "source": "qq",
-                            "source_label": "QQ音乐",
-                            "song_name": best.get("title"),
-                            "artist": best.get("artist"),
-                            "album": best.get("album"),
-                            "lyric": lyric,
-                        })
+                candidates = await self.qq_search(session, f"{song_name} {artist_name}", limit=30)
+                for c in candidates:
+                    all_cands.append((self._score_candidate(c, song_name, artist_name), "qq", c))
             except Exception as e:
-                logger.warning("在线歌词失败 %s - %s: %s", song_name, artist_name, e)
-        return results
+                logger.warning("QQ 在线歌词搜索失败 %s - %s: %s", song_name, artist_name, e)
+        if sources is None or sources.get("netease", True):
+            try:
+                candidates = await self.ncm_search(session, song_name, artist_name, limit=30)
+                for c in candidates:
+                    all_cands.append((self._score_candidate(c, song_name, artist_name), "netease", c))
+            except Exception as e:
+                logger.warning("网易云在线歌词搜索失败 %s - %s: %s", song_name, artist_name, e)
+
+        all_cands.sort(key=lambda x: x[0], reverse=True)
+        total = len(all_cands)
+        page = all_cands[offset:offset + limit]
+
+        results = []
+        for _score, src, cand in page:
+            try:
+                if src == "qq":
+                    mid = cand.get("songmid")
+                    lyric = await self.qq_lyric(session, mid) if mid else None
+                else:
+                    nid = cand.get("ncm_id")
+                    lyric = await self.ncm_lyric(session, nid) if nid else None
+                if not lyric:
+                    continue
+                results.append({
+                    "source": "qq" if src == "qq" else "netease",
+                    "source_label": "QQ音乐" if src == "qq" else "网易云音乐",
+                    "song_name": cand.get("title"),
+                    "artist": cand.get("artist"),
+                    "album": cand.get("album"),
+                    "lyric": lyric,
+                })
+            except Exception as e:
+                logger.warning("在线歌词获取失败 %s: %s", src, e)
+        return {"total": total, "results": results}
+
+    async def match_song_candidates(self, session, song_name, artist_name, sources=None, offset=0, limit=6,
+                                    fields=None, lyric_credits_fallback=False, local_lyrics=None):
+        """单曲匹配多候选（分页，数据较多优先）：返回 {total, results:[{source, source_label, song_name, artist,
+        album, album_artist, year, genre, trackNo, discNo, cover_url, composers, lyricists, arranger, producer, publisher}]}"""
+        all_fields = {"title", "artist", "album", "year", "track_disc", "genre",
+                      "album_artist", "composer", "lyricist", "lyric",
+                      "publisher", "arranger", "producer"}
+        fields = fields or {k: True for k in all_fields}
+
+        def _f(k):
+            return bool(fields.get(k, True))
+
+        # 1. 搜索各源 → 候选（带 source）
+        cands = []  # (source, item)
+        if sources is None or sources.get("qq", True):
+            try:
+                for it in await self.qq_search(session, f"{song_name} {artist_name}", limit=30):
+                    cands.append(("qq", it))
+            except Exception as e:
+                logger.warning("QQ 候选搜索失败 %s - %s: %s", song_name, artist_name, e)
+        if sources is None or sources.get("netease", True):
+            try:
+                for it in await self.ncm_search(session, song_name, artist_name, limit=30):
+                    cands.append(("netease", it))
+            except Exception as e:
+                logger.warning("网易云候选搜索失败 %s - %s: %s", song_name, artist_name, e)
+        if sources is None or sources.get("itunes", True):
+            try:
+                for it in await self.itunes_search(session, song_name, artist_name):
+                    cands.append(("itunes", it))
+            except Exception as e:
+                logger.warning("iTunes 候选搜索失败 %s - %s: %s", song_name, artist_name, e)
+
+        # 2. 排序：相似度为主 + 数据量为辅（score + 数据量*2，最佳匹配靠前、数据多的浮上来）
+        scored = []
+        for src, it in cands:
+            score = self._score_candidate(it, song_name, artist_name)
+            dc = sum(1 for k in ("album", "album_artist", "year", "genre", "trackNo", "discNo", "cover_url") if it.get(k))
+            if not (it.get("album") or it.get("year") or it.get("cover_url")):
+                continue  # 仅标题/艺人，无可用数据
+            scored.append((score, dc, src, it))
+        scored.sort(key=lambda x: x[0] + x[1] * 2, reverse=True)
+
+        total = len(scored)
+        page = scored[offset:offset + limit]
+
+        # 3. 共享 credits：MusicBrainz + LRC 保底跑一次，填到缺 credits 的候选
+        shared_composers, shared_lyricists = [], []
+        if _f("composer") or _f("lyricist"):
+            try:
+                mb = await self.musicbrainz_credits(session, song_name, artist_name)
+                shared_composers = mb.get("composers") or []
+                shared_lyricists = mb.get("lyricists") or []
+            except Exception as e:
+                logger.warning("MB credits 失败 %s - %s: %s", song_name, artist_name, e)
+        shared_publisher_raw = None
+        if lyric_credits_fallback and local_lyrics:
+            cr = parse_lyric_credits(local_lyrics)
+            if not shared_composers and cr.get("composer"):
+                shared_composers = [c.strip() for c in cr["composer"].split("/") if c.strip()]
+            if not shared_lyricists and cr.get("lyricist"):
+                shared_lyricists = [l.strip() for l in cr["lyricist"].split("/") if l.strip()]
+            if _f("publisher") and not shared_publisher_raw and cr.get("publisher"):
+                shared_publisher_raw = cr["publisher"]
+
+        SOURCE_LABELS_MAP = {"qq": "QQ音乐", "netease": "网易云音乐", "itunes": "iTunes"}
+
+        # 4. 组装每个候选（含增强）
+        results = []
+        for _score, _dc, src, it in page:
+            r = {
+                "source": src,
+                "source_label": SOURCE_LABELS_MAP.get(src, src),
+                "song_name": it.get("title"),
+                "artist": it.get("artist"),
+                "album": it.get("album") if _f("album") else None,
+                "album_artist": it.get("album_artist") if _f("album_artist") else None,
+                "year": it.get("year") if _f("year") else None,
+                "genre": it.get("genre") if _f("genre") else None,
+                "trackNo": it.get("trackNo") if _f("track_disc") else None,
+                "discNo": it.get("discNo") if _f("track_disc") else None,
+                "cover_url": None,
+                "lyric": None,
+                "composers": [], "lyricists": [], "arranger": None, "producer": None,
+                "publisher": None,
+            }
+            try:
+                if src == "qq":
+                    r["cover_url"] = QQ_COVER_URL.format(albummid=it["albummid"]) if it.get("albummid") else None
+                    if it.get("albummid") and (_f("album_artist") or _f("genre") or _f("year")):
+                        ai = await self.qq_album_info(session, it["albummid"])
+                        if ai:
+                            if _f("album_artist") and not r["album_artist"]:
+                                r["album_artist"] = ai.get("album_artist")
+                            if _f("genre") and not r["genre"]:
+                                r["genre"] = ai.get("genre")
+                            if _f("year") and not r["year"]:
+                                r["year"] = ai.get("year")
+                elif src == "netease":
+                    r["cover_url"] = it.get("cover_url")
+                    if it.get("ncm_id") and (_f("composer") or _f("lyricist") or _f("arranger") or _f("producer")):
+                        try:
+                            cr = await self.ncm_song_creators(session, it["ncm_id"])
+                            if _f("composer"):
+                                r["composers"] = list(cr.get("composers") or [])
+                            if _f("lyricist"):
+                                r["lyricists"] = list(cr.get("lyricists") or [])
+                            if _f("arranger") and cr.get("arranger"):
+                                r["arranger"] = cr["arranger"]
+                            if _f("producer") and cr.get("producer"):
+                                r["producer"] = cr["producer"]
+                        except Exception as e:
+                            logger.warning("网易云创作者失败 %s: %s", it.get("ncm_id"), e)
+                elif src == "itunes":
+                    r["cover_url"] = it.get("cover_url")
+            except Exception as e:
+                logger.warning("候选增强失败 %s: %s", src, e)
+
+            # 在线歌词：拉取该候选歌词并解析 credits（B 方案：恢复在线歌词保底 + 携带歌词）
+            lyric_text = None
+            try:
+                if src == "qq" and it.get("songmid"):
+                    lyric_text = await self.qq_lyric(session, it["songmid"])
+                elif src == "netease" and it.get("ncm_id"):
+                    lyric_text = await self.ncm_lyric(session, it["ncm_id"])
+            except Exception as e:
+                logger.warning("候选歌词失败 %s: %s", src, e)
+            if lyric_text:
+                if _f("lyric"):
+                    r["lyric"] = lyric_text
+                if lyric_credits_fallback:
+                    cr = parse_lyric_credits(lyric_text)
+                    if _f("composer") and not r["composers"] and cr.get("composer"):
+                        r["composers"] = [c.strip() for c in cr["composer"].split("/") if c.strip()]
+                    if _f("lyricist") and not r["lyricists"] and cr.get("lyricist"):
+                        r["lyricists"] = [l.strip() for l in cr["lyricist"].split("/") if l.strip()]
+                    if _f("publisher") and not r["publisher"] and cr.get("publisher"):
+                        pub = cr["publisher"]
+                        if r.get("year") and not pub.startswith("℗"):
+                            pub = f"℗ {r['year']} {pub}"
+                        r["publisher"] = pub
+
+            # 共享 credits 填充缺失
+            if _f("composer") and not r["composers"]:
+                r["composers"] = list(shared_composers)
+            if _f("lyricist") and not r["lyricists"]:
+                r["lyricists"] = list(shared_lyricists)
+            if _f("publisher") and not r["publisher"] and shared_publisher_raw:
+                pub = shared_publisher_raw
+                if r.get("year") and not pub.startswith("℗"):
+                    pub = f"℗ {r['year']} {pub}"
+                r["publisher"] = pub
+            results.append(r)
+
+        return {"total": total, "results": results}
 
     # ================================================================
     # 艺人写真（简介后续再接 QQ 音乐 wiki）
@@ -711,9 +1021,22 @@ class MusicMatcher:
                 local_lyrics=local_lyrics,
             )
 
-    async def match_lyric_standalone(self, song_name, artist_name, sources=None):
+    async def match_lyric_standalone(self, song_name, artist_name, sources=None, offset=0, limit=6):
         async with aiohttp.ClientSession(timeout=self._timeout) as session:
-            return await self.match_lyric(session, song_name, artist_name, sources=sources)
+            return await self.match_lyric(
+                session, song_name, artist_name,
+                sources=sources, offset=offset, limit=limit,
+            )
+
+    async def match_song_candidates_standalone(self, song_name, artist_name, sources=None, offset=0, limit=6,
+                                               fields=None, lyric_credits_fallback=False, local_lyrics=None):
+        async with aiohttp.ClientSession(timeout=self._timeout) as session:
+            return await self.match_song_candidates(
+                session, song_name, artist_name,
+                sources=sources, offset=offset, limit=limit,
+                fields=fields, lyric_credits_fallback=lyric_credits_fallback,
+                local_lyrics=local_lyrics,
+            )
 
     async def match_artist(self, artist_name):
         async with aiohttp.ClientSession(timeout=self._timeout) as session:

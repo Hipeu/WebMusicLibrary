@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { FaTimes, FaImage, FaMusic, FaPlus, FaClock, FaCodeBranch, FaCalendarAlt, FaLink } from "react-icons/fa";
 import { matchSong, updateMusicMetadata } from "../services/api";
 import LyricImport from "../components/LyricImport";
+import MatchResultPicker from "../components/MatchResultPicker";
 
 /* ================================================================
    ✏️ MusicEdit — 编辑音乐元信息弹窗
@@ -17,6 +18,7 @@ export default function MusicEdit({ target, onClose, onSave, onRefresh, onAlbumM
   const [didMatch, setDidMatch] = useState(false);
   const [albumDidMatch, setAlbumDidMatch] = useState(false);
   const [lastSource, setLastSource] = useState(null);
+  const [showSongPicker, setShowSongPicker] = useState(false);
   const [lyricImportOpen, setLyricImportOpen] = useState(false);
   const coverInputRef = useRef(null);
   const isAlbum = target?.type === "album";
@@ -69,7 +71,7 @@ export default function MusicEdit({ target, onClose, onSave, onRefresh, onAlbumM
   function buildMatchConfig() {
     const fieldKeys = ["title", "artist", "album", "year", "track_disc", "genre", "album_artist",
                        "composer", "lyricist", "lyric", "publisher", "arranger", "producer"];
-    const sourceKeys = ["qq", "itunes", "musicbrainz"];
+    const sourceKeys = ["qq", "netease", "itunes", "musicbrainz"];
     const fields = {};
     fieldKeys.forEach((k) => { fields[k] = localStorage.getItem(`match-field-${k}`) !== "0"; });
     const sources = {};
@@ -170,6 +172,36 @@ export default function MusicEdit({ target, onClose, onSave, onRefresh, onAlbumM
     }
   }
 
+  // 单曲多结果：选中候选 → 只填当前为空字段；有封面则应用到编辑表单
+  function handlePickCandidate(c, coverFile) {
+    if (!c) return;
+    setForm((prev) => {
+      const next = { ...prev };
+      if (!next.title && c.song_name) next.title = c.song_name;
+      if (!next.artist && c.artist) next.artist = c.artist;
+      if (!next.album && c.album) next.album = c.album;
+      if (!next.album_artist && c.album_artist) next.album_artist = c.album_artist;
+      if (!next.year && c.year) next.year = c.year;
+      if (!next.genre && c.genre) next.genre = c.genre;
+      if (!next.trackNo && c.trackNo != null) next.trackNo = c.trackNo;
+      if (!next.discNo && c.discNo != null) next.discNo = c.discNo;
+      if (!next.composer && c.composers?.length) next.composer = c.composers.join(", ");
+      if (!next.lyricist && c.lyricists?.length) next.lyricist = c.lyricists.join(", ");
+      // 发布者：已有真实发布者不覆盖；仅预填前缀（℗ 年份，无真实名）视为无发布者 → 用候选的
+      const isJustPrefill = next.publisher && /^℗\s*\d{4}\s*$/.test(String(next.publisher).trim());
+      if ((!next.publisher || isJustPrefill) && c.publisher) next.publisher = c.publisher;
+      if (!next.lyrics && c.lyric) next.lyrics = c.lyric;
+      return next;
+    });
+    if (coverFile) {
+      setEditCover(URL.createObjectURL(coverFile));
+      setEditCoverFile(coverFile);
+    }
+    setDidMatch(true);
+    setLastSource(c.source || null);
+    setMatchMsg("已选择匹配结果，请确认后保存");
+  }
+
   function handleChange(field, value) {
     setForm((prev) => ({ ...prev, [field]: value }));
   }
@@ -200,7 +232,7 @@ export default function MusicEdit({ target, onClose, onSave, onRefresh, onAlbumM
     <div style={styles.overlay}>
       <div style={styles.dialog} className="music-edit-dialog" onClick={(e) => e.stopPropagation()}>
         {/* 右上角：单项匹配 */}
-        <button style={styles.matchBtn} onClick={handleMatch} disabled={matching} title="按设置中的字段与源进行匹配">
+        <button style={styles.matchBtn} onClick={() => (isAlbum ? handleMatch() : setShowSongPicker(true))} disabled={matching} title="按设置中的字段与源进行匹配">
           <FaLink size={13} style={{ marginRight: 6 }} />
           {matching ? "匹配中…" : (didMatch || albumDidMatch) ? "✔已匹配" : (isAlbum ? "匹配专辑" : "匹配")}
         </button>
@@ -447,6 +479,17 @@ export default function MusicEdit({ target, onClose, onSave, onRefresh, onAlbumM
             onClose={() => setLyricImportOpen(false)}
           />
         )}
+
+        {/* 单曲匹配多结果选择 */}
+        {showSongPicker && (
+          <MatchResultPicker
+            song_name={form.title || data?.title || ""}
+            artist_name={form.artist || data?.artist || ""}
+            file_path={data?.file_path || ""}
+            onPick={handlePickCandidate}
+            onClose={() => setShowSongPicker(false)}
+          />
+        )}
       </div>
     </div>
   );
@@ -462,7 +505,7 @@ function formatDuration(seconds) {
 /** 匹配源 → 中文标签（多源以 / 分隔） */
 function matchSourceLabel(source) {
   if (!source) return "";
-  const LABELS = { qq: "QQ音乐", itunes: "iTunes", musicbrainz: "MusicBrainz" };
+  const LABELS = { qq: "QQ音乐", itunes: "iTunes", musicbrainz: "MusicBrainz", netease: "网易云音乐" };
   const parts = String(source).split(/[^\w]+/).map((s) => s.trim()).filter(Boolean);
   return parts.map((s) => LABELS[s] || s).join(" / ");
 }

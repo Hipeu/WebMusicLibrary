@@ -1,10 +1,12 @@
 import asyncio
 import json
+import logging
 import os
 import threading
 
 import aiohttp
 from fastapi import APIRouter, Body
+from fastapi.responses import Response
 
 from routers.musicload import load_manifest, save_manifest
 from routers.Artists import load_artists, save_artists, sanitize_name as sanitize_artist_name
@@ -13,6 +15,7 @@ from services.metadata_service import write_metadata, parse_metadata
 from services.match import MusicMatcher, parse_lyric_credits
 
 router = APIRouter(prefix="/api/match")
+logger = logging.getLogger("match")
 
 # 备份目录：data/metadata / data/picture / data/artists_img（与其它路由一致）
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -38,7 +41,7 @@ _match_state = {
     "was_cancelled": False,
 }
 
-SOURCE_LABELS = {"qq": "QQ音乐", "itunes": "iTunes"}
+SOURCE_LABELS = {"qq": "QQ音乐", "itunes": "iTunes", "netease": "网易云音乐", "musicbrainz": "MusicBrainz"}
 
 
 def _reset_state(total):
@@ -58,6 +61,24 @@ def _log(kind, message):
 # ================================================================
 # 单曲匹配 / 艺人写真
 # ================================================================
+
+@router.get("/cover")
+async def get_cover_proxy(url: str = ""):
+    """同源代理：下载封面图片返回（规避 QQ/网易/iTunes CDN 跨域，供编辑表单应用封面）"""
+    if not url:
+        return Response(content=b"", status_code=400)
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=15) as resp:
+                if resp.status != 200:
+                    return Response(content=b"", status_code=404)
+                data = await resp.read()
+                mime = resp.headers.get("Content-Type", "image/jpeg")
+        return Response(content=data, media_type=mime)
+    except Exception as e:
+        logger.warning("封面代理失败 %s: %s", url, e)
+        return Response(content=b"", status_code=404)
+
 
 @router.post("/song")
 async def match_song(payload: dict = Body(...)):
@@ -86,19 +107,55 @@ async def match_song(payload: dict = Body(...)):
     )
 
 
+@router.post("/song/candidates")
+async def match_song_candidates(payload: dict = Body(...)):
+    """单曲匹配多候选（分页，数据较多优先）：返回 {status, total, results:[{source, source_label, song_name, artist,
+    album, album_artist, year, genre, trackNo, discNo, cover_url, composers, lyricists, arranger, producer, publisher}]}"""
+    song_name = (payload.get("song_name") or "").strip()
+    artist_name = (payload.get("artist_name") or "").strip()
+    if not song_name or not artist_name:
+        return {"error": "缺少 song_name 或 artist_name"}
+    file_path = payload.get("file_path")
+    local_lyrics = None
+    if file_path:
+        manifest = load_manifest()
+        entry = manifest.get(file_path) or {}
+        local_lyrics = _read_local_lyrics(file_path, entry)
+    matcher = MusicMatcher()
+    res = await matcher.match_song_candidates_standalone(
+        song_name, artist_name,
+        sources=payload.get("sources"),
+        offset=int(payload.get("offset") or 0),
+        limit=int(payload.get("limit") or 6),
+        fields=payload.get("fields"),
+        lyric_credits_fallback=bool(payload.get("lyric_credits_fallback")),
+        local_lyrics=local_lyrics,
+    )
+    return {
+        "status": "ok",
+        "total": res.get("total", 0),
+        "results": res.get("results", []),
+    }
+
+
 @router.post("/lyric")
 async def match_lyric(payload: dict = Body(...)):
-    """在线歌词多源匹配：返回 [{source, source_label, song_name, artist, album, lyric}]"""
+    """在线歌词多源匹配（分页，最佳靠前）：返回 {status, total, results:[{source, source_label, song_name, artist, album, lyric}]}"""
     song_name = (payload.get("song_name") or "").strip()
     artist_name = (payload.get("artist_name") or "").strip()
     if not song_name or not artist_name:
         return {"error": "缺少 song_name 或 artist_name"}
     matcher = MusicMatcher()
+    res = await matcher.match_lyric_standalone(
+        song_name, artist_name,
+        sources=payload.get("sources"),
+        offset=int(payload.get("offset") or 0),
+        limit=int(payload.get("limit") or 6),
+    )
     return {
         "status": "ok",
-        "results": await matcher.match_lyric_standalone(
-            song_name, artist_name, sources=payload.get("sources")
-        ),
+        "total": res.get("total", 0),
+        "results": res.get("results", []),
     }
 
 

@@ -8,24 +8,52 @@ import { matchLyric } from "../services/api";
    ================================================================ */
 export default function LyricImport({ song_name, artist_name, onUseLyric, onClose }) {
   const [tab, setTab] = useState("online");
+  const [sourceSel, setSourceSel] = useState("all"); // "all" | "qq" | "netease"
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [error, setError] = useState("");
   const [pasteText, setPasteText] = useState("");
   const fileRef = useRef(null);
 
-  async function handleOnlineSearch() {
+  const PAGE_SIZE = 6;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  function buildSources() {
+    if (sourceSel === "qq") return { qq: true, netease: false };
+    if (sourceSel === "netease") return { qq: false, netease: true };
+    return { qq: true, netease: true };
+  }
+
+  async function handleOnlineSearch(targetPage = 1) {
     setLoading(true);
     setError("");
     try {
-      const res = await matchLyric({ song_name, artist_name });
+      const res = await matchLyric({
+        song_name,
+        artist_name,
+        sources: buildSources(),
+        offset: (targetPage - 1) * PAGE_SIZE,
+        limit: PAGE_SIZE,
+      });
       setResults(res?.results || []);
+      setTotal(res?.total || 0);
+      setPage(targetPage);
       if (!res?.results?.length) setError("未找到在线歌词");
     } catch {
       setError("在线歌词获取失败，请确认后端已启动");
     } finally {
       setLoading(false);
     }
+  }
+
+  function selectSource(k) {
+    setSourceSel(k);
+    setResults([]);
+    setTotal(0);
+    setPage(1);
+    setError("");
   }
 
   function handleFileSelect(e) {
@@ -66,9 +94,21 @@ export default function LyricImport({ song_name, artist_name, onUseLyric, onClos
 
         {tab === "online" ? (
           <div style={styles.body}>
-            <button style={styles.searchBtn} onClick={handleOnlineSearch} disabled={loading}>
-              {loading ? "搜索中…" : "在线搜索歌词"}
-            </button>
+            {/* 源选择 + 独立搜索按钮 */}
+            <div style={styles.searchRow}>
+              {[["all", "全部"], ["qq", "QQ音乐"], ["netease", "网易云音乐"]].map(([k, label]) => (
+                <button
+                  key={k}
+                  style={{ ...styles.srcChip, ...(sourceSel === k ? styles.srcChipActive : {}) }}
+                  onClick={() => selectSource(k)}
+                >
+                  {label}
+                </button>
+              ))}
+              <button style={styles.searchBtn} onClick={() => handleOnlineSearch(1)} disabled={loading}>
+                {loading ? "搜索中…" : "搜索"}
+              </button>
+            </div>
             {error && <p style={styles.error}>{error}</p>}
             <div style={styles.resultList}>
               {results.map((r, i) => (
@@ -86,7 +126,22 @@ export default function LyricImport({ song_name, artist_name, onUseLyric, onClos
                   </button>
                 </div>
               ))}
+              {results.length === 0 && !loading && !error && (
+                <p style={styles.emptyHint}>选择源后点击「搜索」获取歌词</p>
+              )}
             </div>
+            {/* 分页控件 */}
+            {totalPages > 1 && (
+              <div style={styles.pager}>
+                <button style={styles.pagerBtn} disabled={page <= 1 || loading} onClick={() => handleOnlineSearch(page - 1)}>
+                  ‹
+                </button>
+                <span style={styles.pagerInfo}>共 {totalPages} 页结果 · 第 {page} 页</span>
+                <button style={styles.pagerBtn} disabled={page >= totalPages || loading} onClick={() => handleOnlineSearch(page + 1)}>
+                  ›
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           <div style={styles.body}>
@@ -138,9 +193,9 @@ const styles = {
   },
   window: {
     position: "relative",
-    width: "560px",
+    width: "672px",
     maxWidth: "92vw",
-    maxHeight: "82vh",
+    maxHeight: "92vh",
     background: "#ffffff",
     borderRadius: "14px",
     boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
@@ -205,7 +260,29 @@ const styles = {
     display: "flex",
     flexDirection: "column",
     gap: "12px",
-    minHeight: "240px",
+    minHeight: "320px",
+  },
+  searchRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    flexWrap: "wrap",
+  },
+  srcChip: {
+    padding: "6px 18px",
+    borderRadius: "18px",
+    border: "1px solid #d1d5db",
+    background: "#ffffff",
+    color: "#6b7280",
+    fontSize: "13px",
+    cursor: "pointer",
+    fontFamily: "inherit",
+    transition: "all 0.15s",
+  },
+  srcChipActive: {
+    background: "#e94560",
+    borderColor: "#e94560",
+    color: "#ffffff",
   },
   searchBtn: {
     alignSelf: "flex-start",
@@ -218,6 +295,38 @@ const styles = {
     fontWeight: 600,
     cursor: "pointer",
     fontFamily: "inherit",
+  },
+  emptyHint: {
+    fontSize: "13px",
+    color: "#9ca3af",
+    textAlign: "center",
+    margin: "40px 0",
+  },
+  pager: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "12px",
+    flexShrink: 0,
+  },
+  pagerBtn: {
+    width: "30px",
+    height: "30px",
+    borderRadius: "50%",
+    border: "1px solid #d1d5db",
+    background: "#ffffff",
+    color: "#374151",
+    fontSize: "16px",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontFamily: "inherit",
+    transition: "all 0.15s",
+  },
+  pagerInfo: {
+    fontSize: "13px",
+    color: "#6b7280",
   },
   error: {
     fontSize: "13px",

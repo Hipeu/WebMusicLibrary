@@ -929,7 +929,7 @@ function formatDuration(seconds) {
 /** 匹配源 → 中文标签（多源以 / 分隔）；无则返回空串 */
 function matchSourceLabel(source) {
   if (!source) return "";
-  const LABELS = { qq: "QQ音乐", itunes: "iTunes", musicbrainz: "MusicBrainz" };
+  const LABELS = { qq: "QQ音乐", itunes: "iTunes", musicbrainz: "MusicBrainz", netease: "网易云音乐" };
   const parts = String(source).split(/[^\w]+/).map((s) => s.trim()).filter(Boolean);
   return parts.map((s) => LABELS[s] || s).join(" / ");
 }

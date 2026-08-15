@@ -47,13 +47,15 @@ export default function Settings({ show, onClose, onReset, onSettingsSaved, matc
           ))}
         </div>
 
-        {/* 右侧内容区 */}
-        <div style={styles.content}>
-          {active === "appearance" && <AppearancePanel onSettingsSaved={onSettingsSaved} onRefreshLibrary={onRefreshLibrary} />}
-          {active === "edit" && <EditPanel onSettingsSaved={onSettingsSaved} />}
-          {active === "match" && <MatchPanel matchState={matchState} onOpenMatchDetail={onOpenMatchDetail} onMatchStarted={onMatchStarted} onSettingsSaved={onSettingsSaved} />}
-          {active === "reset" && <ResetPanel onReset={onReset} />}
-          {active === "about" && <AboutPanel />}
+        {/* 右侧内容区（外层留白内缩滚动区，避开右上角 X 与窗口下边） */}
+        <div style={styles.contentWrap}>
+          <div style={styles.content}>
+            {active === "appearance" && <AppearancePanel onSettingsSaved={onSettingsSaved} onRefreshLibrary={onRefreshLibrary} />}
+            {active === "edit" && <EditPanel onSettingsSaved={onSettingsSaved} />}
+            {active === "match" && <MatchPanel matchState={matchState} onOpenMatchDetail={onOpenMatchDetail} onMatchStarted={onMatchStarted} onSettingsSaved={onSettingsSaved} />}
+            {active === "reset" && <ResetPanel onReset={onReset} />}
+            {active === "about" && <AboutPanel />}
+          </div>
         </div>
       </div>
     </div>
@@ -257,7 +259,7 @@ const MATCH_FIELDS = [
   ["publisher", "发布者"], ["arranger", "编曲"], ["producer", "制作人"],
 ];
 const MATCH_SOURCES = [
-  ["qq", "QQ音乐"], ["itunes", "iTunes"], ["musicbrainz", "MusicBrainz"],
+  ["qq", "QQ音乐"], ["netease", "网易云音乐"], ["itunes", "iTunes"], ["musicbrainz", "MusicBrainz"],
 ];
 
 function MatchPanel({ matchState, onOpenMatchDetail, onMatchStarted, onSettingsSaved }) {
@@ -903,10 +905,21 @@ const styles = {
   sidebarLabelActive: {
     fontWeight: 600,
   },
+  contentWrap: {
+    flex: 1,
+    minWidth: 0,
+    display: "flex",
+    flexDirection: "column",
+    padding: "64px 0 40px",
+    boxSizing: "border-box",
+    overflow: "hidden",
+  },
   content: {
     flex: 1,
-    padding: "28px 36px",
+    minHeight: 0,
     overflowY: "auto",
+    padding: "0 24px",
+    boxSizing: "border-box",
   },
 };
 
@@ -1353,8 +1366,6 @@ const matchStyles = {
     display: "flex",
     flexDirection: "column",
     gap: "20px",
-    // 顶部避让右上角关闭按钮（X）
-    paddingTop: "36px",
   },
   configBox: {
     border: "1px solid #f3f4f6",
