@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { FaMusic, FaCompactDisc, FaUser, FaListUl, FaArrowLeft, FaExclamationCircle } from "react-icons/fa";
 import { songPlayable } from "../utils/formatCheck";
+import { getAssetUrl } from "../services/api";
 
 /* ================================================================
    🔍 Search — 侧边栏搜索输入框
@@ -56,6 +57,7 @@ export function SearchResults({
   filterText,
   albums,
   playlists,
+  artistRecords,
   onPlaySong,
   onOpenAlbum,
   onOpenArtist,
@@ -121,6 +123,12 @@ export function SearchResults({
     const plScores = {};
     playlists.forEach((pl) => {
       let total = 0, count = 0;
+      // 播放列表名称命中即参与结果
+      const plName = (pl.name || "").toLowerCase();
+      if (plName && plName.includes(query)) {
+        total += 20;
+        count += 1;
+      }
       pl.songs.forEach((song) => {
         const sc = computeSongScore(song, query);
         if (sc > 0) { total += sc; count += 1; }
@@ -167,6 +175,7 @@ export function SearchResults({
         results={allResults}
         albums={albums}
         playlists={playlists}
+        artistRecords={artistRecords}
         onBack={() => setDetailCategory(null)}
         onPlaySong={onPlaySong}
         onOpenAlbum={onOpenAlbum}
@@ -273,7 +282,14 @@ export function SearchResults({
                 className="search-result-card"
                 onClick={() => { onNavChange("artists"); onOpenArtist(item.name); }}
               >
-                <div className="search-artist-avatar"><FaUser /></div>
+                {(() => {
+                  const cover = artistRecords?.[item.name]?.cover_url;
+                  return cover ? (
+                    <img src={getAssetUrl(cover)} alt="" className="search-artist-avatar" />
+                  ) : (
+                    <div className="search-artist-avatar"><FaUser /></div>
+                  );
+                })()}
                 <span className="search-artist-name">{item.name}</span>
               </div>
             ))}
@@ -323,6 +339,7 @@ function SearchCategoryDetail({
   results,
   albums,
   playlists,
+  artistRecords,
   onBack,
   onPlaySong,
   onOpenAlbum,
@@ -392,7 +409,14 @@ function SearchCategoryDetail({
           className="search-result-card"
           onClick={() => { onNavChange("artists"); onOpenArtist(item.name); }}
         >
-          <div className="search-artist-avatar"><FaUser /></div>
+          {(() => {
+            const cover = artistRecords?.[item.name]?.cover_url;
+            return cover ? (
+              <img src={getAssetUrl(cover)} alt="" className="search-artist-avatar" />
+            ) : (
+              <div className="search-artist-avatar"><FaUser /></div>
+            );
+          })()}
           <span className="search-artist-name">{item.name}</span>
         </div>
       );

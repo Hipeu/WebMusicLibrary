@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from "react";
-import { FaTimes, FaImage, FaMusic, FaPlus, FaClock, FaCodeBranch, FaCalendarAlt, FaLink } from "react-icons/fa";
+import { startTransition, useState, useEffect, useRef } from "react";
+import { FaImage, FaMusic, FaPlus, FaClock, FaCodeBranch, FaCalendarAlt, FaLink } from "react-icons/fa";
 import { matchSong, updateMusicMetadata } from "../services/api";
 import LyricImport from "../components/LyricImport";
 import MatchResultPicker from "../components/MatchResultPicker";
@@ -9,7 +9,7 @@ import AlbumMatchPicker from "../components/AlbumMatchPicker";
    ✏️ MusicEdit — 编辑音乐元信息弹窗
    右上角「匹配」：歌曲匹配填入表单 / 专辑匹配逐首写回
    ================================================================ */
-export default function MusicEdit({ target, onClose, onSave, onRefresh, onAlbumMatchProgress }) {
+export default function MusicEdit({ target, onClose, onSave, onRefresh, onAlbumMatchProgress, onAlbumMatchSaved, onMatchError }) {
   const [form, setForm] = useState({});
   const [editCover, setEditCover] = useState(null);
   const [editCoverFile, setEditCoverFile] = useState(null);
@@ -40,16 +40,17 @@ export default function MusicEdit({ target, onClose, onSave, onRefresh, onAlbumM
     // 发布者预输入：设置开启且年份存在时补全 "℗ 年份 "（仅当发布者原本为空）
     const prefilledPublisher = getPrefilledPublisher(data?.year);
     if (isAlbum) {
-      setForm({
+      startTransition(() => setForm({
         title: data.title || "",
         artist: data.artist || "",
         album_artist: data.album_artist ?? "",
         year: data.year ?? "",
         genre: data.genre || "",
         publisher: data.publisher || prefilledPublisher,
-      });
+        description: data.description || "",
+      }));
     } else {
-      setForm({
+      startTransition(() => setForm({
         title: data.title || "",
         artist: data.artist || "",
         album: data.album || "",
@@ -63,15 +64,32 @@ export default function MusicEdit({ target, onClose, onSave, onRefresh, onAlbumM
         publisher: data.publisher || prefilledPublisher,
         comment: data.comment || "",
         lyrics: data.lyrics ?? "",
-      });
+      }));
     }
-  }, [target]);
+  }, [
+    target,
+    isAlbum,
+    data?.album,
+    data?.album_artist,
+    data?.artist,
+    data?.comment,
+    data?.composer,
+    data?.description,
+    data?.discNo,
+    data?.genre,
+    data?.lyricist,
+    data?.lyrics,
+    data?.publisher,
+    data?.title,
+    data?.trackNo,
+    data?.year,
+  ]);
 
   if (!target) return null;
 
   // 读取设置里的匹配配置（字段/源/歌词兜底）
   function buildMatchConfig() {
-    const fieldKeys = ["title", "artist", "album", "year", "track_disc", "genre", "album_artist",
+    const fieldKeys = ["title", "artist", "album", "year", "track_disc", "genre", "album_artist", "description",
                        "composer", "lyricist", "lyric", "publisher", "arranger", "producer"];
     const sourceKeys = ["qq", "netease", "itunes", "musicbrainz"];
     const fields = {};
@@ -85,7 +103,7 @@ export default function MusicEdit({ target, onClose, onSave, onRefresh, onAlbumM
     };
   }
 
-  async function handleMatch() {
+  async function handleMatch(selectedAlbum = null) {
     if (matching) return;
     setMatching(true);
     setMatchMsg("");
@@ -106,18 +124,37 @@ export default function MusicEdit({ target, onClose, onSave, onRefresh, onAlbumM
               const payload = {};
               if (!song.composer && res.composers?.length) payload.composer = res.composers.join(", ");
               if (!song.lyricist && res.lyricists?.length) payload.lyricist = res.lyricists.join(", ");
-              if (!song.album && res.album) payload.album = res.album;
-              if (!song.album_artist && res.album_artist) payload.album_artist = res.album_artist;
-              if (!song.year && res.year) payload.year = res.year;
-              if (!song.genre && res.genre) payload.genre = res.genre;
+              if (selectedAlbum?.album) payload.album = selectedAlbum.album;
+              else if (!song.album && res.album) payload.album = res.album;
+              if (selectedAlbum?.album_artist) {
+                payload.artist = selectedAlbum.album_artist;
+                payload.album_artist = selectedAlbum.album_artist;
+              } else if (!song.album_artist && res.album_artist) payload.album_artist = res.album_artist;
+              if (selectedAlbum?.year) payload.year = selectedAlbum.year;
+              else if (!song.year && res.year) payload.year = res.year;
+              if (selectedAlbum?.genre) payload.genre = selectedAlbum.genre;
+              else if (!song.genre && res.genre) payload.genre = res.genre;
               if (song.trackNo == null && res.trackNo != null) payload.trackNo = res.trackNo;
               if (song.discNo == null && res.discNo != null) payload.discNo = res.discNo;
               if (!song.publisher && res.publisher) payload.publisher = res.publisher;
               if (!song.arranger && res.arranger) payload.arranger = res.arranger;
               if (!song.producer && res.producer) payload.producer = res.producer;
               if (!song.lyrics && res.lyric) payload.lyrics = res.lyric;
-              await updateMusicMetadata({ file_path: song.file_path, ...payload, matched: "1", match_source: res.source });
-              okCount++;
+              const saveRes = await updateMusicMetadata({
+                file_path: song.file_path,
+                ...payload,
+                matched: "1",
+                match_source: res.source,
+              });
+              if (saveRes?.status === "ok") okCount++;
+              else skipCount++;
+              if (saveRes?.status === "ok") {
+                onAlbumMatchSaved?.(target.data?.id, song, {
+                  ...saveRes.song,
+                  matched: true,
+                  match_source: res.source || null,
+                });
+              }
             } else {
               skipCount++;
             }
@@ -133,7 +170,7 @@ export default function MusicEdit({ target, onClose, onSave, onRefresh, onAlbumM
           ? `匹配成功 ${okCount} 首，跳过 ${skipCount} 首`
           : `匹配成功 ${okCount} 首`;
         onAlbumMatchProgress?.({ status: "done", done: doneCount, total: songs.length, message: doneMessage, skipped: skipCount });
-        onRefresh?.();
+        await onRefresh?.({ replace: true });
         setMatchMsg("专辑匹配完成，已写回音乐文件");
       } else {
         // 歌曲：匹配并填入表单（只填当前为空的字段）
@@ -168,6 +205,7 @@ export default function MusicEdit({ target, onClose, onSave, onRefresh, onAlbumM
         setMatchMsg("匹配完成，请确认后保存");
       }
     } catch {
+      if (isAlbum) onMatchError?.();
       setMatchMsg("匹配失败，请确认后端与 QQ 服务已启动");
     } finally {
       setMatching(false);
@@ -209,11 +247,14 @@ export default function MusicEdit({ target, onClose, onSave, onRefresh, onAlbumM
     if (!c) return;
     setForm((prev) => {
       const next = { ...prev };
-      if (!next.title && c.album) next.title = c.album;
-      if (!next.artist && c.album_artist) next.artist = c.album_artist;
-      if (!next.album_artist && c.album_artist) next.album_artist = c.album_artist;
-      if (!next.year && c.year) next.year = c.year;
-      if (!next.genre && c.genre) next.genre = c.genre;
+       if (c.album) next.title = c.album;
+       if (c.album_artist) {
+         next.artist = c.album_artist;
+         next.album_artist = c.album_artist;
+       }
+       if (c.year) next.year = c.year;
+       if (c.genre) next.genre = c.genre;
+       if (c.description) next.description = c.description;
       return next;
     });
     if (coverFile) {
@@ -222,7 +263,7 @@ export default function MusicEdit({ target, onClose, onSave, onRefresh, onAlbumM
     }
     setAlbumDidMatch(true);
     setMatchMsg("已选择专辑版本，正在匹配专辑内歌曲…");
-    handleMatch();
+     handleMatch(c);
   }
 
   function handleChange(field, value) {
@@ -239,14 +280,15 @@ export default function MusicEdit({ target, onClose, onSave, onRefresh, onAlbumM
   }
 
   // 导入 LRC / 歌词文件，填入歌词表单
-  function handleSave() {
-    onSave?.(target, form, editCoverFile, didMatch, lastSource);
+  async function handleSave() {
+    await onSave?.(target, form, editCoverFile, didMatch, lastSource);
     onClose();
   }
 
   const tabs = [
     { id: "details", label: "详细信息" },
     { id: "cover", label: "封面" },
+    ...(isAlbum ? [{ id: "description", label: "简介" }] : []),
     ...(isAlbum ? [] : [{ id: "lyrics", label: "歌词" }]),
     { id: "type", label: "类型" },
   ];
@@ -407,6 +449,18 @@ export default function MusicEdit({ target, onClose, onSave, onRefresh, onAlbumM
                 accept="image/*"
                 style={{ display: "none" }}
                 onChange={handleCoverSelect}
+              />
+            </div>
+          )}
+
+          {activeTab === "description" && isAlbum && (
+            <div style={styles.descriptionTab}>
+              <textarea
+                style={styles.descriptionInput}
+                value={form.description || ""}
+                onChange={(e) => handleChange("description", e.target.value)}
+                placeholder="输入专辑简介"
+                rows={8}
               />
             </div>
           )}
@@ -687,6 +741,16 @@ const styles = {
     padding: "8px 16px", borderRadius: "6px", border: "1px solid #e5e7eb",
     background: "#ffffff", color: "#374151", fontSize: "13px",
     cursor: "pointer", fontFamily: "inherit",
+  },
+
+  descriptionTab: {
+    display: "flex", flexDirection: "column", gap: "8px", padding: "8px 0",
+  },
+  descriptionInput: {
+    width: "100%", boxSizing: "border-box", minHeight: "220px",
+    padding: "12px", borderRadius: "8px", border: "1px solid #e5e7eb",
+    background: "#f9fafb", color: "#1f2937", fontSize: "13px",
+    lineHeight: 1.7, fontFamily: "inherit", resize: "vertical", outline: "none",
   },
 
   /* 歌词标签 */

@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FaPlay, FaPause, FaArrowLeft, FaEllipsisH, FaHeart, FaStepForward, FaClock, FaPlus, FaTrash, FaInfoCircle, FaExclamationCircle } from "react-icons/fa";
 import PlayingAnimation from "../components/PlayingAnimation";
 import useCoverColor from "../components/CoverColor";
 import { songPlayable } from "../utils/formatCheck";
 import { getAssetUrl } from "../services/api";
+import AlbumDescriptionModal from "../components/AlbumDescriptionModal";
 
 /* ================================================================
    📀 AlbumDetail — 专辑详情页
@@ -33,13 +34,29 @@ export default function AlbumDetail({
   const [panelSong, setPanelSong] = useState(null);
   const [panelSearch, setPanelSearch] = useState("");
   const [showAlbumMenu, setShowAlbumMenu] = useState(false);
+  const [descriptionOverflow, setDescriptionOverflow] = useState(false);
+  const [showDescriptionModal, setShowDescriptionModal] = useState(false);
+  const descriptionRef = useRef(null);
 
   const palette = useCoverColor(album?.coverURL || null);
 
   if (!album) return null;
 
-    const yearText = album.year ? `${album.year}` : "未知年份";
+  const yearText = album.year ? `${album.year}` : "未知年份";
   const genreText = album.genre || null;
+  const description = typeof album.description === "string" ? album.description.trim() : "";
+
+  useEffect(() => {
+    const element = descriptionRef.current;
+    if (!element || !description) {
+      setDescriptionOverflow(false);
+      return undefined;
+    }
+    const measure = () => setDescriptionOverflow(element.scrollHeight > element.clientHeight + 1);
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [description]);
 
   // 艺人头像：仅当匹配到艺人封面时显示
   const artistAvatarUrl = artistRecords?.[album.artist]?.cover_url
@@ -69,7 +86,10 @@ export default function AlbumDetail({
       </button>
 
             {/* 上半部分：左=封面 | 右=信息 */}
-      <div style={styles.topSection} className="album-top">
+      <div
+        style={{ ...styles.topSection, ...(description ? styles.topSectionWithDescription : {}) }}
+        className="album-top"
+      >
         {/* 左：封面图（独立，不受右侧影响） */}
         <div style={styles.coverColumn}>
           {themeColor && <div style={{ ...styles.coverGlowLayer, ...coverGlowStyle }} />}
@@ -90,7 +110,7 @@ export default function AlbumDetail({
         </div>
 
         {/* 右：信息区（独立，可自由增删内容） */}
-        <div style={styles.infoColumn}>
+        <div style={{ ...styles.infoColumn, ...(description ? styles.infoColumnWithDescription : {}) }}>
           <h1 style={styles.albumTitle}>{album.title}</h1>
           <p style={styles.albumArtist}>
             {artistAvatarUrl && (
@@ -111,10 +131,23 @@ export default function AlbumDetail({
               album.artist
             )}
           </p>
-                    <p style={styles.albumYear}>
+          <p style={styles.albumYear}>
             {yearText}年
             {genreText && <><span style={styles.yearGenreSep}>·</span><span style={styles.albumGenre}>{genreText}</span></>}
           </p>
+          {description && (
+            <button
+              type="button"
+              style={styles.descriptionButton}
+              onClick={() => setShowDescriptionModal(true)}
+              title="查看专辑详情"
+            >
+              <span ref={descriptionRef} style={styles.descriptionText}>
+                {description}
+              </span>
+              {descriptionOverflow && <span style={styles.descriptionHint}>更多</span>}
+            </button>
+          )}
                     <div style={styles.actionRow}>
                       <button
                         style={{
@@ -401,6 +434,15 @@ export default function AlbumDetail({
           </div>
         </div>
       )}
+      {showDescriptionModal && (
+        <AlbumDescriptionModal
+          album={album}
+          isPlaying={isPlaying}
+          themeColor={themeColor}
+          onPlayAlbum={onPlayAlbum}
+          onClose={() => setShowDescriptionModal(false)}
+        />
+      )}
     </div>
   );
 }
@@ -449,6 +491,10 @@ const styles = {
     gap: "65px",
     padding: "80px 60px 20px 210px",
     minHeight: 0,
+  },
+  topSectionWithDescription: {
+    alignItems: "center",
+    gap: "56px",
   },
 
     // 左列：封面（固定宽高，不受右侧影响）
@@ -501,6 +547,12 @@ infoColumn: {
   top: "90px",     
   left: "5px",    
 },
+  infoColumnWithDescription: {
+    top: 0,
+    left: 0,
+    width: "min(520px, 100%)",
+    maxWidth: "100%",
+  },
   albumTitle: {
         fontSize: "32px", fontWeight: 700, color: "#1f2937",
     margin: 0, lineHeight: 1.2,
@@ -542,6 +594,20 @@ infoColumn: {
     alignItems: "center",
     gap: "12px",
     marginTop: "8px",
+  },
+  descriptionButton: {
+    display: "block", width: "100%", maxWidth: "100%", boxSizing: "border-box",
+    padding: 0, margin: "14px 0 4px", overflow: "hidden",
+    border: "none", background: "transparent", color: "#6b7280",
+    textAlign: "left", cursor: "pointer", font: "inherit",
+  },
+  descriptionText: {
+    display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 3,
+    width: "100%", maxWidth: "100%", overflow: "hidden", overflowWrap: "anywhere",
+    wordBreak: "break-word", lineHeight: 1.7, fontSize: "13px", whiteSpace: "pre-wrap",
+  },
+  descriptionHint: {
+    display: "inline-block", marginTop: "4px", color: "#e94560", fontSize: "12px",
   },
 
                 playButton: {

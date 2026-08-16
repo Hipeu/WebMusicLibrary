@@ -7,25 +7,22 @@ import { Vibrant } from "node-vibrant/browser";
  * @returns {object|null} palette - node-vibrant 调色板对象
  */
 export default function useCoverColor(coverUrl) {
-  const [palette, setPalette] = useState(null);
+  const [resolved, setResolved] = useState({ url: null, palette: null });
 
   useEffect(() => {
-    if (!coverUrl) {
-      setPalette(null);
-      return;
-    }
+    if (!coverUrl) return undefined;
 
     let cancelled = false;
     Vibrant.from(coverUrl)
       .getPalette()
       .then((result) => {
         if (!cancelled) {
-          setPalette(result);
+          setResolved({ url: coverUrl, palette: result });
         }
       })
       .catch((err) => {
         if (!cancelled) {
-          setPalette(null);
+          setResolved({ url: coverUrl, palette: null });
           console.warn("[CoverColor] 提取失败:", coverUrl, err);
         }
       });
@@ -35,5 +32,5 @@ export default function useCoverColor(coverUrl) {
     };
   }, [coverUrl]);
 
-  return palette;
+  return resolved.url === coverUrl ? resolved.palette : null;
 }

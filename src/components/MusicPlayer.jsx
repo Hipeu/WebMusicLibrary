@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect } from "react";
-import { FaChevronDown, FaList, FaMusic, FaHeart, FaRegHeart, FaEllipsisH, FaInfoCircle, FaPlus, FaCompactDisc, FaUser, FaStepForward, FaRedo, FaRandom, FaExclamationCircle } from "react-icons/fa";
+import { startTransition, useState, useRef, useEffect } from "react";
+import { FaChevronDown, FaList, FaMusic, FaHeart, FaRegHeart, FaEllipsisH, FaInfoCircle, FaPlus, FaCompactDisc, FaUser, FaRedo, FaRandom, FaExclamationCircle } from "react-icons/fa";
 import Lyrics from "./Lyrics";
 import { parseLRC } from "../utils/LyricsParser";
 import { getLyrics } from "../services/api";
@@ -19,7 +19,6 @@ export default function MusicPlayer({
   setPlaylists,
   currentAlbumId,
   currentPlaylistId,
-  setCurrentAlbumId,
   currentSongIndex,
   setCurrentSongIndex,
   isPlaying,
@@ -45,7 +44,6 @@ export default function MusicPlayer({
   const [hasLyrics, setHasLyrics] = useState(null); // null=加载中 / true=有 / false=无
   const [detailTab, setDetailTab] = useState("songs"); // "songs" | "lyrics"
   const [tabTransition, setTabTransition] = useState(false);
-    const [isFavorited, setIsFavorited] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef(null);
   // 编辑导致当前歌曲换路径时的恢复点 { time, playing }（待 metadata 就绪后生效）
@@ -53,7 +51,6 @@ export default function MusicPlayer({
   const [playMode, setPlayMode] = useState("sequential"); // "sequential" | "loop" | "loop-one" | "shuffle"
   const [showPlaylistPanel, setShowPlaylistPanel] = useState(false);
   const [playlistSearch, setPlaylistSearch] = useState("");
-  const [shuffledOrder, setShuffledOrder] = useState([]);
 
   // 当前专辑 & 当前歌曲
   const currentAlbum = albums.find((a) => a.id === currentAlbumId) || null;
@@ -91,10 +88,13 @@ export default function MusicPlayer({
         coverURL: currentSong.coverURL || null,
       };
     })() : null;
-  const queueCount = playQueue.length;
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
 
   // 随机模式下的展示顺序
+  const isFavorited = !!currentSong && !!playlists?.find((p) => p.id === "liked")?.songs?.some((s) => s.url === currentSong.url);
+
+  const [shuffledOrder, setShuffledOrder] = useState([]);
+
   const displaySongs = playMode === "shuffle" && shuffledOrder.length > 0
     ? shuffledOrder.map((i) => allSongs[i])
     : allSongs;
@@ -368,7 +368,8 @@ export default function MusicPlayer({
 
   // 切换播放模式或歌曲源时重置随机顺序
   useEffect(() => {
-    if (playMode !== "shuffle" || allSongs.length === 0) return;    const indices = Array.from({ length: allSongs.length }, (_, i) => i);
+    if (playMode !== "shuffle" || allSongs.length === 0) return;
+    const indices = Array.from({ length: allSongs.length }, (_, i) => i);
     for (let i = indices.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [indices[i], indices[j]] = [indices[j], indices[i]];
@@ -378,7 +379,7 @@ export default function MusicPlayer({
       indices.splice(curIdx, 1);
       indices.unshift(currentSongIndex);
     }
-    setShuffledOrder(indices);
+    startTransition(() => setShuffledOrder(indices));
   }, [playMode, currentAlbumId, currentPlaylistId, sourceSongs.length]);
 
   // 自动跳过不可播放的歌曲（连续播放时遇到 ALAC 等格式自动切到下一首可播放的）
@@ -409,16 +410,6 @@ export default function MusicPlayer({
     return () => document.removeEventListener("mousedown", handleClick);
   }, [showMenu]);
 
-  // 同步喜爱状态
-  useEffect(() => {
-    if (currentSong && playlists) {
-      const likedPlaylist = playlists.find((p) => p.id === "liked");
-      if (likedPlaylist) {
-        setIsFavorited(likedPlaylist.songs.some((s) => s.url === currentSong.url));
-      }
-    }
-  }, [currentSong?.url, playlists]);
-
   // 处理喜爱切换
   function handleToggleFavorite() {
     if (!currentSong || !setPlaylists) return;
@@ -442,7 +433,6 @@ export default function MusicPlayer({
           )
         );
       }
-      setIsFavorited(!isLiked);
     }
   }
 
@@ -573,7 +563,7 @@ export default function MusicPlayer({
                                             )}
                                             <button
                                               style={styles.coverMenuItem}
-                                              onClick={(e) => {
+                                               onClick={() => {
                                                 setShowMenu(false);
                                                 const found = albums.find((a) => a.title === displayAlbum?.title);
                                                 if (onNavigateToAlbum && found?.id) {
@@ -587,7 +577,7 @@ export default function MusicPlayer({
                                             </button>
                                             <button
                                               style={styles.coverMenuItem}
-                                              onClick={(e) => {
+                                               onClick={() => {
                                                 setShowMenu(false);
                                                 if (onNavigateToArtist && displayAlbum?.artist) {
                                                   setShowDetail(false);

@@ -80,6 +80,17 @@ def find_cover_in_dir(dir_path):
     return None
 
 
+def read_album_description(meta_dir):
+    path = os.path.join(meta_dir, "album.json")
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f).get("description")
+    except Exception:
+        return None
+
+
 def backup_song_artifacts(artist, album, filename_base, source_dir):
     """将封面 / 歌词 / 元信息从音乐库备份到 data 目录"""
     ensure_data_dirs()
@@ -125,6 +136,14 @@ def remove_backup_artifacts(artist, album, filename_base):
             if f.startswith("cover"):
                 try:
                     os.remove(os.path.join(dest, f))
+                except Exception:
+                    pass
+        song_jsons = [f for f in os.listdir(dest) if f.endswith(".json") and f != "album.json"]
+        if not song_jsons:
+            album_meta = os.path.join(dest, "album.json")
+            if os.path.exists(album_meta):
+                try:
+                    os.remove(album_meta)
                 except Exception:
                     pass
         # 清理空目录
@@ -317,7 +336,7 @@ def list_music():
         if artist not in groups:
             groups[artist] = {}
         if album not in groups[artist]:
-            groups[artist][album] = {"songs": [], "cover_url": None}
+            groups[artist][album] = {"songs": [], "cover_url": None, "description": None}
         return groups[artist][album]
 
     # 1. 从清单构建（含缺失文件，标记 file_exists）
@@ -341,6 +360,10 @@ def list_music():
                     meta = json.load(mf)
             except Exception:
                 meta = {}
+        if metadata_path:
+            description = read_album_description(os.path.dirname(os.path.join(DATA_DIR, metadata_path)))
+            if description is not None and g["description"] is None:
+                g["description"] = description
         lyrics_path = s.get("lyrics_path")
         lyrics_url = f"/data/{lyrics_path}" if lyrics_path and os.path.exists(os.path.join(DATA_DIR, lyrics_path)) else None
         song_cover_url = f"/data/{cover_path}" if cover_path and os.path.exists(os.path.join(DATA_DIR, cover_path)) else None
@@ -401,6 +424,9 @@ def list_music():
                         except Exception:
                             pass
                     g = ensure_group(meta.get("album_artist") or artist_name, album_name)
+                    description = read_album_description(os.path.join(METADATA_DIR, artist_name, album_name))
+                    if description is not None and g["description"] is None:
+                        g["description"] = description
                     # 封面优先从 data/picture 读取
                     data_cover = find_cover_in_dir(os.path.join(PICTURE_DIR, artist_name, album_name))
                     if data_cover and not g["cover_url"]:
@@ -436,7 +462,12 @@ def list_music():
         albums_list = []
         for album, data in sorted(albums_map.items()):
             data["songs"].sort(key=lambda s: s.get("trackNo") or 9999)
-            albums_list.append({"album": album, "songs": data["songs"], "cover_url": data["cover_url"]})
+            albums_list.append({
+                "album": album,
+                "songs": data["songs"],
+                "cover_url": data["cover_url"],
+                "description": data.get("description"),
+            })
         result.append({"artist": artist, "albums": albums_list})
 
     return result

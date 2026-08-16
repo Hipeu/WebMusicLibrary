@@ -54,14 +54,14 @@ export default function Lyrics({ lyricsData, currentTime, onSeek, activeColor = 
         lastUserScrollRef.current = 0;
         scrollToActive();
       }
-    }, 3000);
+    }, 6000);
   }
 
   // 自动滚动到高亮行（用户最近 2.5s 内手动滚动过则不回拽）
   useEffect(() => {
     if (lyricsData?.type !== "timed" || currentIndex < 0 || !scrollRef.current)
       return;
-    if (Date.now() - lastUserScrollRef.current < 2500) return;
+    if (Date.now() - lastUserScrollRef.current < 6000) return;
     scrollToActive();
   }, [currentIndex, lyricsData]);
 

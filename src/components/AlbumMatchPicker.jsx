@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { FaTimes } from "react-icons/fa";
-import { matchAlbumCandidates, fetchCoverProxy } from "../services/api";
+import { matchAlbumCandidates, fetchCoverProxy, fetchDescription } from "../services/api";
 
 /* ================================================================
    💿 AlbumMatchPicker — 专辑匹配多结果选择（网格 3×2）
@@ -89,13 +89,23 @@ export default function AlbumMatchPicker({ album_name, artist_name, onPick, onCl
   // 选择封面 = 选择该专辑版本；有封面经代理下载为 Blob 随 onPick 传递
   async function handlePick(r) {
     let coverFile = null;
+    let description = null;
     if (r.cover_url) {
       const blob = await fetchCoverProxy(r.cover_url);
       if (blob) {
         coverFile = new File([blob], "cover.jpg", { type: blob.type || "image/jpeg" });
       }
     }
-    onPick?.(r, coverFile);
+    const sourceId = r.source === "qq" ? r.albummid : r.ncm_id;
+    if (sourceId && (r.source === "qq" || r.source === "netease")) {
+      try {
+        const detail = await fetchDescription({ source: r.source, kind: "album", id: sourceId });
+        description = detail?.description || null;
+      } catch {
+        description = null;
+      }
+    }
+    onPick?.({ ...r, description }, coverFile);
     onClose();
   }
 

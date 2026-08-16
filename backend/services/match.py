@@ -1,4 +1,5 @@
 import asyncio
+import html
 import logging
 import os
 import re
@@ -20,6 +21,8 @@ logger = logging.getLogger("match")
 MB_RATE_INTERVAL = 1.0
 # QQ 请求限速（秒），避免高频请求被封
 QQ_RATE_INTERVAL = 0.3
+# 匹配速率档位：快速=各源最高速率（0 不额外等待）/ 标准=1.5s / 低速=3s
+RATE_WAIT = {"fast": 0, "normal": 1.5, "slow": 3.0}
 # 模糊匹配判定成功的相似度阈值
 MATCH_THRESHOLD = 85
 # 单首歌最多解析的 Work 数量（控制请求数）
@@ -176,7 +179,7 @@ def parse_lyric_credits(text):
 
 
 class MusicMatcher:
-    def __init__(self, timeout=10, qq_api_base=None, ncm_api_base=None):
+    def __init__(self, timeout=10, qq_api_base=None, ncm_api_base=None, rate="normal"):
         # MusicBrainz 要求必须提供 User-Agent，否则会被封禁 IP
         self.mb_headers = {
             "User-Agent": "MusicMatchAgent/1.0 ( your-email@example.com )",
@@ -185,6 +188,10 @@ class MusicMatcher:
         self.qq_api_base = (qq_api_base or QQ_API_BASE).rstrip("/")
         self.ncm_api_base = (ncm_api_base or NCM_API_BASE).rstrip("/")
         self._timeout = aiohttp.ClientTimeout(total=timeout)
+        # 匹配速率控制：快速=各源最高速率（不额外等待）/ 标准=1.5s / 低速=3s
+        self.rate_wait = RATE_WAIT.get(rate, RATE_WAIT["normal"])
+        self._rate_lock = asyncio.Lock()
+        self._last_rate_req = 0.0
         # MusicBrainz 限速：锁 + 上次请求时间
         self._mb_lock = asyncio.Lock()
         self._last_mb_req = 0.0
@@ -196,6 +203,17 @@ class MusicMatcher:
     # 网络请求基础（含重试与限速）
     # ================================================================
 
+    async def _rate_limit(self):
+        """匹配速率控制：标准/低速时统一限制各源请求间隔；快速不额外等待"""
+        if self.rate_wait <= 0:
+            return
+        async with self._rate_lock:
+            now = time.monotonic()
+            wait = self._last_rate_req + self.rate_wait - now
+            if wait > 0:
+                await asyncio.sleep(wait)
+            self._last_rate_req = time.monotonic()
+
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=6),
@@ -206,6 +224,7 @@ class MusicMatcher:
     )
     async def _fetch_json(self, session, url, headers=None, params=None):
         """发起 GET 请求并解析 JSON；超时 / 连接错误 / 429 / 5xx 自动重试"""
+        await self._rate_limit()
         async with session.get(url, headers=headers, params=params) as resp:
             if resp.status in (429, 503):
                 raise RateLimitError(f"Too Many Requests: {url}")
@@ -367,7 +386,24 @@ class MusicMatcher:
             "genre": adata.get("genre"),
             "year": year,
             "name": adata.get("name"),
+            "description": adata.get("desc") or adata.get("albumdesc"),
         }
+
+    async def qq_singer_desc(self, session, singermid):
+        """获取 QQ 歌手简介；该接口返回 XML，统一清理为纯文本。"""
+        if not singermid:
+            return None
+        try:
+            data = await self._qq_get(session, "getSingerDesc", params={"singermid": singermid})
+            response = data.get("response") if isinstance(data, dict) else data
+            if not response:
+                return None
+            text = html.unescape(re.sub(r"<[^>]+>", " ", str(response)))
+            text = re.sub(r"\s+", " ", text).strip()
+            return text or None
+        except Exception as e:
+            logger.warning("QQ 歌手简介失败 %s: %s", singermid, e)
+            return None
 
     async def itunes_search(self, session, song_name, artist_name):
         """iTunes 兜底搜索，返回标准化候选列表（含年代/流派/封面）"""
@@ -415,6 +451,7 @@ class MusicMatcher:
                 albums[albummid] = {
                     "album": albumname,
                     "album_artist": singer_names,
+                    "albummid": albummid,
                     "year": year,
                     "genre": None,
                     "cover_url": QQ_COVER_URL.format(albummid=albummid) if albummid else None,
@@ -484,6 +521,37 @@ class MusicMatcher:
             else:
                 out[key] = ", ".join(names) if names else None
         return out
+
+    async def ncm_artist_desc(self, session, artist_id):
+        """获取网易云歌手介绍。"""
+        if not artist_id:
+            return None
+        try:
+            data = await self._ncm_get(session, "artist_desc", {"id": artist_id})
+            candidates = [
+                data.get("briefDesc"),
+                data.get("desc"),
+                "\n".join(item.get("txt", "") for item in (data.get("introduction") or []) if item.get("txt")),
+                (data.get("data") or {}).get("briefDesc") if isinstance(data.get("data"), dict) else None,
+                (data.get("data") or {}).get("desc") if isinstance(data.get("data"), dict) else None,
+            ]
+            return next((str(value).strip() for value in candidates if value and str(value).strip()), None)
+        except Exception as e:
+            logger.warning("网易云艺人简介失败 %s: %s", artist_id, e)
+            return None
+
+    async def ncm_album_description(self, session, album_id):
+        """获取网易云专辑简介。"""
+        if not album_id:
+            return None
+        try:
+            data = await self._ncm_get(session, "album", {"id": album_id})
+            album = data.get("album") or (data.get("data") or {}).get("album") or data.get("data") or {}
+            if isinstance(album, dict):
+                return album.get("description") or album.get("briefDesc")
+        except Exception as e:
+            logger.warning("网易云专辑简介失败 %s: %s", album_id, e)
+        return None
 
     async def download_image(self, session, url):
         """下载图片，返回 (bytes, mime)"""
@@ -605,7 +673,7 @@ class MusicMatcher:
         """
         logger.info("正在匹配歌曲: %s - %s", song_name, artist_name)
 
-        all_fields = {"title", "artist", "album", "year", "track_disc", "genre",
+        all_fields = {"title", "artist", "album", "year", "track_disc", "genre", "description",
                       "album_artist", "composer", "lyricist", "lyric",
                       "publisher", "arranger", "producer"}
         all_sources = {"qq", "netease", "itunes", "musicbrainz"}
@@ -625,6 +693,7 @@ class MusicMatcher:
             "album_artist": None,
             "year": None,
             "genre": None,
+            "description": None,
             "trackNo": None,
             "discNo": None,
             "lyric": None,
@@ -645,6 +714,21 @@ class MusicMatcher:
             try:
                 candidates = await self.qq_search(session, f"{song_name} {artist_name}")
                 qq_item = self._pick_best(candidates, song_name, artist_name)[0]
+                if qq_item is None and _f("description"):
+                    title_candidates = await self.qq_search(session, song_name)
+                    qq_item = max(
+                        title_candidates or [],
+                        key=lambda item: max(
+                            fuzz.token_set_ratio(item.get("title") or "", song_name),
+                            fuzz.partial_ratio(item.get("title") or "", song_name),
+                        ),
+                        default=None,
+                    )
+                    if qq_item and max(
+                        fuzz.token_set_ratio(qq_item.get("title") or "", song_name),
+                        fuzz.partial_ratio(qq_item.get("title") or "", song_name),
+                    ) < MATCH_THRESHOLD:
+                        qq_item = None
             except Exception as e:
                 logger.warning("QQ 搜索失败 %s - %s: %s", song_name, artist_name, e)
 
@@ -654,6 +738,21 @@ class MusicMatcher:
             try:
                 ncm_candidates = await self.ncm_search(session, song_name, artist_name)
                 ncm_item = self._pick_best(ncm_candidates, song_name, artist_name)[0]
+                if ncm_item is None and _f("description"):
+                    title_candidates = await self.ncm_search(session, song_name, "")
+                    ncm_item = max(
+                        title_candidates or [],
+                        key=lambda item: max(
+                            fuzz.token_set_ratio(item.get("title") or "", song_name),
+                            fuzz.partial_ratio(item.get("title") or "", song_name),
+                        ),
+                        default=None,
+                    )
+                    if ncm_item and max(
+                        fuzz.token_set_ratio(ncm_item.get("title") or "", song_name),
+                        fuzz.partial_ratio(ncm_item.get("title") or "", song_name),
+                    ) < MATCH_THRESHOLD:
+                        ncm_item = None
             except Exception as e:
                 logger.warning("网易云搜索失败 %s - %s: %s", song_name, artist_name, e)
 
@@ -688,7 +787,7 @@ class MusicMatcher:
                 except Exception as e:
                     logger.warning("QQ 歌词失败 %s: %s", qq_item["songmid"], e)
             # 专辑信息：专辑艺人 / 流派 / 年份（任一启用才请求）
-            if _f("album_artist") or _f("genre") or _f("year"):
+            if _f("album_artist") or _f("genre") or _f("year") or _f("description"):
                 album_info = await self.qq_album_info(session, qq_item.get("albummid"))
                 if album_info:
                     if _f("album_artist") and not result["album_artist"]:
@@ -697,6 +796,8 @@ class MusicMatcher:
                         result["genre"] = album_info.get("genre")
                     if _f("year") and not result["year"]:
                         result["year"] = album_info.get("year")
+                    if _f("description"):
+                        result["description"] = album_info.get("description")
 
         if not qq_item and ncm_item:
             result.update(
@@ -708,6 +809,11 @@ class MusicMatcher:
                 cover_url=ncm_item.get("cover_url"),
                 source="netease",
             )
+            if _f("description") and ncm_item.get("ncm_id"):
+                try:
+                    result["description"] = await self.ncm_album_description(session, ncm_item["ncm_id"])
+                except Exception as e:
+                    logger.warning("网易云专辑简介失败 %s: %s", ncm_item["ncm_id"], e)
             # 歌词全文（字段启用 或 需要歌词兜底时拉取）
             if ncm_item.get("ncm_id") and (_f("lyric") or lyric_credits_fallback):
                 try:
@@ -760,6 +866,11 @@ class MusicMatcher:
                     result["genre"] = itunes_item.get("genre")
                 if not result["cover_url"]:
                     result["cover_url"] = itunes_item.get("cover_url")
+            if _f("description") and not result.get("description") and ncm_item and ncm_item.get("ncm_id"):
+                try:
+                    result["description"] = await self.ncm_album_description(session, ncm_item["ncm_id"])
+                except Exception as e:
+                    logger.warning("网易云专辑简介兜底失败 %s: %s", ncm_item["ncm_id"], e)
 
         if qq_item is None and ncm_item is None and itunes_item is None:
             # 仍有 MusicBrainz 信用路径或 LRC 保底可补 作曲/作词/发布者 时，不提前报错
@@ -1060,6 +1171,7 @@ class MusicMatcher:
                         seen.add(key)
                         cands.append(("netease", {
                             "album": a_name, "album_artist": a_artist,
+                            "ncm_id": it.get("id"),
                             "year": year, "genre": None, "cover_url": cover,
                         }))
                 except Exception as e:
@@ -1119,6 +1231,8 @@ class MusicMatcher:
                 "year": it.get("year") if _f("year") else None,
                 "genre": it.get("genre") if _f("genre") else None,
                 "cover_url": it.get("cover_url"),
+                "albummid": it.get("albummid"),
+                "ncm_id": it.get("ncm_id"),
             })
         return {"total": total, "results": results}
 
@@ -1127,7 +1241,7 @@ class MusicMatcher:
     # ================================================================
 
     async def get_artist_avatar(self, session, artist_name):
-        """通过 QQ 搜索歌手，返回 500x500 写真 URL（singermid 规则）"""
+        """通过 QQ 搜索歌手，返回写真 URL和简介。"""
         try:
             candidates = await self.qq_search(session, artist_name)
             best = self._pick_best(
@@ -1137,10 +1251,11 @@ class MusicMatcher:
                 return {
                     "singermid": best["singermid"],
                     "avatar_url": QQ_AVATAR_URL.format(singermid=best["singermid"]),
+                    "bio": await self.qq_singer_desc(session, best["singermid"]),
                 }
         except Exception as e:
             logger.warning("QQ 歌手写真失败 %s: %s", artist_name, e)
-        return {"singermid": None, "avatar_url": None}
+        return {"singermid": None, "avatar_url": None, "bio": None}
 
     # ================================================================
     # 独立会话便捷入口

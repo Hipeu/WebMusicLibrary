@@ -97,7 +97,7 @@ async def match_song(payload: dict = Body(...)):
         manifest = load_manifest()
         entry = manifest.get(file_path) or {}
         local_lyrics = _read_local_lyrics(file_path, entry)
-    matcher = MusicMatcher()
+    matcher = MusicMatcher(rate=payload.get("match_rate"))
     return await matcher.match_song(
         song_name, artist_name,
         sources=payload.get("sources"),
@@ -121,7 +121,7 @@ async def match_song_candidates(payload: dict = Body(...)):
         manifest = load_manifest()
         entry = manifest.get(file_path) or {}
         local_lyrics = _read_local_lyrics(file_path, entry)
-    matcher = MusicMatcher()
+    matcher = MusicMatcher(rate=payload.get("match_rate"))
     res = await matcher.match_song_candidates_standalone(
         song_name, artist_name,
         sources=payload.get("sources"),
@@ -145,7 +145,7 @@ async def match_album_candidates(payload: dict = Body(...)):
     artist_name = (payload.get("artist_name") or "").strip()
     if not album_name:
         return {"error": "缺少 album_name"}
-    matcher = MusicMatcher()
+    matcher = MusicMatcher(rate=payload.get("match_rate"))
     res = await matcher.match_album_candidates_standalone(
         album_name, artist_name,
         sources=payload.get("sources"),
@@ -167,7 +167,7 @@ async def match_lyric(payload: dict = Body(...)):
     artist_name = (payload.get("artist_name") or "").strip()
     if not song_name or not artist_name:
         return {"error": "缺少 song_name 或 artist_name"}
-    matcher = MusicMatcher()
+    matcher = MusicMatcher(rate=payload.get("match_rate"))
     res = await matcher.match_lyric_standalone(
         song_name, artist_name,
         sources=payload.get("sources"),
@@ -183,12 +183,34 @@ async def match_lyric(payload: dict = Body(...)):
 
 @router.post("/artist")
 async def match_artist(payload: dict = Body(...)):
-    """按艺人名返回 500x500 写真 URL（简介后续接入 QQ 音乐 wiki）"""
+    """按艺人名返回写真 URL和 QQ 音乐简介。"""
     artist_name = (payload.get("artist_name") or "").strip()
     if not artist_name:
         return {"error": "缺少 artist_name"}
-    matcher = MusicMatcher()
+    matcher = MusicMatcher(rate=payload.get("match_rate"))
     return await matcher.match_artist(artist_name)
+
+
+@router.post("/description")
+async def match_description(payload: dict = Body(...)):
+    """按 source/id 获取艺人或专辑简介，供后续编辑流程使用。"""
+    source = (payload.get("source") or "netease").strip().lower()
+    kind = (payload.get("kind") or "album").strip().lower()
+    source_id = payload.get("id")
+    if not source_id:
+        return {"error": "缺少 id"}
+    matcher = MusicMatcher(rate=payload.get("match_rate"))
+    async with aiohttp.ClientSession(timeout=matcher._timeout) as session:
+        if source == "netease" and kind == "artist":
+            description = await matcher.ncm_artist_desc(session, source_id)
+        elif source == "netease" and kind == "album":
+            description = await matcher.ncm_album_description(session, source_id)
+        elif source == "qq" and kind == "album":
+            album_info = await matcher.qq_album_info(session, source_id)
+            description = album_info.get("description") if album_info else None
+        else:
+            return {"error": "暂不支持该简介来源"}
+    return {"status": "ok", "description": description}
 
 
 # ================================================================
@@ -261,6 +283,21 @@ def _save_lyric_file(artist, album, title_base, text):
     """保存歌词到 data/Lyrics/{artist}/{album}/{title}.lrc，返回相对路径"""
     if not text:
         return None
+
+
+def _save_album_description(artist, album, description):
+    """保存专辑级简介，避免写入每首歌曲的音频标签。"""
+    if not description or not str(description).strip():
+        return False
+    path = os.path.join(METADATA_DIR, artist, album, "album.json")
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"description": str(description).strip()}, f, ensure_ascii=False, indent=2)
+        return True
+    except Exception as e:
+        logger.warning("保存专辑简介失败 %s/%s: %s", artist, album, e)
+        return False
     dest_dir = os.path.join(LYRICS_DIR, artist, album)
     try:
         os.makedirs(dest_dir, exist_ok=True)
@@ -276,7 +313,7 @@ def _write_song_metadata(file_path, entry, result, cover_data, cover_mime, lyric
 
     文件内已存在的信息不参与匹配（只写缺失字段）；成功写回后打 matched 标记。
     """
-    all_fields = {"title", "artist", "album", "year", "track_disc", "genre", "album_artist",
+    all_fields = {"title", "artist", "album", "year", "track_disc", "genre", "album_artist", "description",
                   "composer", "lyricist", "lyric", "publisher", "arranger", "producer"}
     fields = fields or {k: True for k in all_fields}
 
@@ -304,6 +341,9 @@ def _write_song_metadata(file_path, entry, result, cover_data, cover_mime, lyric
     title = result.get("song_name") if _f("title") else None
     artist_name = result.get("artist") if _f("artist") else None
     publisher = result.get("publisher") if _f("publisher") else None
+    description = result.get("description") if _f("description") else None
+    album_description_path = os.path.join(METADATA_DIR, artist, album, "album.json")
+    has_description = bool(description and not os.path.exists(album_description_path))
 
     # 只写入缺失字段
     tag_meta = {}
@@ -344,6 +384,7 @@ def _write_song_metadata(file_path, entry, result, cover_data, cover_mime, lyric
         or (arranger and not entry.get("arranger"))
         or (producer and not entry.get("producer"))
         or has_lyric
+        or has_description
     )
 
     # 匹配到源但尚未记录时也允许写回（仅记录来源，不写文件标签）
@@ -395,6 +436,8 @@ def _write_song_metadata(file_path, entry, result, cover_data, cover_mime, lyric
     if lyrics_path:
         _update_entry_meta(artist, album, title_base, {"lyrics_path": lyrics_path}, force=True)
         _update_manifest(file_path, {"lyrics_path": lyrics_path}, force=True)
+    if has_description:
+        _save_album_description(artist, album, description)
     _update_entry_meta(artist, album, title_base, {"matched": True}, force=True)
     _update_manifest(file_path, {"matched": True}, force=True)
     # 匹配源：每次匹配以最新结果为准（强制覆盖）
@@ -534,6 +577,8 @@ async def _match_all_async(matcher, songs, artist_list, config=None):
                         extra.append("封面")
                     if result.get("lyric"):
                         extra.append("歌词")
+                    if result.get("description"):
+                        extra.append("专辑简介")
                     source_label = SOURCE_LABELS.get(result.get("source")) or "未知"
                     _match_state["matched"] += 1
                     _log("ok", f"歌曲 {result.get('song_name') or entry.get('title')} 通过 {source_label} 匹配成功：作曲 {composers} / 作词 {lyricists}"
@@ -669,6 +714,9 @@ def match_all(payload: dict = Body(...)):
     # 1. 收集需要匹配的歌曲
     manifest = load_manifest()
     songs = []
+    fields = config.get("fields") or {}
+    description_enabled = fields.get("description", True)
+    queued_matched_descriptions = set()
     for file_path, entry in manifest.items():
         title = entry.get("title")
         artist = entry.get("artist")
@@ -676,9 +724,14 @@ def match_all(payload: dict = Body(...)):
             continue
         if not config["match_song"]:
             continue
-        # 跳过已匹配的音乐（开关开启时）
+        album_key = (entry.get("artist") or "Various Artists", entry.get("album") or "Unknown Album")
+        description_path = os.path.join(METADATA_DIR, album_key[0], album_key[1], "album.json")
+        missing_description = description_enabled and not os.path.exists(description_path)
+        # 已匹配歌曲通常跳过；但简介字段开启且该专辑缺少简介时，保留每张专辑一首代表歌曲。
         if config["skip_matched"] and entry.get("matched"):
-            continue
+            if not missing_description or album_key in queued_matched_descriptions:
+                continue
+            queued_matched_descriptions.add(album_key)
         songs.append((file_path, entry))
 
     # 2. 收集需要写真且无封面的艺人
@@ -701,7 +754,7 @@ def match_all(payload: dict = Body(...)):
     if total == 0:
         return {"status": "done", "total": 0, "msg": "没有需要匹配的歌曲或艺人"}
 
-    matcher = MusicMatcher()
+    matcher = MusicMatcher(rate=payload.get("match_rate"))
     t = threading.Thread(
         target=_match_all_worker, args=(matcher, songs, artist_list, config), daemon=True
     )

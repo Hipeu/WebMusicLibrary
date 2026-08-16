@@ -255,6 +255,7 @@ function EditPanel({ onSettingsSaved }) {
 const MATCH_FIELDS = [
   ["title", "标题"], ["artist", "艺术家"], ["album", "专辑"], ["year", "年份"],
   ["track_disc", "音轨号/碟号"], ["genre", "风格（流派）"], ["album_artist", "专辑艺术家"],
+  ["description", "专辑简介"],
   ["composer", "作曲家"], ["lyricist", "作词家"], ["lyric", "歌词"],
   ["publisher", "发布者"], ["arranger", "编曲"], ["producer", "制作人"],
 ];
@@ -283,6 +284,9 @@ function MatchPanel({ matchState, onOpenMatchDetail, onMatchStarted, onSettingsS
   );
   const [matchArtistEnabled, setMatchArtistEnabled] = useState(
     () => localStorage.getItem("match-artist-enabled") !== "false"
+  );
+  const [matchRate, setMatchRate] = useState(
+    () => localStorage.getItem("match-rate") || "normal" // "fast" | "normal" | "slow"
   );
 
   // 匹配状态由 Library 统一轮询驱动
@@ -332,6 +336,12 @@ function MatchPanel({ matchState, onOpenMatchDetail, onMatchStarted, onSettingsS
     onSettingsSaved?.();
   }
 
+  function setRate(k) {
+    setMatchRate(k);
+    localStorage.setItem("match-rate", k);
+    onSettingsSaved?.();
+  }
+
   async function handleCancelMatch() {
     if (!running) return;
     setCancelling(true);
@@ -354,8 +364,7 @@ function MatchPanel({ matchState, onOpenMatchDetail, onMatchStarted, onSettingsS
         fields,
         skip_matched: skipMatched,
         lyric_credits_fallback: lyricFallback,
-      });
-      if (res && res.status === "error") {
+      });      if (res && res.status === "error") {
         setError(res.msg || "启动匹配失败");
         return;
       }
@@ -538,6 +547,25 @@ function MatchPanel({ matchState, onOpenMatchDetail, onMatchStarted, onSettingsS
               }}
             />
           </button>
+        </div>
+
+        {/* 匹配速率 */}
+        <div style={matchStyles.toggleRow}>
+          <div style={matchStyles.toggleText}>
+            <p style={matchStyles.toggleTitle}>匹配速率</p>
+            <p style={matchStyles.toggleDesc}>快速为各源最高速率；标准间隔 1.5 秒；低速间隔 3 秒</p>
+          </div>
+          <div style={matchStyles.rateSegments}>
+            {[["fast", "快速"], ["normal", "标准"], ["slow", "低速"]].map(([k, label]) => (
+              <button
+                key={k}
+                style={{ ...matchStyles.rateSegment, ...(matchRate === k ? matchStyles.rateSegmentOn : {}) }}
+                onClick={() => setRate(k)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
     </div>
@@ -1441,6 +1469,31 @@ const matchStyles = {
     background: "#e94560",
     borderColor: "#e94560",
     color: "#ffffff",
+  },
+  rateSegments: {
+    display: "flex",
+    flexShrink: 0,
+    padding: "3px",
+    gap: "2px",
+    borderRadius: "20px",
+    background: "#f3f4f6",
+  },
+  rateSegment: {
+    minWidth: "52px",
+    padding: "6px 10px",
+    border: "none",
+    borderRadius: "16px",
+    background: "transparent",
+    color: "#6b7280",
+    fontSize: "12px",
+    cursor: "pointer",
+    fontFamily: "inherit",
+    transition: "background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease",
+  },
+  rateSegmentOn: {
+    background: "#e94560",
+    color: "#ffffff",
+    boxShadow: "0 3px 10px rgba(233,69,96,0.28)",
   },
   configTitle: {
     fontSize: "14px",

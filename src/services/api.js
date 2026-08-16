@@ -81,6 +81,16 @@ export async function updateMusicMetadata(payload) {
   return res.json();
 }
 
+/** 保存专辑级简介（与歌曲文件是否存在无关） */
+export async function updateAlbumDescription({ artist, album, description }) {
+  const res = await fetch(`${BASE_URL}/api/music/album-description`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ artist, album, description }),
+  });
+  return res.json();
+}
+
 /** 获取歌曲歌词（优先 data/Lyrics 备份，否则解析文件内嵌歌词） */
 export async function getLyrics(filePath) {
   const params = new URLSearchParams({ file_path: filePath });
@@ -182,7 +192,7 @@ export async function matchSong({ song_name, artist_name, sources, fields, lyric
   const res = await fetch(`${BASE_URL}/api/match/song`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ song_name, artist_name, sources, fields, lyric_credits_fallback, file_path }),
+    body: JSON.stringify({ song_name, artist_name, sources, fields, lyric_credits_fallback, file_path, match_rate: localStorage.getItem("match-rate") || "normal" }),
   });
   return res.json();
 }
@@ -192,7 +202,7 @@ export async function matchSongCandidates({ song_name, artist_name, file_path, s
   const res = await fetch(`${BASE_URL}/api/match/song/candidates`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ song_name, artist_name, file_path, sources, fields, lyric_credits_fallback, offset, limit }),
+    body: JSON.stringify({ song_name, artist_name, file_path, sources, fields, lyric_credits_fallback, offset, limit, match_rate: localStorage.getItem("match-rate") || "normal" }),
   });
   return res.json();
 }
@@ -214,7 +224,7 @@ export async function matchAlbumCandidates({ album_name, artist_name, sources, o
   const res = await fetch(`${BASE_URL}/api/match/album/candidates`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ album_name, artist_name, sources, offset, limit }),
+    body: JSON.stringify({ album_name, artist_name, sources, offset, limit, match_rate: localStorage.getItem("match-rate") || "normal" }),
   });
   return res.json();
 }
@@ -224,7 +234,7 @@ export async function matchLyric({ song_name, artist_name, sources, offset, limi
   const res = await fetch(`${BASE_URL}/api/match/lyric`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ song_name, artist_name, sources, offset, limit }),
+    body: JSON.stringify({ song_name, artist_name, sources, offset, limit, match_rate: localStorage.getItem("match-rate") || "normal" }),
   });
   return res.json();
 }
@@ -234,7 +244,27 @@ export async function matchAll(config) {
   const res = await fetch(`${BASE_URL}/api/match/all`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(config || {}),
+    body: JSON.stringify({ ...(config || {}), match_rate: localStorage.getItem("match-rate") || "normal" }),
+  });
+  return res.json();
+}
+
+/** 获取艺人简介与写真 */
+export async function matchArtist(artistName) {
+  const res = await fetch(`${BASE_URL}/api/match/artist`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ artist_name: artistName, match_rate: localStorage.getItem("match-rate") || "normal" }),
+  });
+  return res.json();
+}
+
+/** 按来源和 ID 获取艺人/专辑简介 */
+export async function fetchDescription({ source = "netease", kind = "album", id }) {
+  const res = await fetch(`${BASE_URL}/api/match/description`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ source, kind, id, match_rate: localStorage.getItem("match-rate") || "normal" }),
   });
   return res.json();
 }
@@ -261,6 +291,7 @@ export default {
   checkMusicFiles,
   openMusicFile,
   updateMusicMetadata,
+  updateAlbumDescription,
   getLyrics,
   getPlaylists,
   savePlaylists,
@@ -278,5 +309,7 @@ export default {
   matchAll,
   getMatchAllProgress,
   cancelMatchAll,
+  matchArtist,
+  fetchDescription,
   getAssetUrl,
 };

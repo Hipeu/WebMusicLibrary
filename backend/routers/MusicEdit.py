@@ -3,7 +3,7 @@ import json
 import shutil
 import re
 import time
-from fastapi import APIRouter, UploadFile, File, Form
+from fastapi import APIRouter, UploadFile, File, Form, Body
 from services.metadata_service import parse_metadata, write_metadata
 from services.library_config import get_library_path
 
@@ -105,6 +105,16 @@ def move_song_artifacts(old_artist, old_album, old_title,
         song_files = [f for f in files if os.path.splitext(f)[0] == old_title]
         covers = [f for f in files if f.startswith("cover")]
 
+        if base == METADATA_DIR and old_dir != new_dir:
+            album_meta = os.path.join(old_dir, "album.json")
+            new_album_meta = os.path.join(new_dir, "album.json")
+            if os.path.exists(album_meta) and not os.path.exists(new_album_meta):
+                os.makedirs(new_dir, exist_ok=True)
+                try:
+                    shutil.move(album_meta, new_album_meta)
+                except Exception:
+                    pass
+
         # 迁移 / 改名该歌曲的 json、lrc
         for f in song_files:
             ext = os.path.splitext(f)[1]
@@ -141,6 +151,23 @@ def find_cover_in_dir(dir_path):
     return None
 
 
+def save_album_description(artist, album, description):
+    """保存专辑级简介，独立于歌曲元信息。"""
+    meta_dir = os.path.join(METADATA_DIR, artist, album)
+    path = os.path.join(meta_dir, "album.json")
+    if description is None:
+        return
+    try:
+        if str(description).strip():
+            os.makedirs(meta_dir, exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({"description": str(description)}, f, ensure_ascii=False, indent=2)
+        elif os.path.exists(path):
+            os.remove(path)
+    except Exception:
+        pass
+
+
 @router.get("/lyrics")
 def get_lyrics(file_path: str):
     """获取歌曲歌词：优先读取 data/Lyrics 备份，否则直接解析文件内嵌歌词"""
@@ -163,6 +190,17 @@ def get_lyrics(file_path: str):
     return {"status": "ok", "lyrics": None}
 
 
+@router.post("/album-description")
+def edit_album_description(payload: dict = Body(...)):
+    """保存专辑级简介，不要求专辑中的音频文件仍然存在。"""
+    artist = sanitize_name(payload.get("artist")) or "Various Artists"
+    album = sanitize_name(payload.get("album")) or "Unknown Album"
+    if "description" not in payload:
+        return {"status": "error", "msg": "缺少 description"}
+    save_album_description(artist, album, payload.get("description"))
+    return {"status": "ok"}
+
+
 @router.post("/edit")
 async def edit_music(
     file_path: str = Form(...),
@@ -181,6 +219,7 @@ async def edit_music(
     arranger: str = Form(None),
     producer: str = Form(None),
     lyrics: str = Form(None),
+    description: str = Form(None),
     matched: str = Form(None),
     match_source: str = Form(None),
     cover: UploadFile = File(None),
@@ -371,6 +410,9 @@ async def edit_music(
             json.dump(json_data, f, ensure_ascii=False, indent=2)
     except Exception:
         pass
+
+    # 简介属于专辑，不写入歌曲标签；专辑编辑时会在每首歌请求中传入同一个值
+    save_album_description(new_artist, new_album, description)
 
     # ---- 更新 manifest ----
     new_entry = {
