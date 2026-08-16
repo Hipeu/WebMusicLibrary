@@ -413,24 +413,27 @@ export default function MusicEdit({ target, onClose, onSave, onRefresh, onAlbumM
 
           {activeTab === "type" && (
             <div style={styles.typeTab}>
-              {!isAlbum && (
+              {!isAlbum && (data?.codec || data?.container) && (
                 <div style={styles.typeRow}>
                   <span style={styles.typeIcon}><FaCodeBranch size={13} /></span>
                   <span style={styles.typeLabel}>种类</span>
-                  <span style={styles.typeValue}>{data?.codec || data?.container || "未知"}</span>
+                  <span style={styles.typeValue}>{data?.codec || data?.container}</span>
                 </div>
-              )}              {!isAlbum && (
+              )}
+              {!isAlbum && data?.duration && (
                 <>
                   <div style={styles.typeRow}>
                     <span style={styles.typeIcon}><FaClock size={13} /></span>
                     <span style={styles.typeLabel}>音乐时长</span>
-                    <span style={styles.typeValue}>{data?.duration ? formatDuration(data.duration) : "未知"}</span>
+                    <span style={styles.typeValue}>{formatDuration(data.duration)}</span>
                   </div>
-                  <div style={styles.typeRow}>
-                    <span style={styles.typeIcon}><FaCodeBranch size={13} /></span>
-                    <span style={styles.typeLabel}>码率</span>
-                    <span style={styles.typeValue}>{data?.bitrate ? `${Math.round(data.bitrate / 1000)} kbps` : "未知"}</span>
-                  </div>
+                  {data?.bitrate && (
+                    <div style={styles.typeRow}>
+                      <span style={styles.typeIcon}><FaCodeBranch size={13} /></span>
+                      <span style={styles.typeLabel}>码率</span>
+                      <span style={styles.typeValue}>{`${Math.round(data.bitrate / 1000)} kbps`}</span>
+                    </div>
+                  )}
                 </>
               )}
               {isAlbum && (
@@ -454,11 +457,13 @@ export default function MusicEdit({ target, onClose, onSave, onRefresh, onAlbumM
                   <span style={styles.typeValue}>{matchSourceDisplay}</span>
                 </div>
               )}
-              <div style={styles.typeRow}>
-                <span style={styles.typeIcon}><FaCalendarAlt size={13} /></span>
-                <span style={styles.typeLabel}>添加时间</span>
-                <span style={styles.typeValue}>{formatTimestamp(data?.importTime)}</span>
-              </div>
+              {data?.importTime && (
+                <div style={styles.typeRow}>
+                  <span style={styles.typeIcon}><FaCalendarAlt size={13} /></span>
+                  <span style={styles.typeLabel}>添加时间</span>
+                  <span style={styles.typeValue}>{formatTimestamp(data.importTime)}</span>
+                </div>
+              )}
               {data?.modification_time && (
                 <div style={styles.typeRow}>
                   <span style={styles.typeIcon}><FaCalendarAlt size={13} /></span>

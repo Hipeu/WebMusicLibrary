@@ -763,44 +763,65 @@ export default function MusicPlayer({
                                       {detailTab === "info" && currentSong && (
                                         <div style={styles.detailInfoArea}>
                                           <div style={styles.infoList}>
-                                            <div style={styles.infoRow}>
-                                              <span style={styles.infoLabel}>流派</span>
-                                              <span style={styles.infoValue}>{currentSong.genre || displayAlbum?.genre || "未知"}</span>
-                                            </div>
-                                            <div style={styles.infoRow}>
-                                              <span style={styles.infoLabel}>年份</span>
-                                              <span style={styles.infoValue}>{displayAlbum?.year || "未知"}</span>
-                                            </div>
-                                            <div style={styles.infoRow}>
-                                              <span style={styles.infoLabel}>时长</span>
-                                              <span style={styles.infoValue}>{currentSong.duration ? formatDuration(currentSong.duration) : "未知"}</span>
-                                            </div>
+                                            {(currentSong.genre || displayAlbum?.genre) && (
+                                              <div style={styles.infoRow}>
+                                                <span style={styles.infoLabel}>流派</span>
+                                                <span style={styles.infoValue}>{currentSong.genre || displayAlbum?.genre}</span>
+                                              </div>
+                                            )}
+                                            {displayAlbum?.year && (
+                                              <div style={styles.infoRow}>
+                                                <span style={styles.infoLabel}>年份</span>
+                                                <span style={styles.infoValue}>{displayAlbum?.year}</span>
+                                              </div>
+                                            )}
+                                            {currentSong.duration && (
+                                              <div style={styles.infoRow}>
+                                                <span style={styles.infoLabel}>时长</span>
+                                                <span style={styles.infoValue}>{formatDuration(currentSong.duration)}</span>
+                                              </div>
+                                            )}
                                             {(currentSong.codec || currentSong.container) && (
                                               <div style={styles.infoRow}>
                                                 <span style={styles.infoLabel}>种类</span>
                                                 <span style={styles.infoValue}>{currentSong.codec || currentSong.container}</span>
                                               </div>
                                             )}
-                                            <div style={styles.infoRow}>
-                                              <span style={styles.infoLabel}>码率</span>
-                                              <span style={styles.infoValue}>{currentSong.bitrate ? `${Math.round(currentSong.bitrate / 1000)} kbps` : "未知"}</span>
-                                            </div>
-                                            <div style={styles.infoRow}>
-                                              <span style={styles.infoLabel}>作曲</span>
-                                              <span style={styles.infoValue}>{currentSong.composer || "未知"}</span>
-                                            </div>
-                                            <div style={styles.infoRow}>
-                                              <span style={styles.infoLabel}>作词</span>
-                                              <span style={styles.infoValue}>{currentSong.lyricist || "未知"}</span>
-                                            </div>
-                                            <div style={styles.infoRow}>
-                                              <span style={styles.infoLabel}>发布者</span>
-                                              <span style={styles.infoValue}>{currentSong.publisher || displayAlbum?.publisher || "未知"}</span>
-                                            </div>
-                                            <div style={styles.infoRow}>
-                                              <span style={styles.infoLabel}>添加时间</span>
-                                              <span style={styles.infoValue}>{currentSong.importTime ? formatTimestamp(currentSong.importTime) : "未知"}</span>
-                                            </div>
+                                            {currentSong.bitrate && (
+                                              <div style={styles.infoRow}>
+                                                <span style={styles.infoLabel}>码率</span>
+                                                <span style={styles.infoValue}>{`${Math.round(currentSong.bitrate / 1000)} kbps`}</span>
+                                              </div>
+                                            )}
+                                            {currentSong.composer && (
+                                              <div style={styles.infoRow}>
+                                                <span style={styles.infoLabel}>作曲</span>
+                                                <span style={styles.infoValue}>{currentSong.composer}</span>
+                                              </div>
+                                            )}
+                                            {currentSong.lyricist && (
+                                              <div style={styles.infoRow}>
+                                                <span style={styles.infoLabel}>作词</span>
+                                                <span style={styles.infoValue}>{currentSong.lyricist}</span>
+                                              </div>
+                                            )}
+                                            {(() => {
+                                              const pub = currentSong.publisher || displayAlbum?.publisher;
+                                              // 发布者仅 ℗ 年份 前缀（无真实名）视为无信息，不显示
+                                              const isJustPrefix = pub && /^℗\s*\d{4}\s*$/.test(String(pub).trim());
+                                              return pub && !isJustPrefix ? (
+                                                <div style={styles.infoRow}>
+                                                  <span style={styles.infoLabel}>发布者</span>
+                                                  <span style={styles.infoValue}>{pub}</span>
+                                                </div>
+                                              ) : null;
+                                            })()}
+                                            {currentSong.importTime && (
+                                              <div style={styles.infoRow}>
+                                                <span style={styles.infoLabel}>添加时间</span>
+                                                <span style={styles.infoValue}>{formatTimestamp(currentSong.importTime)}</span>
+                                              </div>
+                                            )}
                                             <div style={styles.infoRow}>
                                               <span style={styles.infoLabel}>匹配状态</span>
                                               <span style={styles.infoValue}>{currentSong.matched ? "已匹配" : "未匹配"}</span>

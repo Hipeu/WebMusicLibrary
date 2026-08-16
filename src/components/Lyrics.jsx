@@ -12,6 +12,10 @@ import { useRef, useEffect } from "react";
  */
 export default function Lyrics({ lyricsData, currentTime, onSeek, activeColor = "#e94560" }) {
   const scrollRef = useRef(null);
+  // 用户最近一次手动滚动时间（毫秒）；此段时间内自动滚动不回拽
+  const lastUserScrollRef = useRef(0);
+  // 滚动停止后回到当前时间轴位置的定时器
+  const returnTimerRef = useRef(null);
 
   // 当前行高亮色（跟随封面发光色；默认 #e94560），背景为同色 8% 透明度
   const activeBg = activeColor.length === 7 ? `${activeColor}14` : "rgba(233,69,96,0.08)";
@@ -27,20 +31,51 @@ export default function Lyrics({ lyricsData, currentTime, onSeek, activeColor = 
         )
       : -1;
 
-  // 自动滚动到高亮行
-  useEffect(() => {
-    if (lyricsData?.type !== "timed" || currentIndex < 0 || !scrollRef.current)
-      return;
-    const activeEl = scrollRef.current.querySelector(".lyrics-active-line");
+  // 滚动到指定歌词行（居中）
+  function scrollToActive() {
+    const el = scrollRef.current;
+    if (!el) return;
+    const activeEl = el.querySelector(".lyrics-active-line");
     if (activeEl) {
       activeEl.scrollIntoView({ behavior: "smooth", block: "center" });
     }
+  }
+
+  // 用户手动滚动：记录时间、短暂显示滚动条、3s 无滚动后自动回位
+  function handleScroll() {
+    lastUserScrollRef.current = Date.now();
+    const el = scrollRef.current;
+    if (el) el.classList.add("lyrics-scrolling");
+    if (returnTimerRef.current) clearTimeout(returnTimerRef.current);
+    returnTimerRef.current = setTimeout(() => {
+      if (el) el.classList.remove("lyrics-scrolling");
+      // 播放中：即使歌词行未变化也回到当前时间轴位置
+      if (lyricsData?.type === "timed" && currentIndex >= 0) {
+        lastUserScrollRef.current = 0;
+        scrollToActive();
+      }
+    }, 3000);
+  }
+
+  // 自动滚动到高亮行（用户最近 2.5s 内手动滚动过则不回拽）
+  useEffect(() => {
+    if (lyricsData?.type !== "timed" || currentIndex < 0 || !scrollRef.current)
+      return;
+    if (Date.now() - lastUserScrollRef.current < 2500) return;
+    scrollToActive();
   }, [currentIndex, lyricsData]);
+
+  // 卸载时清理定时器
+  useEffect(() => {
+    return () => {
+      if (returnTimerRef.current) clearTimeout(returnTimerRef.current);
+    };
+  }, []);
 
     // ========== 有时间轴渲染 ==========
   if (lyricsData?.type === "timed") {
     return (
-      <div ref={scrollRef} style={styles.container}>
+      <div ref={scrollRef} className="lyrics-scroll" style={styles.container} onScroll={handleScroll}>
         {lyricsData.lines.map((line, i) => (
                     <p
             key={i}
@@ -65,7 +100,7 @@ export default function Lyrics({ lyricsData, currentTime, onSeek, activeColor = 
   // ========== 无时间轴（纯文本）渲染 ==========
   if (lyricsData?.type === "plain") {
     return (
-      <div ref={scrollRef} style={styles.container}>
+      <div ref={scrollRef} className="lyrics-scroll" style={styles.container} onScroll={handleScroll}>
         {lyricsData.lines.length > 0 ? (
           lyricsData.lines.map((line, i) => (
             <p key={i} style={styles.plainLine}>
