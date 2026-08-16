@@ -156,7 +156,7 @@ function buildAlbumsFromServer(data) {
         bitrate: s.bitrate,
         codec: s.codec,
         year: s.year,
-        importTime: Date.now(),
+        importTime: s.importTime ?? Date.now(),
         modification_time: s.modification_time,
         hash: s.hash || null,
         matched: !!s.matched,
@@ -164,6 +164,7 @@ function buildAlbumsFromServer(data) {
       }));
       if (songs.length === 0) continue;
       const firstSong = songs[0];
+      const songTimes = songs.map((x) => x.importTime).filter(Boolean);
       loadedAlbums.push({
         id: albumId,
         title: albumEntry.album,
@@ -176,7 +177,8 @@ function buildAlbumsFromServer(data) {
         coverURL: firstSong.coverURL || albumCover,
         // 专辑匹配状态：任一首已匹配即视为已匹配
         matched: songs.some((sg) => sg.matched),
-        importTime: Date.now(),
+        // 专辑导入时间 = 该专辑歌曲最早导入时间（保持「最近添加」排序稳定）
+        importTime: songTimes.length ? Math.min(...songTimes) : Date.now(),
         songs,
       });
     }
@@ -232,7 +234,7 @@ function buildIndexSong(original, updated) {
     cover_path,
     coverURL: getAssetUrl(updated.cover_url),
     url: getAssetUrl(updated.file_url),
-    importTime: Date.now(),
+    importTime: original?.importTime ?? Date.now(),
   };
 }
 
@@ -705,7 +707,7 @@ export default function MusicLibrary() {
               cover_path: s.coverURL ? s.coverURL.replace(/^.*?\/data\//, "") : null,
               hash: s.hash,
               match_source: s.match_source,
-              importTime: Date.now(),
+              importTime: s.importTime ?? Date.now(),
               modification_time: s.modification_time,
             });
           })

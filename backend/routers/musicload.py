@@ -6,6 +6,7 @@ import hashlib
 import subprocess
 import sys
 import logging
+import time
 from fastapi import APIRouter, UploadFile, File, Body
 from pydantic import BaseModel
 from services.metadata_service import parse_metadata
@@ -289,6 +290,7 @@ async def upload_music(file: UploadFile = File(...)):
         "metadata_path": f"metadata/{artist}/{album}/{safe_title}.json",
         "lyrics_path": f"Lyrics/{artist}/{album}/{safe_title}.lrc",
         "sha256": file_hash,
+        "import_time": int(time.time() * 1000),
     }
     save_manifest(manifest)
 
@@ -367,6 +369,7 @@ def list_music():
             "hash": s.get("sha256"),
             "matched": bool(s.get("matched") or meta.get("matched")),
             "match_source": meta.get("match_source") if meta.get("match_source") is not None else s.get("match_source"),
+            "importTime": s.get("import_time"),
         })
 
     # 2. 扫描目录中未在清单内的额外音频文件（用户手动放入）

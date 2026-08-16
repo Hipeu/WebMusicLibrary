@@ -209,6 +209,16 @@ export async function fetchCoverProxy(coverUrl) {
   }
 }
 
+/** 专辑匹配多候选（分页），返回 { status, total, results:[{source, source_label, album, album_artist, year, genre, cover_url}] } */
+export async function matchAlbumCandidates({ album_name, artist_name, sources, offset, limit }) {
+  const res = await fetch(`${BASE_URL}/api/match/album/candidates`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ album_name, artist_name, sources, offset, limit }),
+  });
+  return res.json();
+}
+
 /** 在线歌词多源匹配（分页），返回 { status, total, results:[{source, source_label, song_name, artist, album, lyric}] } */
 export async function matchLyric({ song_name, artist_name, sources, offset, limit }) {
   const res = await fetch(`${BASE_URL}/api/match/lyric`, {

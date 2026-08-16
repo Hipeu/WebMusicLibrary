@@ -389,6 +389,38 @@ class MusicMatcher:
             })
         return items
 
+    async def qq_search_album(self, session, keyword, limit=30):
+        """QQ 专辑候选：歌曲搜索 → 按专辑分组推导（QQ 无独立专辑接口返回，此方式 best-effort）"""
+        data = await self._qq_get(session, "getSearchByKey", {"key": keyword, "limit": limit, "page": 1})
+        response = data.get("response") if isinstance(data, dict) else data
+        if isinstance(response, str):
+            return []
+        song = (response.get("data") or {}).get("song") or {}
+        albums = {}
+        for it in song.get("list") or []:
+            albumname = it.get("albumname")
+            albummid = it.get("albummid")
+            if not albumname or not albummid:
+                continue
+            singers = it.get("singer") or []
+            singer_names = ", ".join(s.get("name") for s in singers if s.get("name"))
+            year = None
+            pub = it.get("pubtime")
+            if pub:
+                try:
+                    year = str(time.strftime("%Y", time.localtime(int(pub))))
+                except Exception:
+                    year = None
+            if albummid not in albums:
+                albums[albummid] = {
+                    "album": albumname,
+                    "album_artist": singer_names,
+                    "year": year,
+                    "genre": None,
+                    "cover_url": QQ_COVER_URL.format(albummid=albummid) if albummid else None,
+                }
+        return list(albums.values())
+
     # ================================================================
     # 网易云音乐（api-enhanced 本地服务）
     # ================================================================
@@ -988,6 +1020,108 @@ class MusicMatcher:
 
         return {"total": total, "results": results}
 
+    async def match_album_candidates(self, session, album_name, artist_name, sources=None, offset=0, limit=6, fields=None):
+        """专辑匹配多候选（分页）：返回 {total, results:[{source, source_label, album, album_artist, year, genre, cover_url}]}"""
+        all_fields = {"title", "artist", "album", "year", "track_disc", "genre",
+                      "album_artist", "composer", "lyricist", "lyric",
+                      "publisher", "arranger", "producer"}
+        fields = fields or {k: True for k in all_fields}
+
+        def _f(k):
+            return bool(fields.get(k, True))
+
+        cands = []  # (source, item)
+
+        # 网易云：两搜合并（仅专辑名 / 专辑名+艺人），按 (专辑, 专辑艺人) 去重
+        if sources is None or sources.get("netease", True):
+            seen = set()
+            for keyword in (album_name, f"{album_name} {artist_name}".strip()):
+                try:
+                    data = await self._ncm_get(
+                        session, "cloudsearch",
+                        {"keywords": keyword, "type": 10, "limit": 30},
+                    )
+                    for it in ((data.get("result") or {}).get("albums")) or []:
+                        ar = it.get("artists") or []
+                        year = None
+                        pub = it.get("publishTime")
+                        if pub:
+                            try:
+                                year = str(time.strftime("%Y", time.localtime(int(pub) / 1000)))
+                            except Exception:
+                                year = None
+                        pic = it.get("picUrl")
+                        cover = f"{pic}?param=500y500" if pic else None
+                        a_name = it.get("name")
+                        a_artist = ar[0].get("name") if ar else None
+                        key = (a_name, a_artist)
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        cands.append(("netease", {
+                            "album": a_name, "album_artist": a_artist,
+                            "year": year, "genre": None, "cover_url": cover,
+                        }))
+                except Exception as e:
+                    logger.warning("网易云专辑搜索失败 %s - %s: %s", keyword, artist_name, e)
+        # QQ：两搜合并（歌曲搜索按专辑分组推导），按 (专辑, 专辑艺人) 去重
+        if sources is None or sources.get("qq", True):
+            seen = set()
+            for keyword in (album_name, f"{album_name} {artist_name}".strip()):
+                try:
+                    for it in await self.qq_search_album(session, keyword):
+                        key = (it.get("album"), it.get("album_artist"))
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        cands.append(("qq", it))
+                except Exception as e:
+                    logger.warning("QQ 专辑搜索失败 %s - %s: %s", keyword, artist_name, e)
+        # iTunes：单搜（专辑名+艺人），不参与两搜合并
+        if sources is None or sources.get("itunes", True):
+            try:
+                term = f"{album_name} {artist_name}".strip()
+                data = await self._api_get(
+                    session, ITUNES_SEARCH,
+                    params={"term": term, "entity": "album", "limit": "25"},
+                )
+                for r in data.get("results") or []:
+                    cands.append(("itunes", {
+                        "album": r.get("collectionName"),
+                        "album_artist": r.get("artistName"),
+                        "year": (r.get("releaseDate") or "")[:4],
+                        "genre": r.get("primaryGenreName"),
+                        "cover_url": self._itunes_cover_url(r.get("artworkUrl100")),
+                    }))
+            except Exception as e:
+                logger.warning("iTunes 专辑搜索失败 %s - %s: %s", album_name, artist_name, e)
+
+        # 排序：专辑名/艺人类似度 + 数据量；过滤无封面/年份
+        scored = []
+        for src, it in cands:
+            score = self._score_candidate(it, album_name, artist_name, title_key="album", artist_key="album_artist")
+            dc = sum(1 for k in ("year", "genre", "cover_url") if it.get(k))
+            if not (it.get("cover_url") or it.get("year")):
+                continue
+            scored.append((score, dc, src, it))
+        scored.sort(key=lambda x: x[0] + x[1] * 2, reverse=True)
+
+        total = len(scored)
+        page = scored[offset:offset + limit]
+        SOURCE_LABELS_MAP = {"qq": "QQ音乐", "netease": "网易云音乐", "itunes": "iTunes"}
+        results = []
+        for _score, _dc, src, it in page:
+            results.append({
+                "source": src,
+                "source_label": SOURCE_LABELS_MAP.get(src, src),
+                "album": it.get("album") if _f("album") else None,
+                "album_artist": it.get("album_artist") if _f("album_artist") else None,
+                "year": it.get("year") if _f("year") else None,
+                "genre": it.get("genre") if _f("genre") else None,
+                "cover_url": it.get("cover_url"),
+            })
+        return {"total": total, "results": results}
+
     # ================================================================
     # 艺人写真（简介后续再接 QQ 音乐 wiki）
     # ================================================================
@@ -1036,6 +1170,13 @@ class MusicMatcher:
                 sources=sources, offset=offset, limit=limit,
                 fields=fields, lyric_credits_fallback=lyric_credits_fallback,
                 local_lyrics=local_lyrics,
+            )
+
+    async def match_album_candidates_standalone(self, album_name, artist_name, sources=None, offset=0, limit=6, fields=None):
+        async with aiohttp.ClientSession(timeout=self._timeout) as session:
+            return await self.match_album_candidates(
+                session, album_name, artist_name,
+                sources=sources, offset=offset, limit=limit, fields=fields,
             )
 
     async def match_artist(self, artist_name):

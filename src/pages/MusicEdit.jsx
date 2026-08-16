@@ -3,6 +3,7 @@ import { FaTimes, FaImage, FaMusic, FaPlus, FaClock, FaCodeBranch, FaCalendarAlt
 import { matchSong, updateMusicMetadata } from "../services/api";
 import LyricImport from "../components/LyricImport";
 import MatchResultPicker from "../components/MatchResultPicker";
+import AlbumMatchPicker from "../components/AlbumMatchPicker";
 
 /* ================================================================
    ✏️ MusicEdit — 编辑音乐元信息弹窗
@@ -19,6 +20,7 @@ export default function MusicEdit({ target, onClose, onSave, onRefresh, onAlbumM
   const [albumDidMatch, setAlbumDidMatch] = useState(false);
   const [lastSource, setLastSource] = useState(null);
   const [showSongPicker, setShowSongPicker] = useState(false);
+  const [showAlbumPicker, setShowAlbumPicker] = useState(false);
   const [lyricImportOpen, setLyricImportOpen] = useState(false);
   const coverInputRef = useRef(null);
   const isAlbum = target?.type === "album";
@@ -202,6 +204,27 @@ export default function MusicEdit({ target, onClose, onSave, onRefresh, onAlbumM
     setMatchMsg("已选择匹配结果，请确认后保存");
   }
 
+  // 专辑多结果：选择封面 = 选择该专辑版本 → 填充专辑表单 + 封面，随后自动逐首匹配
+  function handlePickAlbumCandidate(c, coverFile) {
+    if (!c) return;
+    setForm((prev) => {
+      const next = { ...prev };
+      if (!next.title && c.album) next.title = c.album;
+      if (!next.artist && c.album_artist) next.artist = c.album_artist;
+      if (!next.album_artist && c.album_artist) next.album_artist = c.album_artist;
+      if (!next.year && c.year) next.year = c.year;
+      if (!next.genre && c.genre) next.genre = c.genre;
+      return next;
+    });
+    if (coverFile) {
+      setEditCover(URL.createObjectURL(coverFile));
+      setEditCoverFile(coverFile);
+    }
+    setAlbumDidMatch(true);
+    setMatchMsg("已选择专辑版本，正在匹配专辑内歌曲…");
+    handleMatch();
+  }
+
   function handleChange(field, value) {
     setForm((prev) => ({ ...prev, [field]: value }));
   }
@@ -232,7 +255,7 @@ export default function MusicEdit({ target, onClose, onSave, onRefresh, onAlbumM
     <div style={styles.overlay}>
       <div style={styles.dialog} className="music-edit-dialog" onClick={(e) => e.stopPropagation()}>
         {/* 右上角：单项匹配 */}
-        <button style={styles.matchBtn} onClick={() => (isAlbum ? handleMatch() : setShowSongPicker(true))} disabled={matching} title="按设置中的字段与源进行匹配">
+        <button style={styles.matchBtn} onClick={() => (isAlbum ? setShowAlbumPicker(true) : setShowSongPicker(true))} disabled={matching} title="按设置中的字段与源进行匹配">
           <FaLink size={13} style={{ marginRight: 6 }} />
           {matching ? "匹配中…" : (didMatch || albumDidMatch) ? "✔已匹配" : (isAlbum ? "匹配专辑" : "匹配")}
         </button>
@@ -488,6 +511,16 @@ export default function MusicEdit({ target, onClose, onSave, onRefresh, onAlbumM
             file_path={data?.file_path || ""}
             onPick={handlePickCandidate}
             onClose={() => setShowSongPicker(false)}
+          />
+        )}
+
+        {/* 专辑匹配多结果选择 */}
+        {showAlbumPicker && (
+          <AlbumMatchPicker
+            album_name={form.title || data?.title || ""}
+            artist_name={form.artist || data?.artist || ""}
+            onPick={handlePickAlbumCandidate}
+            onClose={() => setShowAlbumPicker(false)}
           />
         )}
       </div>

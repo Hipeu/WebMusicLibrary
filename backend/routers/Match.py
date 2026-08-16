@@ -138,6 +138,28 @@ async def match_song_candidates(payload: dict = Body(...)):
     }
 
 
+@router.post("/album/candidates")
+async def match_album_candidates(payload: dict = Body(...)):
+    """专辑匹配多候选（分页）：返回 {status, total, results:[{source, source_label, album, album_artist, year, genre, cover_url}]}"""
+    album_name = (payload.get("album_name") or "").strip()
+    artist_name = (payload.get("artist_name") or "").strip()
+    if not album_name:
+        return {"error": "缺少 album_name"}
+    matcher = MusicMatcher()
+    res = await matcher.match_album_candidates_standalone(
+        album_name, artist_name,
+        sources=payload.get("sources"),
+        offset=int(payload.get("offset") or 0),
+        limit=int(payload.get("limit") or 6),
+        fields=payload.get("fields"),
+    )
+    return {
+        "status": "ok",
+        "total": res.get("total", 0),
+        "results": res.get("results", []),
+    }
+
+
 @router.post("/lyric")
 async def match_lyric(payload: dict = Body(...)):
     """在线歌词多源匹配（分页，最佳靠前）：返回 {status, total, results:[{source, source_label, song_name, artist, album, lyric}]}"""

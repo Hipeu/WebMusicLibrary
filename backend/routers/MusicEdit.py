@@ -398,6 +398,7 @@ async def edit_music(
         "modification_time": json_data["modification_time"],
         "matched": json_data["matched"],
         "match_source": json_data["match_source"],
+        "import_time": entry.get("import_time"),
     }
     del manifest[file_path]
     manifest[new_rel] = new_entry
