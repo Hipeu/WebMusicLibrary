@@ -1,6 +1,18 @@
 import { useState, useRef, useMemo } from "react";
 import { FaPen, FaImage, FaPlus, FaMusic, FaTrash } from "react-icons/fa";
 import { getAssetUrl, saveArtist, uploadArtistCover, deleteArtist } from "../services/api";
+import ArtistMatchPicker from "../components/ArtistMatchPicker";
+
+function normalizeCoverPosition(position) {
+  return {
+    x: clampCoverPosition(Number(position?.x ?? 50)),
+    y: clampCoverPosition(Number(position?.y ?? 50)),
+  };
+}
+
+function clampCoverPosition(value) {
+  return Math.max(0, Math.min(100, Number.isFinite(value) ? value : 50));
+}
 
 /* ================================================================
    ✏️ ArtistEdit — 编辑艺人信息弹窗
@@ -23,6 +35,8 @@ export default function ArtistEdit({ artist, record, albums, onClose, onSaved, o
   const [activeTab, setActiveTab] = useState("cover"); // "cover" | "bio" | "genres"
   const [coverUrl, setCoverUrl] = useState(record?.cover_url || null);
   const [coverFile, setCoverFile] = useState(null);
+  const [coverPosition, setCoverPosition] = useState(() => normalizeCoverPosition(record?.cover_position));
+  const dragRef = useRef(null);
   const [bio, setBio] = useState(record?.bio || "");
   const [genres, setGenres] = useState(() => {
     const saved = record?.genres;
@@ -31,6 +45,11 @@ export default function ArtistEdit({ artist, record, albums, onClose, onSaved, o
   });
   const [genreInput, setGenreInput] = useState("");
   const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
+  const [showMatchPicker, setShowMatchPicker] = useState(false);
+  const [bioSource, setBioSource] = useState(record?.bio_source || null);
+  const [bioSourceId, setBioSourceId] = useState(record?.bio_source_id || null);
+  const [coverSource, setCoverSource] = useState(record?.cover_source || null);
+  const [coverSourceId, setCoverSourceId] = useState(record?.cover_source_id || null);
   const coverInputRef = useRef(null);
 
   const isEmpty = (albums || []).length === 0;
@@ -55,6 +74,7 @@ export default function ArtistEdit({ artist, record, albums, onClose, onSaved, o
     const file = e.target.files?.[0];
     if (!file) return;
     setCoverFile(file);
+    setCoverPosition({ x: 50, y: 50 });
     const reader = new FileReader();
     reader.onload = (ev) => setCoverUrl(ev.target.result);
     reader.readAsDataURL(file);
@@ -64,6 +84,37 @@ export default function ArtistEdit({ artist, record, albums, onClose, onSaved, o
   function handleRemoveCover() {
     setCoverFile(null);
     setCoverUrl(null);
+    setCoverPosition({ x: 50, y: 50 });
+  }
+
+  function handleCoverPointerDown(e) {
+    if (!coverUrl) return;
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    dragRef.current = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      position: coverPosition,
+    };
+  }
+
+  function handleCoverPointerMove(e) {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const next = {
+      x: clampCoverPosition(drag.position.x - ((e.clientX - drag.startX) / rect.width) * 100),
+      y: clampCoverPosition(drag.position.y - ((e.clientY - drag.startY) / rect.height) * 100),
+    };
+    setCoverPosition(next);
+  }
+
+  function handleCoverPointerUp(e) {
+    if (dragRef.current?.pointerId === e.pointerId) dragRef.current = null;
+  }
+
+  function resetCoverPosition() {
+    setCoverPosition({ x: 50, y: 50 });
   }
 
   function handleAddGenre() {
@@ -81,7 +132,14 @@ export default function ArtistEdit({ artist, record, albums, onClose, onSaved, o
   }
 
   async function handleSave() {
-    const payload = { name: artist, bio, genres };
+    const payload = {
+      name: artist, bio, genres,
+      cover_position: coverPosition,
+      bio_source: bioSource,
+      bio_source_id: bioSourceId,
+      cover_source: coverSource,
+      cover_source_id: coverSourceId,
+    };
     if (coverFile) {
       const res = await uploadArtistCover(artist, coverFile);
       if (res?.status === "ok" && res.cover_url) {
@@ -98,7 +156,7 @@ export default function ArtistEdit({ artist, record, albums, onClose, onSaved, o
       console.warn("保存艺人失败:", err);
     }
     if (ok) {
-      onSaved?.({ name: artist, cover_url: payload.cover_url || null, bio, genres });
+      onSaved?.({ name: artist, cover_url: payload.cover_url || null, bio, genres, cover_position: coverPosition, bio_source: bioSource, bio_source_id: bioSourceId, cover_source: coverSource, cover_source_id: coverSourceId });
     }
     onClose?.();
   }
@@ -112,6 +170,9 @@ export default function ArtistEdit({ artist, record, albums, onClose, onSaved, o
   return (
     <div style={styles.overlay}>
       <div style={styles.dialog} className="artist-edit-dialog" onClick={(e) => e.stopPropagation()}>
+        <button type="button" style={styles.matchButton} onClick={() => setShowMatchPicker(true)} title="从 QQ音乐或网易云匹配艺人">
+          匹配艺人
+        </button>
         {/* 顶部：头像 + 名称 */}
         <div style={styles.topSection}>
           <div style={styles.topAvatar}>
@@ -166,6 +227,28 @@ export default function ArtistEdit({ artist, record, albums, onClose, onSaved, o
                   </div>
                 )}
               </div>
+              {coverUrl && (
+                <div style={styles.bannerPreviewBlock}>
+                  <div style={styles.previewLabel}>详情页横幅预览</div>
+                  <div
+                    style={styles.bannerPreview}
+                    onPointerDown={handleCoverPointerDown}
+                    onPointerMove={handleCoverPointerMove}
+                    onPointerUp={handleCoverPointerUp}
+                    onPointerCancel={handleCoverPointerUp}
+                    title="拖动图片调整显示位置"
+                  >
+                    <img
+                      src={displayUrl(coverUrl)}
+                      alt="详情页横幅预览"
+                      draggable="false"
+                      style={{ ...styles.bannerPreviewImg, objectPosition: `${coverPosition.x}% ${coverPosition.y}%` }}
+                    />
+                    <span style={styles.previewHint}>拖动调整位置</span>
+                  </div>
+                  <button type="button" style={styles.resetPositionBtn} onClick={resetCoverPosition}>重置位置</button>
+                </div>
+              )}
               <div style={styles.coverActions}>
                 <button style={styles.changeCoverBtn} onClick={() => coverInputRef.current?.click()}>
                   <FaImage size={14} style={{ marginRight: "6px" }} />
@@ -263,6 +346,22 @@ export default function ArtistEdit({ artist, record, albums, onClose, onSaved, o
             </div>
           </div>
         )}
+        {showMatchPicker && (
+          <ArtistMatchPicker
+            artistName={artist}
+            onPick={(candidate) => {
+              if (candidate.bio) setBio(candidate.bio);
+              if (candidate.avatar_url) setCoverUrl(candidate.avatar_url);
+              setCoverPosition({ x: 50, y: 50 });
+              setBioSource(candidate.source || null);
+              setBioSourceId(candidate.singermid || candidate.artist_id || null);
+              setCoverSource(candidate.source || null);
+              setCoverSourceId(candidate.singermid || candidate.artist_id || null);
+              setActiveTab("bio");
+            }}
+            onClose={() => setShowMatchPicker(false)}
+          />
+        )}
       </div>
     </div>
   );
@@ -278,10 +377,17 @@ const styles = {
     zIndex: 1000,
   },
   dialog: {
+    position: "relative",
     background: "#ffffff", borderRadius: "14px", width: "580px",
     maxHeight: "85vh", display: "flex", flexDirection: "column",
     fontFamily: "'Segoe UI', sans-serif",
     boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+  },
+  matchButton: {
+    position: "absolute", top: "14px", right: "14px", zIndex: 5,
+    padding: "7px 15px", border: "1px solid #e94560", borderRadius: "16px",
+    background: "#fff", color: "#e94560", fontSize: "13px", fontWeight: 600,
+    cursor: "pointer", fontFamily: "inherit",
   },
 
   /* 顶部 */
@@ -345,6 +451,30 @@ const styles = {
     width: "220px", height: "220px", borderRadius: "50%", overflow: "hidden",
   },
   coverPreviewImg: { width: "100%", height: "100%", objectFit: "cover", display: "block" },
+  bannerPreviewBlock: {
+    width: "100%", maxWidth: "500px", display: "flex", flexDirection: "column",
+    alignItems: "center", gap: "8px",
+  },
+  previewLabel: { alignSelf: "flex-start", color: "#6b7280", fontSize: "12px", fontWeight: 600 },
+  bannerPreview: {
+    position: "relative", width: "100%", height: "145px", overflow: "hidden",
+    borderRadius: "10px", background: "#e5e7eb", cursor: "grab", touchAction: "none",
+    boxShadow: "inset 0 0 0 1px rgba(15,23,42,0.08)",
+  },
+  bannerPreviewImg: {
+    width: "100%", height: "100%", display: "block", objectFit: "cover", userSelect: "none",
+    pointerEvents: "none",
+  },
+  previewHint: {
+    position: "absolute", right: "10px", bottom: "8px", padding: "3px 7px",
+    borderRadius: "10px", background: "rgba(15,23,42,0.55)", color: "#fff", fontSize: "11px",
+    pointerEvents: "none",
+  },
+  resetPositionBtn: {
+    alignSelf: "flex-end", padding: "5px 10px", border: "1px solid #e5e7eb",
+    borderRadius: "14px", background: "#fff", color: "#6b7280", fontSize: "12px",
+    cursor: "pointer", fontFamily: "inherit",
+  },
   coverAddArea: {
     width: "100%", height: "100%", display: "flex", flexDirection: "column",
     alignItems: "center", justifyContent: "center", gap: "6px",

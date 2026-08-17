@@ -11,17 +11,17 @@ export default function AlbumMatchPicker({ album_name, artist_name, onPick, onCl
   const [sourceSel, setSourceSel] = useState("all"); // "all" | "netease" | "itunes"
   const [loading, setLoading] = useState(false);
   const [fetchingMore, setFetchingMore] = useState(false);
-  const [cached, setCached] = useState([]);
-  const [total, setTotal] = useState(0);
+  const [cache, setCache] = useState({});
   const [page, setPage] = useState(1);
   const [error, setError] = useState("");
   const [searchMode, setSearchMode] = useState("all"); // 本次实际搜索的源模式（徽标显示依据）
 
   const PAGE_SIZE = 6; // 单页 3 列 × 2 行
   const CACHE_INIT = 12;
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const displayed = cached.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-  const pageOutOfCache = (page - 1) * PAGE_SIZE >= cached.length;
+  const activeCache = cache[sourceSel] || { results: [], total: 0 };
+  const totalPages = Math.max(1, Math.ceil(activeCache.total / PAGE_SIZE));
+  const displayed = activeCache.results.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const pageOutOfCache = (page - 1) * PAGE_SIZE >= activeCache.results.length;
 
   function buildSources() {
     if (sourceSel === "qq") return { qq: true, netease: false, itunes: false };
@@ -46,8 +46,7 @@ export default function AlbumMatchPicker({ album_name, artist_name, onPick, onCl
     setSearchMode(sourceSel);
     try {
       const res = await fetchResults(0, CACHE_INIT);
-      setCached(res?.results || []);
-      setTotal(res?.total || 0);
+      setCache((prev) => ({ ...prev, [sourceSel]: { results: res?.results || [], total: res?.total || 0 } }));
       setPage(1);
       if (!res?.results?.length) setError("未找到专辑结果");
     } catch {
@@ -61,18 +60,18 @@ export default function AlbumMatchPicker({ album_name, artist_name, onPick, onCl
     if (target < 1 || target > totalPages) return;
     setPage(target);
     const startIdx = (target - 1) * PAGE_SIZE;
-    if (startIdx >= cached.length) {
+    if (startIdx >= activeCache.results.length) {
       setFetchingMore(true);
       setError("");
       try {
         const res = await fetchResults(startIdx, PAGE_SIZE);
         const more = res?.results || [];
-        setCached((prev) => {
-          const arr = [...prev];
+        setCache((prev) => {
+          const current = prev[sourceSel] || { results: [], total: 0 };
+          const arr = [...current.results];
           more.forEach((item, i) => { arr[startIdx + i] = item; });
-          return arr;
+          return { ...prev, [sourceSel]: { results: arr, total: res?.total || current.total } };
         });
-        setTotal(res?.total || total);
         if (!more.length) setError("未找到更多专辑结果");
       } catch {
         setError("加载失败，请确认后端已启动");
@@ -84,6 +83,8 @@ export default function AlbumMatchPicker({ album_name, artist_name, onPick, onCl
 
   function selectSource(k) {
     setSourceSel(k);
+    setSearchMode(k);
+    setPage(1);
   }
 
   // 选择封面 = 选择该专辑版本；有封面经代理下载为 Blob 随 onPick 传递
@@ -163,7 +164,7 @@ export default function AlbumMatchPicker({ album_name, artist_name, onPick, onCl
               </div>
             ))
           )}
-          {!loading && cached.length === 0 && !error && (
+          {!loading && activeCache.results.length === 0 && !error && (
             <p style={styles.emptyHint}>选择源后点击「搜索」获取专辑结果</p>
           )}
         </div>

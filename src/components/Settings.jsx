@@ -6,7 +6,7 @@ import { saveSettings, getMigrationStatus, matchAll, cancelMatchAll } from "../s
    ⚙️ Settings — 设置悬浮窗口
    左侧功能栏 + 右侧内容区
    ================================================================ */
-export default function Settings({ show, onClose, onReset, onSettingsSaved, matchState, onOpenMatchDetail, onMatchStarted, onRefreshLibrary }) {
+export default function Settings({ show, onClose, onReset, onSettingsSaved, matchState, onOpenMatchDetail, onMatchStarted, onRefreshLibrary, onArtistVisibilityChange }) {
   const [active, setActive] = useState("appearance");
 
   if (!show) return null;
@@ -50,7 +50,7 @@ export default function Settings({ show, onClose, onReset, onSettingsSaved, matc
         {/* 右侧内容区（外层留白内缩滚动区，避开右上角 X 与窗口下边） */}
         <div style={styles.contentWrap}>
           <div style={styles.content}>
-            {active === "appearance" && <AppearancePanel onSettingsSaved={onSettingsSaved} onRefreshLibrary={onRefreshLibrary} />}
+            {active === "appearance" && <AppearancePanel onSettingsSaved={onSettingsSaved} onRefreshLibrary={onRefreshLibrary} onArtistVisibilityChange={onArtistVisibilityChange} />}
             {active === "edit" && <EditPanel onSettingsSaved={onSettingsSaved} />}
             {active === "match" && <MatchPanel matchState={matchState} onOpenMatchDetail={onOpenMatchDetail} onMatchStarted={onMatchStarted} onSettingsSaved={onSettingsSaved} />}
             {active === "reset" && <ResetPanel onReset={onReset} />}
@@ -65,7 +65,7 @@ export default function Settings({ show, onClose, onReset, onSettingsSaved, matc
 /* ================================================================
    📦 外观设置面板
    ================================================================ */
-function AppearancePanel({ onSettingsSaved, onRefreshLibrary }) {
+function AppearancePanel({ onSettingsSaved, onRefreshLibrary, onArtistVisibilityChange }) {
   const [theme, setTheme] = useState(
     localStorage.getItem("app-theme") || "system"
   );
@@ -107,7 +107,7 @@ function AppearancePanel({ onSettingsSaved, onRefreshLibrary }) {
 
       <ImportSettings onSettingsSaved={onSettingsSaved} />
 
-      <ArtistSettings onSettingsSaved={onSettingsSaved} />
+       <ArtistSettings onSettingsSaved={onSettingsSaved} onArtistVisibilityChange={onArtistVisibilityChange} />
 
       <RefreshLibrary onRefreshLibrary={onRefreshLibrary} />
     </div>
@@ -134,15 +134,26 @@ function RefreshLibrary({ onRefreshLibrary }) {
 /* ================================================================
    🎤 艺人设置 — 删除音乐时对空艺人的处理
    ================================================================ */
-function ArtistSettings({ onSettingsSaved }) {
+function ArtistSettings({ onSettingsSaved, onArtistVisibilityChange }) {
   const [keepEmpty, setKeepEmpty] = useState(
     () => localStorage.getItem("artist-keep-empty") !== "false"
+  );
+  const [hideEmpty, setHideEmpty] = useState(
+    () => localStorage.getItem("artist-hide-empty") !== "false"
   );
 
   function handleToggleKeepEmpty() {
     const next = !keepEmpty;
     setKeepEmpty(next);
     localStorage.setItem("artist-keep-empty", String(next));
+    onSettingsSaved?.();
+  }
+
+  function handleToggleHideEmpty() {
+    const next = !hideEmpty;
+    setHideEmpty(next);
+    localStorage.setItem("artist-hide-empty", String(next));
+    onArtistVisibilityChange?.(next);
     onSettingsSaved?.();
   }
 
@@ -168,6 +179,19 @@ function ArtistSettings({ onSettingsSaved }) {
               ...(keepEmpty ? panelStyles.toggleKnobOn : {}),
             }}
           />
+        </button>
+      </div>
+      <div style={panelStyles.toggleRow}>
+        <div style={panelStyles.toggleText}>
+          <p style={panelStyles.toggleTitle}>不显示空艺人</p>
+          <p style={panelStyles.toggleDesc}>启用后，艺人列表默认隐藏没有歌曲的艺人，不会删除艺人资料</p>
+        </div>
+        <button
+          style={{ ...panelStyles.toggleSwitch, ...(hideEmpty ? panelStyles.toggleSwitchOn : {}) }}
+          onClick={handleToggleHideEmpty}
+          title={hideEmpty ? "点击关闭" : "点击开启"}
+        >
+          <div style={{ ...panelStyles.toggleKnob, ...(hideEmpty ? panelStyles.toggleKnobOn : {}) }} />
         </button>
       </div>
     </div>

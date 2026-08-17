@@ -192,7 +192,7 @@ export async function matchSong({ song_name, artist_name, sources, fields, lyric
   const res = await fetch(`${BASE_URL}/api/match/song`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ song_name, artist_name, sources, fields, lyric_credits_fallback, file_path, match_rate: localStorage.getItem("match-rate") || "normal" }),
+    body: JSON.stringify({ song_name, artist_name, sources, fields, lyric_credits_fallback, file_path, match_rate: "fast" }),
   });
   return res.json();
 }
@@ -202,7 +202,7 @@ export async function matchSongCandidates({ song_name, artist_name, file_path, s
   const res = await fetch(`${BASE_URL}/api/match/song/candidates`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ song_name, artist_name, file_path, sources, fields, lyric_credits_fallback, offset, limit, match_rate: localStorage.getItem("match-rate") || "normal" }),
+    body: JSON.stringify({ song_name, artist_name, file_path, sources, fields, lyric_credits_fallback, offset, limit, match_rate: "fast" }),
   });
   return res.json();
 }
@@ -224,7 +224,17 @@ export async function matchAlbumCandidates({ album_name, artist_name, sources, o
   const res = await fetch(`${BASE_URL}/api/match/album/candidates`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ album_name, artist_name, sources, offset, limit, match_rate: localStorage.getItem("match-rate") || "normal" }),
+    body: JSON.stringify({ album_name, artist_name, sources, offset, limit, match_rate: "fast" }),
+  });
+  return res.json();
+}
+
+/** 获取已选单曲候选的详情 */
+export async function matchSongCandidateDetails({ candidate, fields, lyric_credits_fallback }) {
+  const res = await fetch(`${BASE_URL}/api/match/song/candidate/details`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ candidate, fields, lyric_credits_fallback }),
   });
   return res.json();
 }
@@ -234,7 +244,7 @@ export async function matchLyric({ song_name, artist_name, sources, offset, limi
   const res = await fetch(`${BASE_URL}/api/match/lyric`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ song_name, artist_name, sources, offset, limit, match_rate: localStorage.getItem("match-rate") || "normal" }),
+    body: JSON.stringify({ song_name, artist_name, sources, offset, limit, match_rate: "fast" }),
   });
   return res.json();
 }
@@ -259,12 +269,32 @@ export async function matchArtist(artistName) {
   return res.json();
 }
 
+/** 搜索艺人候选 */
+export async function matchArtistCandidates({ artist_name, sources, limit = 10 }) {
+  const res = await fetch(`${BASE_URL}/api/match/artist/candidates`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ artist_name, sources, limit }),
+  });
+  return res.json();
+}
+
+/** 获取选中艺人候选详情 */
+export async function matchArtistCandidateDetails(candidate) {
+  const res = await fetch(`${BASE_URL}/api/match/artist/candidate/details`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ candidate }),
+  });
+  return res.json();
+}
+
 /** 按来源和 ID 获取艺人/专辑简介 */
 export async function fetchDescription({ source = "netease", kind = "album", id }) {
   const res = await fetch(`${BASE_URL}/api/match/description`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ source, kind, id, match_rate: localStorage.getItem("match-rate") || "normal" }),
+    body: JSON.stringify({ source, kind, id, match_rate: "fast" }),
   });
   return res.json();
 }
@@ -305,11 +335,14 @@ export default {
   deleteArtist,
   uploadArtistCover,
   matchSong,
+  matchSongCandidateDetails,
   matchLyric,
   matchAll,
   getMatchAllProgress,
   cancelMatchAll,
   matchArtist,
+  matchArtistCandidates,
+  matchArtistCandidateDetails,
   fetchDescription,
   getAssetUrl,
 };

@@ -4,6 +4,11 @@ import CoverPlayButton from "../components/CoverPlayButton";
 import { getAssetUrl } from "../services/api";
 import { loadPlayCounts, songPlayKey } from "../utils/playCount";
 
+function normalizeCoverPosition(position) {
+  const clamp = (value) => Math.max(0, Math.min(100, Number.isFinite(value) ? value : 50));
+  return { x: clamp(Number(position?.x ?? 50)), y: clamp(Number(position?.y ?? 50)) };
+}
+
 /* ================================================================
    🎤 ArtistsDetail — 艺人详情页
    布局：
@@ -49,6 +54,7 @@ export default function ArtistsDetail({
 
   // 艺人形象照：优先使用存储的艺人照片
   const artistCover = record?.cover_url ? getAssetUrl(record.cover_url) : null;
+  const coverPosition = normalizeCoverPosition(record?.cover_position);
   const showBanner = !!artistCover && !bannerImgError;
   const songCount = albums.reduce((sum, a) => sum + (a.songs?.length || 0), 0);
 
@@ -176,7 +182,7 @@ export default function ArtistsDetail({
             <img
               src={artistCover}
               alt={artist}
-              style={styles.bannerImage}
+              style={{ ...styles.bannerImage, objectPosition: `${coverPosition.x}% ${coverPosition.y}%` }}
               onError={() => setBannerImgError(true)}
             />
             {/* 渐变遮罩，让文字更清晰 */}
@@ -444,11 +450,14 @@ const styles = {
     width: "100%",
     height: "100%",
     position: "relative",
+    overflow: "hidden",
+    background: "#e5e7eb",
   },
   bannerImage: {
     width: "100%",
     height: "100%",
     objectFit: "cover",
+    objectPosition: "center",
     display: "block",
   },
   // 无形象照时的紧凑头部

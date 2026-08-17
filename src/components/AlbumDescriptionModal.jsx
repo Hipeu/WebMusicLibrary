@@ -10,7 +10,14 @@ export default function AlbumDescriptionModal({ album, isPlaying, themeColor, on
           <FaTimes size={16} />
         </button>
 
-        <div style={styles.header}>
+        <div
+          style={{
+            ...styles.header,
+            ...(themeColor ? {
+              background: `linear-gradient(135deg, #f8fafc, ${themeColor}18)`,
+            } : {}),
+          }}
+        >
           <div style={styles.coverWrap}>
             {album.coverURL ? (
               <img src={album.coverURL} alt={album.title} style={styles.cover} />

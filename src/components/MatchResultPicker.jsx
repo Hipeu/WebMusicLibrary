@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { FaTimes } from "react-icons/fa";
-import { matchSongCandidates, fetchCoverProxy } from "../services/api";
+import { matchSongCandidates, matchSongCandidateDetails, fetchCoverProxy } from "../services/api";
 
 /* ================================================================
    🎯 MatchResultPicker — 单曲匹配多结果选择
@@ -11,18 +11,18 @@ export default function MatchResultPicker({ song_name, artist_name, file_path, o
   const [sourceSel, setSourceSel] = useState("all"); // "all" | "qq" | "netease" | "itunes"
   const [loading, setLoading] = useState(false); // 初次搜索
   const [fetchingMore, setFetchingMore] = useState(false); // 翻页超出缓存按需加载
-  const [cached, setCached] = useState([]); // 已缓存的候选
-  const [total, setTotal] = useState(0); // 后端真实总数（分页据此）
+  const [cache, setCache] = useState({}); // 当前弹窗生命周期内按源缓存
   const [page, setPage] = useState(1);
   const [error, setError] = useState("");
   const [searchMode, setSearchMode] = useState("all"); // 本次实际搜索的源模式（徽标显示依据）
 
   const PAGE_SIZE = 3; // 单页展示 3 条
   const CACHE_INIT = 12; // 首次缓存 12 条
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const activeCache = cache[sourceSel] || { results: [], total: 0 };
+  const totalPages = Math.max(1, Math.ceil(activeCache.total / PAGE_SIZE));
   // 当前页在缓存内的切片；超出缓存的部分展示「正在加载」
-  const displayed = cached.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-  const pageOutOfCache = (page - 1) * PAGE_SIZE >= cached.length;
+  const displayed = activeCache.results.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const pageOutOfCache = (page - 1) * PAGE_SIZE >= activeCache.results.length;
 
   function buildSources() {
     if (sourceSel === "qq") return { qq: true, netease: false, itunes: false };
@@ -49,8 +49,7 @@ export default function MatchResultPicker({ song_name, artist_name, file_path, o
     setSearchMode(sourceSel);
     try {
       const res = await fetchResults(0, CACHE_INIT);
-      setCached(res?.results || []);
-      setTotal(res?.total || 0);
+      setCache((prev) => ({ ...prev, [sourceSel]: { results: res?.results || [], total: res?.total || 0 } }));
       setPage(1);
       if (!res?.results?.length) setError("未找到匹配结果");
     } catch {
@@ -65,18 +64,18 @@ export default function MatchResultPicker({ song_name, artist_name, file_path, o
     if (target < 1 || target > totalPages) return;
     setPage(target);
     const startIdx = (target - 1) * PAGE_SIZE;
-    if (startIdx >= cached.length) {
+    if (startIdx >= activeCache.results.length) {
       setFetchingMore(true);
       setError("");
       try {
         const res = await fetchResults(startIdx, PAGE_SIZE);
         const more = res?.results || [];
-        setCached((prev) => {
-          const arr = [...prev];
+        setCache((prev) => {
+          const current = prev[sourceSel] || { results: [], total: 0 };
+          const arr = [...current.results];
           more.forEach((item, i) => { arr[startIdx + i] = item; });
-          return arr;
+          return { ...prev, [sourceSel]: { results: arr, total: res?.total || current.total } };
         });
-        setTotal(res?.total || total);
         if (!more.length) setError("未找到更多匹配结果");
       } catch {
         setError("加载失败，请确认后端已启动");
@@ -89,18 +88,27 @@ export default function MatchResultPicker({ song_name, artist_name, file_path, o
   function selectSource(k) {
     // 切换源仅改选中，保留上次搜索结果（点「搜索」才用新源重新查询）
     setSourceSel(k);
+    setSearchMode(k);
+    setPage(1);
   }
 
   // 选中候选：有封面则经后端同源代理下载为 Blob，随 onPick 传给编辑表单
   async function handlePick(r) {
     let coverFile = null;
-    if (r.cover_url) {
-      const blob = await fetchCoverProxy(r.cover_url);
-      if (blob) {
-        coverFile = new File([blob], "cover.jpg", { type: blob.type || "image/jpeg" });
-      }
+    const fieldKeys = ["title", "artist", "album", "year", "track_disc", "genre", "album_artist", "description", "composer", "lyricist", "lyric", "publisher", "arranger", "producer"];
+    const fields = Object.fromEntries(fieldKeys.map((key) => [key, localStorage.getItem(`match-field-${key}`) !== "0"]));
+    const [blob, details] = await Promise.all([
+      r.cover_url ? fetchCoverProxy(r.cover_url) : null,
+      matchSongCandidateDetails({
+        candidate: r,
+        fields,
+        lyric_credits_fallback: localStorage.getItem("match-lyric-fallback") === "1",
+      }),
+    ]);
+    if (blob) {
+      coverFile = new File([blob], "cover.jpg", { type: blob.type || "image/jpeg" });
     }
-    onPick?.(r, coverFile);
+    onPick?.({ ...r, ...(details?.status === "ok" ? details : {}) }, coverFile);
     onClose();
   }
 
@@ -177,7 +185,7 @@ export default function MatchResultPicker({ song_name, artist_name, file_path, o
               </div>
             ))
           )}
-          {!loading && cached.length === 0 && !error && (
+          {!loading && activeCache.results.length === 0 && !error && (
             <p style={styles.emptyHint}>选择源后点击「搜索」获取匹配结果</p>
           )}
         </div>

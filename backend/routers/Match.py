@@ -138,6 +138,23 @@ async def match_song_candidates(payload: dict = Body(...)):
     }
 
 
+@router.post("/song/candidate/details")
+async def match_song_candidate_details(payload: dict = Body(...)):
+    """获取已选单曲候选的详情，避免首屏候选列表等待详情增强。"""
+    candidate = payload.get("candidate") or {}
+    if not candidate.get("source"):
+        return {"error": "缺少 candidate.source"}
+    matcher = MusicMatcher(rate="fast")
+    async with aiohttp.ClientSession(timeout=matcher._timeout) as session:
+        details = await matcher.match_song_candidate_details(
+            session,
+            candidate,
+            fields=payload.get("fields"),
+            lyric_credits_fallback=bool(payload.get("lyric_credits_fallback")),
+        )
+    return {"status": "ok", **details}
+
+
 @router.post("/album/candidates")
 async def match_album_candidates(payload: dict = Body(...)):
     """专辑匹配多候选（分页）：返回 {status, total, results:[{source, source_label, album, album_artist, year, genre, cover_url}]}"""
@@ -189,6 +206,35 @@ async def match_artist(payload: dict = Body(...)):
         return {"error": "缺少 artist_name"}
     matcher = MusicMatcher(rate=payload.get("match_rate"))
     return await matcher.match_artist(artist_name)
+
+
+@router.post("/artist/candidates")
+async def match_artist_candidates(payload: dict = Body(...)):
+    """按启用来源并行搜索艺人候选。"""
+    artist_name = (payload.get("artist_name") or "").strip()
+    if not artist_name:
+        return {"error": "缺少 artist_name"}
+    matcher = MusicMatcher(rate="fast")
+    async with aiohttp.ClientSession(timeout=matcher._timeout) as session:
+        results = await matcher.match_artist_candidates(
+            session,
+            artist_name,
+            sources=payload.get("sources"),
+            limit=int(payload.get("limit") or 10),
+        )
+    return {"status": "ok", "results": results}
+
+
+@router.post("/artist/candidate/details")
+async def match_artist_candidate_details(payload: dict = Body(...)):
+    """获取已选艺人候选的简介和头像。"""
+    candidate = payload.get("candidate") or {}
+    if not candidate.get("source"):
+        return {"error": "缺少 candidate.source"}
+    matcher = MusicMatcher(rate="fast")
+    async with aiohttp.ClientSession(timeout=matcher._timeout) as session:
+        details = await matcher.match_artist_candidate_details(session, candidate)
+    return {"status": "ok", **details}
 
 
 @router.post("/description")
@@ -520,6 +566,7 @@ async def _match_all_async(matcher, songs, artist_list, config=None):
         done = 0
         cancelled = False
         need_lrc = []  # [(file_path, entry, missing_fields)]
+        album_cache = {}
 
         # ============ 阶段 A：联网匹配 ============
         for file_path, entry in songs:
@@ -535,6 +582,7 @@ async def _match_all_async(matcher, songs, artist_list, config=None):
                     sources=config.get("sources"),
                     fields=config.get("fields"),
                     lyric_credits_fallback=False,  # 阶段 A 只联网，LRC 保底统一放阶段 B
+                    album_cache=album_cache,
                 )
             except Exception as e:
                 _match_state["failed"] += 1

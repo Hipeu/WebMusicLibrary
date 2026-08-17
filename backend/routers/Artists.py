@@ -81,6 +81,11 @@ def put_artist(data: dict = Body(...)):
         record["genres"] = data.get("genres") or []
     elif current.get("genres"):
         record["genres"] = current.get("genres")
+    for key in ("bio_source", "bio_source_id", "cover_source", "cover_source_id", "cover_position"):
+        if key in data and data.get(key):
+            record[key] = data.get(key)
+        elif current.get(key):
+            record[key] = current.get(key)
     artists[name] = record
     ok = save_artists(artists)
     return {"status": "ok" if ok else "error", "artist": record}

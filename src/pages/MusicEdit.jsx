@@ -91,13 +91,11 @@ export default function MusicEdit({ target, onClose, onSave, onRefresh, onAlbumM
   function buildMatchConfig() {
     const fieldKeys = ["title", "artist", "album", "year", "track_disc", "genre", "album_artist", "description",
                        "composer", "lyricist", "lyric", "publisher", "arranger", "producer"];
-    const sourceKeys = ["qq", "netease", "itunes", "musicbrainz"];
     const fields = {};
     fieldKeys.forEach((k) => { fields[k] = localStorage.getItem(`match-field-${k}`) !== "0"; });
-    const sources = {};
-    sourceKeys.forEach((k) => { sources[k] = localStorage.getItem(`match-source-${k}`) !== "0"; });
     return {
-      sources,
+      // 编辑页匹配源由候选弹窗控制，不读取设置页的全局源开关。
+      sources: { qq: true, netease: true, itunes: true, musicbrainz: true },
       fields,
       lyric_credits_fallback: localStorage.getItem("match-lyric-fallback") === "1",
     };
@@ -118,7 +116,10 @@ export default function MusicEdit({ target, onClose, onSave, onRefresh, onAlbumM
         onAlbumMatchProgress?.({ status: "start", total: songs.length });
         for (const song of songs) {
           if (song.file_path) {
-            const res = await matchSong({ song_name: song.title, artist_name: song.artist, file_path: song.file_path || "", ...config });
+            const selectedSources = selectedAlbum?.source
+              ? { qq: selectedAlbum.source === "qq", netease: selectedAlbum.source === "netease", itunes: selectedAlbum.source === "itunes", musicbrainz: false }
+              : config.sources;
+            const res = await matchSong({ song_name: song.title, artist_name: song.artist, file_path: song.file_path || "", ...config, sources: selectedSources });
             if (res && !res.error) {
               // 仅填空缺：源匹配其余字段，LRC 保底只补 作曲/作词/发布者，已有值不覆盖
               const payload = {};

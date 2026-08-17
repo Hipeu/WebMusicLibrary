@@ -330,6 +330,9 @@ export default function MusicLibrary() {
         // ---------- 艺人详情页状态 ----------
         const [detailArtistName, setDetailArtistName] = useState(null);
   const [artistRecords, setArtistRecords] = useState({}); // { 艺人名: { cover_url, bio, genres } }
+  const [hideEmptyArtists, setHideEmptyArtists] = useState(
+    () => localStorage.getItem("artist-hide-empty") !== "false"
+  );
   const [artistEditTarget, setArtistEditTarget] = useState(null); // { artist, record, albums }
   const [missingSongs, setMissingSongs] = useState(new Set());
   const [missingDialogSong, setMissingDialogSong] = useState(null);
@@ -3204,7 +3207,8 @@ export default function MusicLibrary() {
                         {(() => {
                           // 艺人列表 = 存储的记录 ∪ 专辑派生艺人（保留无音乐的艺人）
                           const derived = albums.map((a) => a.artist);
-                          const uniqueArtists = Array.from(new Set([...derived, ...Object.keys(artistRecords)]));
+                           const uniqueArtists = Array.from(new Set([...derived, ...Object.keys(artistRecords)]))
+                             .filter((artist) => !hideEmptyArtists || albums.some((a) => a.artist === artist));
                           return [...uniqueArtists].sort((a, b) => {
                             if (artistSortMode === "z-a") {
                               return b.localeCompare(a, "zh-CN");
@@ -4115,6 +4119,12 @@ export default function MusicLibrary() {
         onOpenMatchDetail={() => openMatchDetail("all")}
         onMatchStarted={startMatchPoll}
         onRefreshLibrary={handleRefreshLibrary}
+        onArtistVisibilityChange={(value) => {
+          setHideEmptyArtists(value);
+          if (value && detailArtistName && !albums.some((a) => a.artist === detailArtistName)) {
+            setDetailArtistName(null);
+          }
+        }}
       />
 
       {/* ===== 匹配详情独立窗口 ===== */}
