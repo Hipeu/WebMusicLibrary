@@ -1284,6 +1284,7 @@ export default function MusicLibrary() {
         togglePlay();
       } else {
         setCurrentPlaylistId(null); // 切换到专辑播放，清除播放列表来源
+        setPlayQueue([]);
         setCurrentAlbumId(albumId);
         setCurrentSongIndex(0);
         setIsPlaying(true);
@@ -1307,6 +1308,7 @@ export default function MusicLibrary() {
       togglePlay();
     } else {
       setCurrentPlaylistId(null); // 切换到专辑播放，清除播放列表来源
+      setPlayQueue([]);
       setCurrentAlbumId(detailAlbumId);
       setCurrentSongIndex(firstPlayable);
       setIsPlaying(true);
@@ -1319,6 +1321,7 @@ export default function MusicLibrary() {
     const song = album?.songs?.[songIndex];
     if (song && !songPlayable(song)) { setUnplayableDialogSong(song); return; }
     setCurrentPlaylistId(null); // 切换到专辑播放，清除播放列表来源
+    setPlayQueue([]);
     setCurrentAlbumId(detailAlbumId);
     setCurrentSongIndex(songIndex);
     setIsPlaying(true);
@@ -1433,6 +1436,7 @@ export default function MusicLibrary() {
         togglePlay();
       } else {
         setCurrentPlaylistId(null);
+        setPlayQueue([]);
         setCurrentAlbumId(albumId);
         setCurrentSongIndex(firstPlayable);
         setIsPlaying(true);
@@ -1445,6 +1449,7 @@ export default function MusicLibrary() {
       const song = album?.songs?.[songIndex];
       if (song && !songPlayable(song)) { setUnplayableDialogSong(song); return; }
       setCurrentPlaylistId(null);
+      setPlayQueue([]);
       setCurrentAlbumId(albumId);
       setCurrentSongIndex(songIndex);
       setIsPlaying(true);
@@ -1456,6 +1461,7 @@ export default function MusicLibrary() {
       const song = album?.songs?.[songIndex];
       if (song && !songPlayable(song)) { setUnplayableDialogSong(song); return; }
       setCurrentPlaylistId(null);
+      setPlayQueue([]);
       setCurrentAlbumId(albumId);
       setCurrentSongIndex(songIndex);
       setIsPlaying(true);
@@ -1534,6 +1540,7 @@ export default function MusicLibrary() {
       togglePlay();
     } else {
       setCurrentAlbumId(null); // 切换到播放列表播放，清除专辑来源
+      setPlayQueue([]);
       setCurrentPlaylistId(detailPlaylistId);
       setCurrentSongIndex(firstPlayable);
       setIsPlaying(true);
@@ -1546,6 +1553,7 @@ export default function MusicLibrary() {
     const song = pl?.songs?.[songIndex];
     if (song && !songPlayable(song)) { setUnplayableDialogSong(song); return; }
     setCurrentAlbumId(null); // 切换到播放列表播放，清除专辑来源
+    setPlayQueue([]);
     setCurrentPlaylistId(detailPlaylistId);
     setCurrentSongIndex(songIndex);
     setIsPlaying(true);

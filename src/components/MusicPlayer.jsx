@@ -2,11 +2,33 @@ import { startTransition, useState, useRef, useEffect } from "react";
 import { FaChevronDown, FaList, FaMusic, FaHeart, FaRegHeart, FaEllipsisH, FaInfoCircle, FaPlus, FaCompactDisc, FaUser, FaRedo, FaRandom, FaExclamationCircle } from "react-icons/fa";
 import Lyrics from "./Lyrics";
 import { parseLRC } from "../utils/LyricsParser";
-import { getLyrics } from "../services/api";
+import { getLyrics as fetchLyrics } from "../services/api";
 import { songPlayable } from "../utils/formatCheck";
 import { incrementPlayCount } from "../utils/playCount";
 import PlayerControls from "./PlayerControls";
 import useCoverColor from "./CoverColor";
+
+const lyricsCache = new Map();
+const lyricsRequests = new Map();
+
+function getCachedLyrics(filePath) {
+  if (!filePath) return Promise.resolve({ lyrics: null });
+  if (lyricsCache.has(filePath)) return Promise.resolve(lyricsCache.get(filePath));
+  if (lyricsRequests.has(filePath)) return lyricsRequests.get(filePath);
+  const request = fetchLyrics(filePath)
+    .then((result) => {
+      const value = result?.lyrics ? result : { ...(result || {}), lyrics: null };
+      lyricsCache.set(filePath, value);
+      lyricsRequests.delete(filePath);
+      return value;
+    })
+    .catch((error) => {
+      lyricsRequests.delete(filePath);
+      throw error;
+    });
+  lyricsRequests.set(filePath, request);
+  return request;
+}
 
 /* ================================================================
    🎵 MusicPlayer — 播放控制器
@@ -303,7 +325,7 @@ export default function MusicPlayer({
         audioRef.current.load();
       }
       // 更新最近播放为最新歌曲对象
-      if (setPlaylists) {
+      if (setPlaylists && currentPlaylistId !== "recent") {
         setPlaylists((prev) =>
           prev.map((pl) => {
             if (pl.id === "recent") {
@@ -330,7 +352,7 @@ export default function MusicPlayer({
     }
 
     // 自动添加到最近播放（最新在前）
-    if (setPlaylists) {
+    if (setPlaylists && currentPlaylistId !== "recent") {
       setPlaylists((prev) =>
         prev.map((pl) => {
           if (pl.id === "recent") {
@@ -347,7 +369,7 @@ export default function MusicPlayer({
   useEffect(() => {
     if (!currentSong?.file_path) return;
     let cancelled = false;
-    getLyrics(currentSong.file_path)
+    getCachedLyrics(currentSong.file_path)
       .then((res) => {
         if (cancelled) return;
         if (res?.lyrics) {
