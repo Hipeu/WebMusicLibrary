@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { FaPlay, FaPause, FaArrowLeft, FaEllipsisH, FaHeart, FaStepForward, FaClock, FaPlus, FaTrash, FaInfoCircle, FaExclamationCircle } from "react-icons/fa";
 import PlayingAnimation from "../components/PlayingAnimation";
 import useCoverColor from "../components/CoverColor";
-import { songPlayable } from "../utils/formatCheck";
+import { songPlayable, isPlaceholderPublisher } from "../utils/formatCheck";
 import { getAssetUrl } from "../services/api";
 import AlbumDescriptionModal from "../components/AlbumDescriptionModal";
+import AlbumArtistPicker from "../components/AlbumArtistPicker";
+import { splitArtists, joinArtists } from "../utils/artistSplit";
 
 /* ================================================================
    📀 AlbumDetail — 专辑详情页
@@ -36,6 +38,7 @@ export default function AlbumDetail({
   const [showAlbumMenu, setShowAlbumMenu] = useState(false);
   const [descriptionOverflow, setDescriptionOverflow] = useState(false);
   const [showDescriptionModal, setShowDescriptionModal] = useState(false);
+  const [showArtistPicker, setShowArtistPicker] = useState(false);
   const descriptionRef = useRef(null);
 
   const palette = useCoverColor(album?.coverURL || null);
@@ -62,6 +65,19 @@ export default function AlbumDetail({
   const artistAvatarUrl = artistRecords?.[album.artist]?.cover_url
     ? getAssetUrl(artistRecords[album.artist].cover_url)
     : null;
+
+  // 合作艺人：拆分并计算每个艺人的头像
+  const artistNames = splitArtists(album.artist);
+  const isMultiArtist = artistNames.length > 1;
+  const artistItems = artistNames.map((name) => ({
+    name,
+    avatar: artistRecords?.[name]?.cover_url
+      ? getAssetUrl(artistRecords[name].cover_url)
+      : ((album.songs || []).find((s) => s.artist === name)?.coverURL || null),
+  }));
+  const displayArtistName = isMultiArtist
+    ? (artistNames.length > 4 ? `${joinArtists(artistNames.slice(0, 4))} 等` : joinArtists(artistNames))
+    : album.artist;
 
   // 从封面提取动态主题色（用于封面光晕）
   const themeSwatch = palette?.Vibrant || palette?.Muted || palette?.DarkVibrant || palette?.LightVibrant || null;
@@ -112,23 +128,45 @@ export default function AlbumDetail({
         {/* 右：信息区（独立，可自由增删内容） */}
         <div style={{ ...styles.infoColumn, ...(description ? styles.infoColumnWithDescription : {}) }}>
           <h1 style={styles.albumTitle}>{album.title}</h1>
-          <p style={styles.albumArtist}>
-            {artistAvatarUrl && (
-              <img src={artistAvatarUrl} alt="" style={styles.artistAvatar} onError={(e) => { e.currentTarget.style.display = "none"; }} />
+          <p
+            style={styles.albumArtist}
+            onClick={() => { if (isMultiArtist) setShowArtistPicker(true); }}
+            title={isMultiArtist ? "选择艺人前往" : "查看艺人详情"}
+          >
+            {isMultiArtist ? (
+              <span style={styles.artistStack}>
+                {artistItems.slice(0, 4).map((item, i) => (
+                  <span key={item.name} style={{ ...styles.artistStackAvatar, marginLeft: i === 0 ? 0 : -12 }}>
+                    {item.avatar ? (
+                      <img src={item.avatar} alt="" style={styles.artistStackImg} onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                    ) : (
+                      <span style={styles.artistStackFallback}>🎤</span>
+                    )}
+                  </span>
+                ))}
+              </span>
+            ) : (
+              artistAvatarUrl && (
+                <img src={artistAvatarUrl} alt="" style={styles.artistAvatar} onError={(e) => { e.currentTarget.style.display = "none"; }} />
+              )
             )}
             {onOpenArtist ? (
               <span
                 style={styles.artistLink}
                 onClick={(e) => {
                   e.stopPropagation();
-                  onOpenArtist(album.artist);
+                  if (isMultiArtist) {
+                    setShowArtistPicker(true);
+                  } else {
+                    onOpenArtist(album.artist);
+                  }
                 }}
-                title="查看艺人详情"
+                title={isMultiArtist ? "选择艺人前往" : "查看艺人详情"}
               >
-                {album.artist}
+                {displayArtistName}
               </span>
             ) : (
-              album.artist
+              displayArtistName
             )}
           </p>
           <p style={styles.albumYear}>
@@ -364,7 +402,7 @@ export default function AlbumDetail({
           <div style={styles.songListHeader}>
             <div style={styles.dividerLine} />
             <div style={styles.songMetaRow}>
-              {album.publisher && (
+              {album.publisher && !isPlaceholderPublisher(album.publisher) && (
                 <span style={styles.songMetaText}>{album.publisher}</span>
               )}
               <span style={styles.songCount}>{album.songs.length} 首</span>
@@ -441,6 +479,16 @@ export default function AlbumDetail({
           themeColor={themeColor}
           onPlayAlbum={onPlayAlbum}
           onClose={() => setShowDescriptionModal(false)}
+        />
+      )}
+      {showArtistPicker && (
+        <AlbumArtistPicker
+          artists={artistItems}
+          onPick={(name) => {
+            setShowArtistPicker(false);
+            onOpenArtist?.(name);
+          }}
+          onClose={() => setShowArtistPicker(false)}
         />
       )}
     </div>
@@ -566,6 +614,17 @@ infoColumn: {
     objectFit: "cover", flexShrink: 0,
     border: "1px solid #e5e7eb",
   },
+  artistStack: {
+    display: "flex", alignItems: "center", flexShrink: 0,
+  },
+  artistStackAvatar: {
+    width: "28px", height: "28px", borderRadius: "50%", overflow: "hidden",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    background: "#f3f4f6", border: "2px solid #ffffff",
+    boxShadow: "0 1px 4px rgba(0,0,0,0.15)",
+  },
+  artistStackImg: { width: "100%", height: "100%", objectFit: "cover" },
+  artistStackFallback: { fontSize: "12px", opacity: 0.5 },
   artistLink: {
     color: "#e94560",
     cursor: "pointer",

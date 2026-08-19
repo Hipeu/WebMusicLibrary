@@ -27,3 +27,8 @@ export function songPlayable(song) {
   if (!song) return true;
   return !isUnplayableCodec(song.codec || song.container);
 }
+
+/** 发布者是否仅为占位前缀（只有 ℗ + 年份，无真实厂牌名） */
+export function isPlaceholderPublisher(pub) {
+  return /^℗\s*\d{4}\s*$/.test(String(pub || "").trim());
+}

@@ -7,10 +7,11 @@ import subprocess
 import sys
 import logging
 import time
-from fastapi import APIRouter, UploadFile, File, Body
+from fastapi import APIRouter, UploadFile, File, Form, Body
 from pydantic import BaseModel
 from services.metadata_service import parse_metadata
 from services.library_config import get_library_path
+from services.artist_utils import normalize_artists
 
 logger = logging.getLogger("musicload")
 
@@ -222,8 +223,10 @@ def _file_sha256(path):
 
 
 @router.post("/upload")
-async def upload_music(file: UploadFile = File(...)):
-    """上传音乐文件，按 Artist/Album 组织到 Music_Library"""
+async def upload_music(file: UploadFile = File(...), auto_organize: str = Form("0")):
+    """上传音乐文件，按 Artist/Album 组织到 Music_Library。
+    auto_organize=1 时把多位艺人统一为 "A & B & C" 格式。
+    """
     temp_path = os.path.join(get_library_path(), "_temp", file.filename)
     os.makedirs(os.path.dirname(temp_path), exist_ok=True)
 
@@ -236,6 +239,10 @@ async def upload_music(file: UploadFile = File(...)):
     title = meta["title"] or os.path.splitext(file.filename)[0]
     artist = sanitize_name(meta["artist"]) or "Various Artists"
     album = sanitize_name(meta["album"]) or "Unknown Album"
+    if auto_organize == "1":
+        meta["artist"] = normalize_artists(meta.get("artist"))
+        meta["album_artist"] = normalize_artists(meta.get("album_artist"))
+        artist = sanitize_name(meta["artist"]) or artist
 
     # 创建目录结构（仅存放音频文件）
     artist_dir = os.path.join(get_library_path(), artist)

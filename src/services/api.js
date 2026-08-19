@@ -11,6 +11,7 @@ export function getAssetUrl(path) {
 export async function uploadMusic(file, signal) {
   const form = new FormData();
   form.append("file", file);
+  form.append("auto_organize", localStorage.getItem("edit-auto-organize-collab") !== "false" ? "1" : "0");
 
   const res = await fetch(`${BASE_URL}/api/music/upload`, {
     method: "POST",

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { FaSlidersH, FaLink, FaTrashAlt, FaInfoCircle, FaTimes, FaPen } from "react-icons/fa";
 import { saveSettings, getMigrationStatus, matchAll, cancelMatchAll } from "../services/api";
 
@@ -6,7 +6,7 @@ import { saveSettings, getMigrationStatus, matchAll, cancelMatchAll } from "../s
    ⚙️ Settings — 设置悬浮窗口
    左侧功能栏 + 右侧内容区
    ================================================================ */
-export default function Settings({ show, onClose, onReset, onSettingsSaved, matchState, onOpenMatchDetail, onMatchStarted, onRefreshLibrary, onArtistVisibilityChange }) {
+export default function Settings({ show, onClose, onReset, onSettingsSaved, matchState, onOpenMatchDetail, onMatchStarted, onRefreshLibrary, onArtistVisibilityChange, onMatchNothing }) {
   const [active, setActive] = useState("appearance");
 
   if (!show) return null;
@@ -52,7 +52,7 @@ export default function Settings({ show, onClose, onReset, onSettingsSaved, matc
           <div style={styles.content}>
             {active === "appearance" && <AppearancePanel onSettingsSaved={onSettingsSaved} onRefreshLibrary={onRefreshLibrary} onArtistVisibilityChange={onArtistVisibilityChange} />}
             {active === "edit" && <EditPanel onSettingsSaved={onSettingsSaved} />}
-            {active === "match" && <MatchPanel matchState={matchState} onOpenMatchDetail={onOpenMatchDetail} onMatchStarted={onMatchStarted} onSettingsSaved={onSettingsSaved} />}
+            {active === "match" && <MatchPanel matchState={matchState} onOpenMatchDetail={onOpenMatchDetail} onMatchStarted={onMatchStarted} onSettingsSaved={onSettingsSaved} onMatchNothing={onMatchNothing} />}
             {active === "reset" && <ResetPanel onReset={onReset} />}
             {active === "about" && <AboutPanel />}
           </div>
@@ -208,6 +208,9 @@ function EditPanel({ onSettingsSaved }) {
   const [deleteToTrash, setDeleteToTrash] = useState(
     () => localStorage.getItem("delete-to-trash") === "1"
   );
+  const [autoOrganizeCollab, setAutoOrganizeCollab] = useState(
+    () => localStorage.getItem("edit-auto-organize-collab") !== "false"
+  );
 
   function handleTogglePublisherCopyright() {
     const next = !publisherCopyright;
@@ -220,6 +223,13 @@ function EditPanel({ onSettingsSaved }) {
     const next = !deleteToTrash;
     setDeleteToTrash(next);
     localStorage.setItem("delete-to-trash", next ? "1" : "0");
+    onSettingsSaved?.();
+  }
+
+  function handleToggleAutoOrganizeCollab() {
+    const next = !autoOrganizeCollab;
+    setAutoOrganizeCollab(next);
+    localStorage.setItem("edit-auto-organize-collab", String(next));
     onSettingsSaved?.();
   }
 
@@ -269,6 +279,27 @@ function EditPanel({ onSettingsSaved }) {
           />
         </button>
       </div>
+      <div style={panelStyles.toggleRow}>
+        <div style={panelStyles.toggleText}>
+          <p style={panelStyles.toggleTitle}>自动整理合作艺人</p>
+          <p style={panelStyles.toggleDesc}>开启后，导入、编辑和匹配写入时把多位艺人统一为「A & B & C」格式</p>
+        </div>
+        <button
+          style={{
+            ...panelStyles.toggleSwitch,
+            ...(autoOrganizeCollab ? panelStyles.toggleSwitchOn : {}),
+          }}
+          onClick={handleToggleAutoOrganizeCollab}
+          title={autoOrganizeCollab ? "点击关闭" : "点击开启"}
+        >
+          <div
+            style={{
+              ...panelStyles.toggleKnob,
+              ...(autoOrganizeCollab ? panelStyles.toggleKnobOn : {}),
+            }}
+          />
+        </button>
+      </div>
     </div>
   );
 }
@@ -287,7 +318,7 @@ const MATCH_SOURCES = [
   ["qq", "QQ音乐"], ["netease", "网易云音乐"], ["itunes", "iTunes"], ["musicbrainz", "MusicBrainz"],
 ];
 
-function MatchPanel({ matchState, onOpenMatchDetail, onMatchStarted, onSettingsSaved }) {
+function MatchPanel({ matchState, onOpenMatchDetail, onMatchStarted, onSettingsSaved, onMatchNothing }) {
   // 元信息字段开关（localStorage 持久化，默认全开）
   const [fields, setFields] = useState(() => {
     const o = {};
@@ -306,12 +337,14 @@ function MatchPanel({ matchState, onOpenMatchDetail, onMatchStarted, onSettingsS
   const [lyricFallback, setLyricFallback] = useState(
     () => localStorage.getItem("match-lyric-fallback") === "1"
   );
-  const [matchArtistEnabled, setMatchArtistEnabled] = useState(
-    () => localStorage.getItem("match-artist-enabled") !== "false"
+  const [matchOverwrite, setMatchOverwrite] = useState(
+    () => localStorage.getItem("match-overwrite") === "1"
   );
   const [matchRate, setMatchRate] = useState(
     () => localStorage.getItem("match-rate") || "normal" // "fast" | "normal" | "slow"
   );
+  // 艺人匹配源联动：标记“艺术家”字段是否因 QQ/网易源都未选而被自动关闭
+  const artistAutoOffRef = useRef(false);
 
   // 匹配状态由 Library 统一轮询驱动
   const running = !!matchState?.running;
@@ -326,6 +359,8 @@ function MatchPanel({ matchState, onOpenMatchDetail, onMatchStarted, onSettingsS
   const [error, setError] = useState("");
 
   function toggleField(k) {
+    // 艺术家字段依赖 QQ/网易源，两者都未选时禁止开启
+    if (k === "artist" && sources.qq === false && sources.netease === false) return;
     const next = !fields[k];
     setFields((prev) => ({ ...prev, [k]: next }));
     localStorage.setItem(`match-field-${k}`, next ? "1" : "0");
@@ -334,8 +369,25 @@ function MatchPanel({ matchState, onOpenMatchDetail, onMatchStarted, onSettingsS
 
   function toggleSource(k) {
     const next = !sources[k];
-    setSources((prev) => ({ ...prev, [k]: next }));
+    const nextSources = { ...sources, [k]: next };
+    setSources(nextSources);
     localStorage.setItem(`match-source-${k}`, next ? "1" : "0");
+    // 艺人匹配源联动：QQ 与网易云都未选 → 自动关闭“艺术家”字段；重新勾选则自动恢复
+    const qqOn = nextSources.qq !== false;
+    const neteaseOn = nextSources.netease !== false;
+    if (!qqOn && !neteaseOn) {
+      if (fields.artist) {
+        artistAutoOffRef.current = true;
+        setFields((prev) => ({ ...prev, artist: false }));
+        localStorage.setItem("match-field-artist", "0");
+      }
+    } else if (artistAutoOffRef.current) {
+      artistAutoOffRef.current = false;
+      if (!fields.artist) {
+        setFields((prev) => ({ ...prev, artist: true }));
+        localStorage.setItem("match-field-artist", "1");
+      }
+    }
     onSettingsSaved?.();
   }
 
@@ -353,10 +405,10 @@ function MatchPanel({ matchState, onOpenMatchDetail, onMatchStarted, onSettingsS
     onSettingsSaved?.();
   }
 
-  function toggleArtist() {
-    const next = !matchArtistEnabled;
-    setMatchArtistEnabled(next);
-    localStorage.setItem("match-artist-enabled", String(next));
+  function toggleOverwrite() {
+    const next = !matchOverwrite;
+    setMatchOverwrite(next);
+    localStorage.setItem("match-overwrite", next ? "1" : "0");
     onSettingsSaved?.();
   }
 
@@ -383,13 +435,18 @@ function MatchPanel({ matchState, onOpenMatchDetail, onMatchStarted, onSettingsS
     try {
       const res = await matchAll({
         match_song: true,
-        match_artist: matchArtistEnabled,
         sources,
         fields,
         skip_matched: skipMatched,
         lyric_credits_fallback: lyricFallback,
+        overwrite: matchOverwrite,
+        auto_organize_collab: localStorage.getItem("edit-auto-organize-collab") !== "false",
       });      if (res && res.status === "error") {
         setError(res.msg || "启动匹配失败");
+        return;
+      }
+      if (res && res.status === "done") {
+        onMatchNothing?.();
         return;
       }
       if (res && res.status === "started") {
@@ -408,13 +465,13 @@ function MatchPanel({ matchState, onOpenMatchDetail, onMatchStarted, onSettingsS
   return (
     <div style={matchStyles.container}>
       <h3 style={panelStyles.title}>匹配</h3>
-      <p style={panelStyles.desc}>通过 QQ音乐 / iTunes / MusicBrainz 拉取歌曲与艺人信息，并自动写回音乐文件</p>
+      <p style={panelStyles.desc}>通过在线源拉取歌曲与艺人信息，并自动写回音乐文件</p>
 
       {/* 全部匹配（置顶） */}
       <div style={matchStyles.matchBox}>
         <p style={matchStyles.configTitle}>全部匹配</p>
         <p style={matchStyles.matchDesc}>
-          为资料库中缺少信息的歌曲补全所选字段，并为艺人补写真；文件内已存在的信息不会被覆盖
+          为资料库中缺少信息的歌曲补全所选字段，并为艺人补写真。件内已存在的信息不会被覆盖
         </p>
 
         <div style={matchStyles.matchHeader}>
@@ -463,27 +520,33 @@ function MatchPanel({ matchState, onOpenMatchDetail, onMatchStarted, onSettingsS
       {/* 匹配字段 + 匹配源 */}
       <div style={matchStyles.configBox}>
         <p style={matchStyles.configTitle}>匹配字段</p>
+        <p style={matchStyles.fieldHint}>勾选“艺术家”同时匹配歌曲艺人、艺人写真与艺人简介</p>
         <div style={matchStyles.fieldGrid}>
-          {MATCH_FIELDS.map(([k, label]) => (
-            <div key={k} style={matchStyles.fieldChip}>
-              <button
-                style={{
-                  ...matchStyles.miniSwitch,
-                  ...(fields[k] ? matchStyles.miniSwitchOn : {}),
-                }}
-                onClick={() => toggleField(k)}
-                title={fields[k] ? "点击关闭" : "点击开启"}
-              >
-                <div
+          {MATCH_FIELDS.map(([k, label]) => {
+            const artistDisabled = k === "artist" && sources.qq === false && sources.netease === false;
+            return (
+              <div key={k} style={matchStyles.fieldChip}>
+                <button
+                  disabled={artistDisabled}
                   style={{
-                    ...matchStyles.miniKnob,
-                    ...(fields[k] ? matchStyles.miniKnobOn : {}),
+                    ...matchStyles.miniSwitch,
+                    ...(fields[k] ? matchStyles.miniSwitchOn : {}),
+                    ...(artistDisabled ? matchStyles.miniSwitchDisabled : {}),
                   }}
-                />
-              </button>
-              <span style={matchStyles.fieldChipLabel}>{label}</span>
-            </div>
-          ))}
+                  onClick={() => toggleField(k)}
+                  title={artistDisabled ? "请先选择 QQ 或网易云源" : (fields[k] ? "点击关闭" : "点击开启")}
+                >
+                  <div
+                    style={{
+                      ...matchStyles.miniKnob,
+                      ...(fields[k] ? matchStyles.miniKnobOn : {}),
+                    }}
+                  />
+                </button>
+                <span style={{ ...matchStyles.fieldChipLabel, ...(artistDisabled ? matchStyles.fieldChipLabelDisabled : {}) }}>{label}</span>
+              </div>
+            );
+          })}
         </div>
 
         <p style={{ ...matchStyles.configTitle, marginTop: "16px" }}>匹配源（可多选）</p>
@@ -501,6 +564,12 @@ function MatchPanel({ matchState, onOpenMatchDetail, onMatchStarted, onSettingsS
             </button>
           ))}
         </div>
+        {sources.musicbrainz && (
+          <p style={matchStyles.sourceWarn}>⚠ 该源请求速率较慢可能延长匹配时间</p>
+        )}
+        {sources.qq === false && sources.netease === false && (
+          <p style={matchStyles.sourceWarn}>⚠ 艺人匹配将跳过</p>
+        )}
       </div>
 
       {/* 功能设置 */}
@@ -553,21 +622,21 @@ function MatchPanel({ matchState, onOpenMatchDetail, onMatchStarted, onSettingsS
 
         <div style={matchStyles.toggleRow}>
           <div style={matchStyles.toggleText}>
-            <p style={matchStyles.toggleTitle}>匹配艺人写真</p>
-            <p style={matchStyles.toggleDesc}>通过源获取艺人封面</p>
+            <p style={matchStyles.toggleTitle}>覆盖原音乐文件的信息</p>
+            <p style={matchStyles.toggleDesc}>启用后完整覆盖音乐文件内已有标签；关闭则仅填空缺</p>
           </div>
           <button
             style={{
               ...panelStyles.toggleSwitch,
-              ...(matchArtistEnabled ? panelStyles.toggleSwitchOn : {}),
+              ...(matchOverwrite ? panelStyles.toggleSwitchOn : {}),
             }}
-            onClick={toggleArtist}
-            title={matchArtistEnabled ? "点击关闭" : "点击开启"}
+            onClick={toggleOverwrite}
+            title={matchOverwrite ? "点击关闭" : "点击开启"}
           >
             <div
               style={{
                 ...panelStyles.toggleKnob,
-                ...(matchArtistEnabled ? panelStyles.toggleKnobOn : {}),
+                ...(matchOverwrite ? panelStyles.toggleKnobOn : {}),
               }}
             />
           </button>
@@ -577,7 +646,7 @@ function MatchPanel({ matchState, onOpenMatchDetail, onMatchStarted, onSettingsS
         <div style={matchStyles.toggleRow}>
           <div style={matchStyles.toggleText}>
             <p style={matchStyles.toggleTitle}>匹配速率</p>
-            <p style={matchStyles.toggleDesc}>快速为各源最高速率；标准间隔 1.5 秒；低速间隔 3 秒</p>
+            <p style={matchStyles.toggleDesc}>调整匹配速度，较快的速率可能导致被风控</p>
           </div>
           <div style={matchStyles.rateSegments}>
             {[["fast", "快速"], ["normal", "标准"], ["slow", "低速"]].map(([k, label]) => (
@@ -1443,6 +1512,14 @@ const matchStyles = {
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
   },
+  fieldChipLabelDisabled: {
+    color: "#9ca3af",
+  },
+  fieldHint: {
+    fontSize: "12px",
+    color: "#9ca3af",
+    margin: "-6px 0 10px",
+  },
   miniSwitch: {
     flexShrink: 0,
     width: "34px",
@@ -1458,6 +1535,10 @@ const matchStyles = {
   },
   miniSwitchOn: {
     background: "#e94560",
+  },
+  miniSwitchDisabled: {
+    opacity: 0.45,
+    cursor: "not-allowed",
   },
   miniKnob: {
     width: "16px",
@@ -1477,6 +1558,15 @@ const matchStyles = {
     display: "flex",
     gap: "8px",
     flexWrap: "wrap",
+  },
+  sourceWarn: {
+    fontSize: "12px",
+    color: "#b45309",
+    background: "#fef3c7",
+    border: "1px solid #fde68a",
+    borderRadius: "8px",
+    padding: "6px 10px",
+    margin: "10px 0 0",
   },
   sourceChip: {
     padding: "6px 16px",

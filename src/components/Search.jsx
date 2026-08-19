@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { FaMusic, FaCompactDisc, FaUser, FaListUl, FaArrowLeft, FaExclamationCircle } from "react-icons/fa";
 import { songPlayable } from "../utils/formatCheck";
 import { getAssetUrl } from "../services/api";
+import { splitArtists, collectAllArtists, albumBelongsToArtist } from "../utils/artistSplit";
 
 /* ================================================================
    🔍 Search — 侧边栏搜索输入框
@@ -103,20 +104,27 @@ export function SearchResults({
       .sort((a, b) => b.score - a.score);
 
     const artistScores = {};
+    const autoOrganize = localStorage.getItem("edit-auto-organize-collab") !== "false";
+    const artistKeys = (value) => (autoOrganize ? splitArtists(value) : [value].filter(Boolean));
     scoredSongs.forEach((s) => {
-      const name = s.artist || "未知艺术家";
-      if (!artistScores[name]) artistScores[name] = { score: 0, matchCount: 0 };
-      artistScores[name].score += s.score;
-      artistScores[name].matchCount += 1;
+      artistKeys(s.artist || "未知艺术家").forEach((name) => {
+        if (!artistScores[name]) artistScores[name] = { score: 0, matchCount: 0 };
+        artistScores[name].score += s.score;
+        artistScores[name].matchCount += 1;
+      });
     });
-    const allArtistNames = [...new Set(albums.map((a) => a.artist))];
+    const allArtistNames = autoOrganize
+      ? collectAllArtists(albums, {})
+      : [...new Set(albums.map((a) => a.artist))];
     const scoredArtists = allArtistNames
       .filter((name) => artistScores[name])
       .map((name) => ({
         name,
         score: artistScores[name].score,
         matchCount: artistScores[name].matchCount,
-        albumCount: albums.filter((a) => a.artist === name).length,
+        albumCount: autoOrganize
+          ? albums.filter((a) => albumBelongsToArtist(a, name)).length
+          : albums.filter((a) => a.artist === name).length,
       }))
       .sort((a, b) => b.score - a.score);
 
@@ -284,11 +292,10 @@ export function SearchResults({
               >
                 {(() => {
                   const cover = artistRecords?.[item.name]?.cover_url;
-                  return cover ? (
-                    <img src={getAssetUrl(cover)} alt="" className="search-artist-avatar" />
-                  ) : (
-                    <div className="search-artist-avatar"><FaUser /></div>
-                  );
+                  if (cover) return <img src={getAssetUrl(cover)} alt="" className="search-artist-avatar" />;
+                  const albumCover = albums.find((a) => a.artist === item.name)?.coverURL;
+                  if (albumCover) return <img src={albumCover} alt="" className="search-artist-avatar" />;
+                  return <div className="search-artist-avatar"><FaUser /></div>;
                 })()}
                 <span className="search-artist-name">{item.name}</span>
               </div>
@@ -411,11 +418,10 @@ function SearchCategoryDetail({
         >
           {(() => {
             const cover = artistRecords?.[item.name]?.cover_url;
-            return cover ? (
-              <img src={getAssetUrl(cover)} alt="" className="search-artist-avatar" />
-            ) : (
-              <div className="search-artist-avatar"><FaUser /></div>
-            );
+            if (cover) return <img src={getAssetUrl(cover)} alt="" className="search-artist-avatar" />;
+            const albumCover = albums.find((a) => a.artist === item.name)?.coverURL;
+            if (albumCover) return <img src={albumCover} alt="" className="search-artist-avatar" />;
+            return <div className="search-artist-avatar"><FaUser /></div>;
           })()}
           <span className="search-artist-name">{item.name}</span>
         </div>

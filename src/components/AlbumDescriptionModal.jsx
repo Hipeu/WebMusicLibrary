@@ -1,4 +1,5 @@
 import { FaPause, FaPlay, FaTimes } from "react-icons/fa";
+import { isPlaceholderPublisher } from "../utils/formatCheck";
 
 export default function AlbumDescriptionModal({ album, isPlaying, themeColor, onPlayAlbum, onClose }) {
   if (!album) return null;
@@ -32,7 +33,7 @@ export default function AlbumDescriptionModal({ album, isPlaying, themeColor, on
               {album.year ? `${album.year}年` : "未知年份"}
               {album.genre ? ` · ${album.genre}` : ""}
             </p>
-            {album.publisher && <p style={styles.publisher}>{album.publisher}</p>}
+            {album.publisher && !isPlaceholderPublisher(album.publisher) && <p style={styles.publisher}>{album.publisher}</p>}
             <button
               type="button"
               style={{

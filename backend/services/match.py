@@ -851,7 +851,7 @@ class MusicMatcher:
             if qq_item.get("songmid") and (_f("lyric") or lyric_credits_fallback):
                 detail_jobs.append(("qq_lyric", self.qq_lyric(session, qq_item["songmid"])))
             albummid = qq_item.get("albummid")
-            if albummid and (_f("album_artist") or _f("genre") or _f("year")):
+            if albummid and (_f("album_artist") or _f("genre") or _f("year") or _f("description")):
                 cache_key = f"qq_{albummid}"
                 if cache_key not in album_cache:
                     detail_jobs.append(("qq_album_info", self.qq_album_info(session, albummid)))
@@ -861,6 +861,8 @@ class MusicMatcher:
                 detail_jobs.append(("ncm_lyric", self.ncm_lyric(session, ncm_id)))
             if _f("composer") or _f("lyricist") or _f("arranger") or _f("producer"):
                 detail_jobs.append(("ncm_creators", self.ncm_song_creators(session, ncm_id)))
+            if _f("description"):
+                detail_jobs.append(("ncm_desc", self.ncm_album_description(session, ncm_id)))
 
         detail_results = await asyncio.gather(
             *(job for _, job in detail_jobs), return_exceptions=True
@@ -898,6 +900,8 @@ class MusicMatcher:
                     result["genre"] = album_info.get("genre")
                 if _f("year") and not result["year"]:
                     result["year"] = album_info.get("year")
+                if _f("description") and not result.get("description"):
+                    result["description"] = album_info.get("description")
 
         if not qq_item and ncm_item:
             result.update(
@@ -921,6 +925,8 @@ class MusicMatcher:
                 result["arranger"] = creators.get("arranger")
             if _f("producer"):
                 result["producer"] = creators.get("producer")
+            if _f("description"):
+                result["description"] = details.get("ncm_desc") or None
 
         if itunes_item and not qq_item and not ncm_item:
             result.update(
@@ -1316,22 +1322,59 @@ class MusicMatcher:
     # 艺人写真（简介后续再接 QQ 音乐 wiki）
     # ================================================================
 
-    async def get_artist_avatar(self, session, artist_name):
-        """通过 QQ 搜索歌手，返回写真 URL和简介。"""
-        try:
-            candidates = await self.qq_search(session, artist_name)
-            best = self._pick_best(
-                candidates, artist_name, artist_name, title_key="artist", artist_key="artist"
-            )[0]
-            if best and best.get("singermid"):
-                return {
-                    "singermid": best["singermid"],
-                    "avatar_url": QQ_AVATAR_URL.format(singermid=best["singermid"]),
-                    "bio": await self.qq_singer_desc(session, best["singermid"]),
-                }
-        except Exception as e:
-            logger.warning("QQ 歌手写真失败 %s: %s", artist_name, e)
-        return {"singermid": None, "avatar_url": None, "bio": None}
+    async def get_artist_avatar(self, session, artist_name, sources=None):
+        """艺人写真与简介：按源选择，QQ 优先，失败再网易云，返回 source。"""
+        sources = sources or {}
+        use_qq = sources.get("qq", True)
+        use_netease = sources.get("netease", True)
+        if not use_qq and not use_netease:
+            return {"singermid": None, "artist_id": None, "avatar_url": None, "bio": None, "source": None}
+        if use_qq:
+            try:
+                candidates = await self.qq_search_artists(session, artist_name, limit=5)
+                best = self._pick_best(
+                    candidates, artist_name, artist_name, title_key="name", artist_key="name"
+                )[0]
+                if best and best.get("singermid"):
+                    return {
+                        "singermid": best["singermid"],
+                        "artist_id": None,
+                        "avatar_url": QQ_AVATAR_URL.format(singermid=best["singermid"]),
+                        "bio": await self.qq_singer_desc(session, best["singermid"]),
+                        "source": "qq",
+                    }
+            except Exception as e:
+                logger.warning("QQ 歌手写真失败 %s: %s", artist_name, e)
+        if use_netease:
+            try:
+                candidates = await self.match_artist_candidates(
+                    session, artist_name, sources={"qq": False, "netease": True}, limit=5
+                )
+                for candidate in candidates:
+                    avatar_url = candidate.get("avatar_url")
+                    bio = await self.ncm_artist_desc(session, candidate.get("artist_id"))
+                    if avatar_url or bio:
+                        return {
+                            "singermid": None,
+                            "artist_id": candidate.get("artist_id"),
+                            "avatar_url": avatar_url,
+                            "bio": bio,
+                            "source": "netease",
+                        }
+            except Exception as e:
+                logger.warning("网易云歌手写真失败 %s: %s", artist_name, e)
+        return {"singermid": None, "artist_id": None, "avatar_url": None, "bio": None, "source": None}
+
+    async def match_artist_bio(self, session, artist_name, sources=None):
+        """艺人简介：按源选择，QQ 优先，失败则网易云，都失败返回空。"""
+        info = await self.get_artist_avatar(session, artist_name, sources)
+        if info.get("bio"):
+            return {
+                "bio": info["bio"],
+                "bio_source": info.get("source"),
+                "bio_source_id": info.get("singermid") or info.get("artist_id"),
+            }
+        return {"bio": None, "bio_source": None, "bio_source_id": None}
 
     async def match_artist_candidates(self, session, artist_name, sources=None, limit=10):
         """并行搜索 QQ/网易艺人候选，仅返回候选基础信息。"""

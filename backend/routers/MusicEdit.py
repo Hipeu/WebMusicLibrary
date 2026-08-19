@@ -295,9 +295,9 @@ async def edit_music(
         else:
             cur["album_artist"] = str(album_artist)
 
-    # 发布者：显式传空/空白串则清除为 None（LRC 提取的发布者可通过再编辑删除）
+    # 发布者：显式传空/空白串 或 仅 ℗+年份占位前缀 则清除为 None（避免把无真实厂牌的占位写入标签）
     if publisher is not None:
-        if str(publisher).strip() == "":
+        if str(publisher).strip() == "" or re.fullmatch(r"℗\s*\d{4}\s*", str(publisher)):
             cur["publisher"] = None
             clear_fields.add("publisher")
         else:

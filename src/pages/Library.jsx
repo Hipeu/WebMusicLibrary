@@ -2,10 +2,11 @@ import { startTransition, useState, useRef, useEffect, useCallback } from "react
 import { FiPlus } from "react-icons/fi";
 import { FaEllipsisH, FaCompactDisc, FaUser, FaHeart, FaStepForward, FaClock, FaPlus, FaArrowUp, FaTrash, FaMusic, FaInfoCircle, FaCog, FaPlay, FaExclamationCircle, FaCheckCircle, FaTimes, FaBell } from "react-icons/fa";
 import { readMetadata } from "../utils/MetadataReader";
-import { uploadMusic, getMusicList, getAssetUrl, deleteMusic, checkMusicFiles, updateMusicMetadata, updateAlbumDescription, getLyrics, getPlaylists, savePlaylists, resetAll, getResetProgress, openMusicFile, getArtists, saveArtist, deleteArtist, getMatchAllProgress, cancelMatchAll } from "../services/api";
+import { splitArtists, joinArtists, albumBelongsToArtist, collectAllArtists, isPrimaryAlbum } from "../utils/artistSplit";
+import { uploadMusic, getMusicList, getAssetUrl, deleteMusic, checkMusicFiles, updateMusicMetadata, updateAlbumDescription, matchSong, getLyrics, getPlaylists, savePlaylists, resetAll, getResetProgress, openMusicFile, getArtists, saveArtist, deleteArtist, getMatchAllProgress, cancelMatchAll } from "../services/api";
 import { saveSongToIndex, removeSongFromIndex, loadMusicIndex } from "../utils/musicIndex";
 import { normalizePlaylists, loadPlaylistCache, savePlaylistCache } from "../utils/playlistStore";
-import { isUnplayableCodec, songPlayable } from "../utils/formatCheck";
+import { isUnplayableCodec, songPlayable, isPlaceholderPublisher } from "../utils/formatCheck";
 import { clearPlayCounts } from "../utils/playCount";
 import MusicPlayer from "../components/MusicPlayer";
 import AlbumDetail from "./AlbumDetail";
@@ -322,6 +323,8 @@ export default function MusicLibrary() {
 
         // ---------- 专辑详情页状态 ----------
   const [detailAlbumId, setDetailAlbumId] = useState(null);
+  // 多层返回栈：记录每次进入详情页前的来源，返回时逐层恢复
+  const [navStack, setNavStack] = useState([]);
 
         // ---------- 播放列表详情页状态 ----------
         const [detailPlaylistId, setDetailPlaylistId] = useState(null);
@@ -1267,6 +1270,7 @@ export default function MusicLibrary() {
 
         // ---------- 点击专辑卡片 — 打开专辑详情页 ----------
     function handleOpenAlbumDetail(albumId) {
+      pushNavOrigin();
       setDetailAlbumId(albumId);
       setDetailArtistName(null);
       // 进入专辑详情：按需检测该专辑歌曲是否缺失
@@ -1327,13 +1331,59 @@ export default function MusicLibrary() {
     setIsPlaying(true);
   }
 
+    // ---------- 返回栈：记录当前视图，供返回恢复 ----------
+  function pushNavOrigin() {
+    setNavStack((prev) => {
+      const frame = {
+        kind: detailAlbumId ? "album" : detailPlaylistId ? "playlist" : detailArtistName ? "artist" : "nav",
+        id: detailAlbumId || detailPlaylistId || null,
+        name: detailArtistName || null,
+        activeNav,
+        filterText,
+      };
+      return [...prev, frame].slice(-10);
+    });
+  }
+
+  function popNavBack() {
+    if (navStack.length === 0) return false;
+    const frame = navStack[navStack.length - 1];
+    setNavStack((prev) => prev.slice(0, -1));
+    if (frame.kind === "album") {
+      setDetailAlbumId(frame.id);
+      setDetailPlaylistId(null);
+      setDetailArtistName(null);
+      setActiveNav(frame.activeNav || "library");
+    } else if (frame.kind === "artist") {
+      setDetailAlbumId(null);
+      setDetailPlaylistId(null);
+      setDetailArtistName(frame.name);
+      setActiveNav("artists");
+    } else if (frame.kind === "playlist") {
+      setDetailAlbumId(null);
+      setDetailArtistName(null);
+      setDetailPlaylistId(frame.id);
+      setActiveNav(frame.activeNav || "playlists");
+    } else {
+      setDetailAlbumId(null);
+      setDetailPlaylistId(null);
+      setDetailArtistName(null);
+      setActiveNav(frame.activeNav || "library");
+    }
+    if (frame.activeNav === "search" && frame.filterText !== undefined) {
+      setFilterText(frame.filterText);
+    }
+    return true;
+  }
+
     // ---------- 关闭详情页 ----------
   function handleCloseDetail() {
-    setDetailAlbumId(null);
+    if (!popNavBack()) setDetailAlbumId(null);
   }
 
   // ---------- 打开播放列表详情 ----------
   function handleOpenPlaylistDetail(playlistId) {
+    pushNavOrigin();
     setDetailPlaylistId(playlistId);
     // 进入播放列表详情：按需检测该播放列表歌曲是否缺失
     const pl = playlists.find((p) => p.id === playlistId);
@@ -1342,11 +1392,12 @@ export default function MusicLibrary() {
 
     // ---------- 关闭播放列表详情 ----------
     function handleClosePlaylistDetail() {
-      setDetailPlaylistId(null);
+      if (!popNavBack()) setDetailPlaylistId(null);
     }
 
         // ---------- 点击艺人卡片 / 专辑详情页艺人链接 — 打开艺人详情页 ----------
     function handleOpenArtistDetail(artistName) {
+      pushNavOrigin();
       setDetailAlbumId(null); // 关闭专辑详情页（如果是从专辑详情页跳转来的）
       setDetailPlaylistId(null); // 关闭播放列表详情页
       setDetailArtistName(artistName);
@@ -1355,7 +1406,7 @@ export default function MusicLibrary() {
 
         // ---------- 关闭艺人详情页 ----------
     function handleCloseArtistDetail() {
-      setDetailArtistName(null);
+      if (!popNavBack()) setDetailArtistName(null);
     }
 
     // ---------- 打开艺人编辑 ----------
@@ -1363,7 +1414,9 @@ export default function MusicLibrary() {
       setArtistEditTarget({
         artist: artistName,
         record: artistRecords[artistName] || {},
-        albums: albums.filter((a) => a.artist === artistName),
+        albums: localStorage.getItem("edit-auto-organize-collab") !== "false"
+          ? albums.filter((a) => albumBelongsToArtist(a, artistName))
+          : albums.filter((a) => a.artist === artistName),
       });
     }
 
@@ -1415,6 +1468,7 @@ export default function MusicLibrary() {
 
     // ---------- 从艺人详情页点击专辑卡片 — 打开专辑详情页 ----------
     function handleOpenAlbumFromArtist(albumId) {
+      pushNavOrigin();
       setDetailAlbumId(albumId);
       // 关闭艺人详情页，进入专辑详情页
       setDetailArtistName(null);
@@ -1846,8 +1900,7 @@ export default function MusicLibrary() {
 
     if (action === "album") {
       // 打开专辑详情
-      setDetailAlbumId(song.albumId);
-      setDetailArtistName(null);
+      handleOpenAlbumDetail(song.albumId);
     } else if (action === "artist") {
       // 打开艺人详情
       handleOpenArtistDetail(song.artist || "未知艺术家");
@@ -2122,11 +2175,7 @@ export default function MusicLibrary() {
 
     function handleAlbumMatchError() {
       setEditTarget(null);
-      setDetailAlbumId(null);
-      setDetailArtistName(null);
-      setDetailPlaylistId(null);
-      setActiveNav("library");
-      showToast("专辑匹配失败，已返回资料库", "warning");
+      showToast("专辑匹配失败，请稍后重试", "warning");
     }
 
     function handleAlbumMatchSaved(albumId, oldSong, updatedSong) {
@@ -2136,6 +2185,83 @@ export default function MusicLibrary() {
       if (detailAlbumId === albumId) {
         const nextAlbumId = `server-${updatedSong.album_artist || updatedSong.artist || "未知艺术家"}-${updatedSong.album || "未知专辑"}`;
         setDetailAlbumId(nextAlbumId);
+      }
+    }
+
+    // ---------- 后台专辑匹配（用户可关闭编辑器自由浏览） ----------
+    // 只跟随编辑弹窗发起时选择的源（config.sources），前后端一致
+    async function runBackgroundAlbumMatch(album, { config, selectedAlbum } = {}) {
+      const songs = album?.songs || [];
+      if (songs.length === 0) return;
+      const cfg = config || {
+        sources: { qq: true, netease: true, itunes: true, musicbrainz: true },
+        fields: {},
+        lyric_credits_fallback: false,
+      };
+      handleAlbumMatchProgress({ status: "start", total: songs.length });
+      let doneCount = 0, okCount = 0, skipCount = 0;
+      for (const song of songs) {
+        if (song.file_path) {
+          const selectedSources = selectedAlbum?.source
+            ? { qq: selectedAlbum.source === "qq", netease: selectedAlbum.source === "netease", itunes: selectedAlbum.source === "itunes", musicbrainz: false }
+            : cfg.sources;
+          try {
+            const res = await matchSong({ song_name: song.title, artist_name: song.artist, file_path: song.file_path || "", ...cfg, sources: selectedSources });
+            if (res && !res.error) {
+              const payload = {};
+              if (!song.composer && res.composers?.length) payload.composer = res.composers.join(", ");
+              if (!song.lyricist && res.lyricists?.length) payload.lyricist = res.lyricists.join(", ");
+              if (selectedAlbum?.album) payload.album = selectedAlbum.album;
+              else if (!song.album && res.album) payload.album = res.album;
+              if (selectedAlbum?.album_artist) {
+                payload.artist = selectedAlbum.album_artist;
+                payload.album_artist = selectedAlbum.album_artist;
+              } else if (!song.album_artist && res.album_artist) payload.album_artist = res.album_artist;
+              if (selectedAlbum?.year) payload.year = selectedAlbum.year;
+              else if (!song.year && res.year) payload.year = res.year;
+              if (selectedAlbum?.genre) payload.genre = selectedAlbum.genre;
+              else if (!song.genre && res.genre) payload.genre = res.genre;
+              if (song.trackNo == null && res.trackNo != null) payload.trackNo = res.trackNo;
+              if (song.discNo == null && res.discNo != null) payload.discNo = res.discNo;
+              if (!song.publisher && res.publisher) payload.publisher = res.publisher;
+              if (!song.arranger && res.arranger) payload.arranger = res.arranger;
+              if (!song.producer && res.producer) payload.producer = res.producer;
+              if (!song.lyrics && res.lyric) payload.lyrics = res.lyric;
+              const saveRes = await updateMusicMetadata({
+                file_path: song.file_path,
+                ...payload,
+                matched: "1",
+                match_source: res.source,
+              });
+              if (saveRes?.status === "ok") okCount++;
+              else skipCount++;
+              if (saveRes?.status === "ok") {
+                handleAlbumMatchSaved(album.id, song, {
+                  ...saveRes.song,
+                  matched: true,
+                  match_source: res.source || null,
+                });
+              }
+            } else {
+              skipCount++;
+            }
+          } catch {
+            skipCount++;
+          }
+        } else {
+          skipCount++;
+        }
+        doneCount++;
+        handleAlbumMatchProgress({ status: "update", done: doneCount, total: songs.length });
+      }
+      const doneMessage = skipCount > 0
+        ? `匹配成功 ${okCount} 首，跳过 ${skipCount} 首`
+        : `匹配成功 ${okCount} 首`;
+      handleAlbumMatchProgress({ status: "done", done: doneCount, total: songs.length, message: doneMessage, skipped: skipCount });
+      try {
+        await refreshFromServer();
+      } catch {
+        // 后台刷新失败不阻塞
       }
     }
 
@@ -2234,29 +2360,42 @@ export default function MusicLibrary() {
         const album = target.type === "song"
           ? albums.find((a) => a.id === target.data.albumId)
           : (target.type === "album" ? target.data : null);
-        const isSingleSong = album ? (album.songs || []).length === 1 : false;
+const isSingleSong = album ? (album.songs || []).length === 1 : false;
         const albumAlbumArtist = album?.album_artist;
         const origArtist = target.data?.artist;
         const origAlbumArtist = target.data?.album_artist;
+        // 自动整理合作艺人：开启时把多位艺人统一为 "A & B & C"
+        const organizeArtists = (value) => {
+          if (value === undefined || value === null) return value;
+          if (localStorage.getItem("edit-auto-organize-collab") === "false") return value;
+          const joined = joinArtists(splitArtists(String(value)));
+          return joined === "" ? value : joined;
+        };
+        // 发布者：仅 ℗+年份 占位前缀视为无发布者，清空写入
+        const resolvePublisher = (value) => {
+          if (value === undefined || value === null) return undefined;
+          const s = String(value);
+          if (s.trim() === "" || isPlaceholderPublisher(s)) return " ";
+          return s;
+        };
 
         if (target.type === "album") {
           const albumData = target.data;
           const descriptionRes = await updateAlbumDescription({
-            artist: form.artist,
+            artist: organizeArtists(form.artist) || form.artist,
             album: form.title,
             description: form.description || "",
           });
           albumDescriptionSaved = descriptionRes?.status === "ok";
+          const rawAlbumArtist = form.album_artist !== undefined && form.album_artist !== null ? String(form.album_artist) : undefined;
           const common = {
-            artist: form.artist || undefined,
-            album_artist: form.album_artist !== undefined && form.album_artist !== null
-              ? (String(form.album_artist).trim() === "" ? " " : String(form.album_artist))
-              : undefined,
+            artist: organizeArtists(form.artist) || undefined,
+            album_artist: rawAlbumArtist === undefined
+              ? undefined
+              : (rawAlbumArtist.trim() === "" ? " " : organizeArtists(rawAlbumArtist)),
             genre: form.genre || undefined,
             year: form.year ? String(form.year) : undefined,
-             publisher: form.publisher !== undefined && form.publisher !== null
-               ? (String(form.publisher).trim() === "" ? " " : String(form.publisher))
-               : undefined,
+             publisher: resolvePublisher(form.publisher),
              description: form.description !== undefined ? form.description : undefined,
              ...(editCoverFile ? { cover: editCoverFile } : {}),
           };
@@ -2276,11 +2415,13 @@ export default function MusicLibrary() {
           const res = await updateMusicMetadata({
             file_path: target.data.file_path,
             title: form.title || undefined,
-            artist: form.artist || undefined,
+            artist: organizeArtists(form.artist) || undefined,
             album: form.album || undefined,
-            album_artist: form.album_artist !== undefined && form.album_artist !== null
-              ? (String(form.album_artist).trim() === "" ? " " : String(form.album_artist))
-              : undefined,
+            album_artist: (() => {
+              if (form.album_artist === undefined || form.album_artist === null) return undefined;
+              const raw = String(form.album_artist);
+              return raw.trim() === "" ? " " : organizeArtists(raw);
+            })(),
             genre: form.genre || undefined,
             year: form.year ? String(form.year) : undefined,
             trackNo:
@@ -2293,9 +2434,7 @@ export default function MusicLibrary() {
                 : undefined,
             composer: form.composer || undefined,
             lyricist: form.lyricist || undefined,
-            publisher: form.publisher !== undefined && form.publisher !== null
-              ? (String(form.publisher).trim() === "" ? " " : String(form.publisher))
-              : undefined,
+            publisher: resolvePublisher(form.publisher),
             comment: form.comment || undefined,
             lyrics: form.lyrics || undefined,
             ...(matched ? { matched: "1" } : {}),
@@ -2997,7 +3136,7 @@ export default function MusicLibrary() {
                       playlists={playlists}
                       artistRecords={artistRecords}
                       onPlaySong={handlePlaySongFromSearch}
-                      onOpenAlbum={(id) => { setDetailAlbumId(id); setDetailPlaylistId(null); setDetailArtistName(null); }}
+                      onOpenAlbum={handleOpenAlbumDetail}
                       onOpenArtist={handleOpenArtistDetail}
                       onOpenPlaylist={handleOpenPlaylistDetail}
                       onNavChange={handleNavChange}
@@ -3212,23 +3351,36 @@ export default function MusicLibrary() {
                       </div>
                     ) : (
                       <div style={styles.artistGrid}>
-                        {(() => {
+{(() => {
                           // 艺人列表 = 存储的记录 ∪ 专辑派生艺人（保留无音乐的艺人）
-                          const derived = albums.map((a) => a.artist);
-                           const uniqueArtists = Array.from(new Set([...derived, ...Object.keys(artistRecords)]))
-                             .filter((artist) => !hideEmptyArtists || albums.some((a) => a.artist === artist));
-                          return [...uniqueArtists].sort((a, b) => {
-                            if (artistSortMode === "z-a") {
-                              return b.localeCompare(a, "zh-CN");
-                            }
-                            return a.localeCompare(b, "zh-CN");
-                          }).map((artist) => {
-                            const artistAlbums = albums.filter((a) => a.artist === artist);
+                          // 自动整理合作艺人开启时：拆分合作艺人为独立艺人；关闭时：完整字符串作为一个艺人
+                          const autoOrganize = localStorage.getItem("edit-auto-organize-collab") !== "false";
+                          const uniqueArtists = autoOrganize
+                            ? collectAllArtists(albums, artistRecords)
+                            : Array.from(new Set([...albums.map((a) => a.artist), ...Object.keys(artistRecords)]));
+                          const belongs = (artist) => autoOrganize
+                            ? albums.some((a) => albumBelongsToArtist(a, artist))
+                            : albums.some((a) => a.artist === artist);
+                          return uniqueArtists
+                            .filter((artist) => !hideEmptyArtists || belongs(artist))
+                            .sort((a, b) => {
+                              if (artistSortMode === "z-a") {
+                                return b.localeCompare(a, "zh-CN");
+                              }
+                              return a.localeCompare(b, "zh-CN");
+                            }).map((artist) => {
+                            const artistAlbums = autoOrganize
+                              ? albums.filter((a) => albumBelongsToArtist(a, artist))
+                              : albums.filter((a) => a.artist === artist);
+                            const primaryAlbums = artistAlbums.filter((a) => isPrimaryAlbum(a, artist));
                             // 头像：优先艺人照片，其次取该艺人专辑中一张有封面的封面作头像
                             const record = artistRecords[artist] || {};
                             const artistCover = record.cover_url
                               ? getAssetUrl(record.cover_url)
                               : (artistAlbums.find((a) => a.coverURL)?.coverURL || null);
+                            const countText = autoOrganize
+                              ? (primaryAlbums.length > 0 ? `${primaryAlbums.length} 个专辑` : "")
+                              : `${artistAlbums.length} 个专辑`;
                             return (
                               <div key={artist} style={styles.artistCard} onClick={() => handleOpenArtistDetail(artist)}>
                                 <div style={styles.artistAvatar}>
@@ -3243,7 +3395,7 @@ export default function MusicLibrary() {
                                   )}
                                 </div>
                                 <p style={styles.artistName}>{artist}</p>
-                                <p style={styles.artistAlbumCount}>{artistAlbums.length} 个专辑</p>
+                                <p style={styles.artistAlbumCount}>{countText}</p>
                               </div>
                             );
                           });
@@ -3254,10 +3406,12 @@ export default function MusicLibrary() {
                 ) : activeNav === "artists" && detailArtistName ? (
                   /* ----- 艺人详情页（从艺人卡片点进去） ----- */
                   <div style={styles.detailPageArea}>
-                                        <ArtistsDetail
-                      artist={detailArtistName}
-                      albums={albums.filter((a) => a.artist === detailArtistName)}
-                      record={artistRecords[detailArtistName] || {}}
+<ArtistsDetail
+        artist={detailArtistName}
+        albums={localStorage.getItem("edit-auto-organize-collab") !== "false"
+          ? albums.filter((a) => albumBelongsToArtist(a, detailArtistName))
+          : albums.filter((a) => a.artist === detailArtistName)}
+        record={artistRecords[detailArtistName] || {}}
                       currentAlbumId={currentAlbumId}
                       currentSongIndex={currentSongIndex}
                       isPlaying={isPlaying}
@@ -4075,35 +4229,26 @@ export default function MusicLibrary() {
         audioRef={audioRef}
         playQueue={playQueue}
         setPlayQueue={setPlayQueue}
-        onNavigateToAlbum={(albumId) => {
-          setDetailAlbumId(albumId);
-          setDetailArtistName(null);
-        }}
-        onNavigateToArtist={(artistName) => {
-          setDetailAlbumId(null);
-          setDetailPlaylistId(null);
-          setDetailArtistName(artistName);
-          setActiveNav("artists");
-        }}
-        onNavigateToPlaylist={(playlistId) => {
-          setDetailAlbumId(null);
-          setDetailArtistName(null);
-          handleOpenPlaylistDetail(playlistId);
-        }}
+        onNavigateToAlbum={handleOpenAlbumDetail}
+        onNavigateToArtist={handleOpenArtistDetail}
+        onNavigateToPlaylist={handleOpenPlaylistDetail}
         onUnplayableSong={(song) => setUnplayableDialogSong(song)}
         onOpenEdit={handleOpenEditFromPlayer}
         editRestoreRef={editRestoreRef}
       />
 
-      <MusicEdit
+<MusicEdit
         key={editTarget ? `${editTarget.type}-${editTarget.data?.file_path || editTarget.data?.id || ""}` : "none"}
         target={editTarget}
+        albums={albums}
+        artistRecords={artistRecords}
         onClose={() => setEditTarget(null)}
         onSave={handleSaveEdit}
         onRefresh={refreshFromServer}
         onAlbumMatchProgress={handleAlbumMatchProgress}
         onAlbumMatchSaved={handleAlbumMatchSaved}
         onMatchError={handleAlbumMatchError}
+        onBackgroundAlbumMatch={runBackgroundAlbumMatch}
       />
 
       {artistEditTarget && (
@@ -4127,12 +4272,17 @@ export default function MusicLibrary() {
         onOpenMatchDetail={() => openMatchDetail("all")}
         onMatchStarted={startMatchPoll}
         onRefreshLibrary={handleRefreshLibrary}
-        onArtistVisibilityChange={(value) => {
-          setHideEmptyArtists(value);
-          if (value && detailArtistName && !albums.some((a) => a.artist === detailArtistName)) {
-            setDetailArtistName(null);
-          }
-        }}
+  onMatchNothing={() => showToast("无内容可匹配", "info")}
+onArtistVisibilityChange={(value) => {
+  setHideEmptyArtists(value);
+  const autoOrganize = localStorage.getItem("edit-auto-organize-collab") !== "false";
+  const belongs = autoOrganize
+    ? albums.some((a) => albumBelongsToArtist(a, detailArtistName))
+    : albums.some((a) => a.artist === detailArtistName);
+  if (value && detailArtistName && !belongs) {
+    setDetailArtistName(null);
+  }
+}}
       />
 
       {/* ===== 匹配详情独立窗口 ===== */}
@@ -4191,6 +4341,7 @@ export default function MusicLibrary() {
 
             // toast 类通知
             const isSuccess = n.kind === "success";
+            const isInfo = n.kind === "info";
             return (
               <div
                 key={n.id}
@@ -4199,23 +4350,26 @@ export default function MusicLibrary() {
                   position: "static",
                   ...(n.content || n.action ? styles.toastNotifyCard : {}),
                   ...(isSuccess ? styles.toastNotifySuccess : {}),
+                  ...(isInfo ? styles.toastNotifyInfo : {}),
                   ...anim,
                 }}
                 {...hoverProps}
               >
                 {isSuccess ? (
                   <FaCheckCircle size={20} style={{ color: "#ffffff", flexShrink: 0 }} />
+                ) : isInfo ? (
+                  <FaInfoCircle size={20} style={{ color: "#ffffff", flexShrink: 0 }} />
                 ) : (
                   <FaExclamationCircle size={20} style={{ color: "#f59e0b", flexShrink: 0 }} />
                 )}
                 <div style={styles.toastCardBody}>
-                  <p style={{ ...styles.toastCardTitle, ...(isSuccess ? styles.toastCardTitleSuccess : {}) }}>{n.title}</p>
+                  <p style={{ ...styles.toastCardTitle, ...(isSuccess ? styles.toastCardTitleSuccess : {}), ...(isInfo ? styles.toastCardTitleSuccess : {}) }}>{n.title}</p>
                   {n.content && (
-                    <p style={{ ...styles.toastCardContent, ...(isSuccess ? styles.toastCardContentSuccess : {}) }}>{n.content}</p>
+                    <p style={{ ...styles.toastCardContent, ...(isSuccess ? styles.toastCardContentSuccess : {}), ...(isInfo ? styles.toastCardContentSuccess : {}) }}>{n.content}</p>
                   )}
                 </div>
                 {n.action && (
-                  <button style={isSuccess ? styles.toastCardActionSuccess : styles.toastCardAction} onClick={n.action.onClick}>
+                  <button style={isSuccess || isInfo ? styles.toastCardActionSuccess : styles.toastCardAction} onClick={n.action.onClick}>
                     {n.action.label}
                   </button>
                 )}
@@ -5365,6 +5519,11 @@ const styles = {
     background: "#22c55e",
     color: "#ffffff",
     border: "1px solid #22c55e",
+  },
+  toastNotifyInfo: {
+    background: "#3b82f6",
+    color: "#ffffff",
+    border: "1px solid #3b82f6",
   },
   // 标题+内容+按钮的卡片式通知
   toastNotifyCard: {

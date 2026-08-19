@@ -3,6 +3,7 @@ import { FaArrowLeft, FaPen, FaChevronRight } from "react-icons/fa";
 import CoverPlayButton from "../components/CoverPlayButton";
 import { getAssetUrl } from "../services/api";
 import { loadPlayCounts, songPlayKey } from "../utils/playCount";
+import { splitArtists, isLiveAlbum, isPrimaryAlbum } from "../utils/artistSplit";
 
 function normalizeCoverPosition(position) {
   const clamp = (value) => Math.max(0, Math.min(100, Number.isFinite(value) ? value : 50));
@@ -33,7 +34,10 @@ export default function ArtistsDetail({
 }) {
   const [bannerImgError, setBannerImgError] = useState(false);
   const [subView, setSubView] = useState(null); // null | "songs" | "albums"（全部歌曲 / 全部专辑子页）
-  if (!artist) return null;
+if (!artist) return null;
+
+  // 自动整理合作艺人：开启时分类为 专辑/合作音乐/现场；关闭时维持单列表
+  const autoOrganize = localStorage.getItem("edit-auto-organize-collab") !== "false";
 
   // 按年份排序专辑（降序：从新到旧）
   const sortedAlbums = [...albums].sort((a, b) => {
@@ -42,8 +46,15 @@ export default function ArtistsDetail({
     return yearB - yearA;
   });
 
+  // 分类（仅自动整理开启时）
+  const primaryAlbums = autoOrganize ? sortedAlbums.filter((a) => isPrimaryAlbum(a, artist)) : [];
+  const collabAlbums = autoOrganize ? sortedAlbums.filter((a) => !isLiveAlbum(a) && !isPrimaryAlbum(a, artist)) : [];
+  const liveAlbums = autoOrganize ? sortedAlbums.filter((a) => isLiveAlbum(a)) : [];
+  // 分类后的全部专辑（供歌曲/新入库使用）
+  const categorizedAlbums = autoOrganize ? [...primaryAlbums, ...collabAlbums, ...liveAlbums] : albums;
+
   // 新入库：专辑按最近添加排序（专辑内歌曲最大 importTime，兜底专辑 importTime）
-  const newArrivalAlbums = [...albums].sort((a, b) => {
+  const newArrivalAlbums = [...categorizedAlbums].sort((a, b) => {
     const importOf = (album) =>
       Math.max(
         album.importTime || 0,
@@ -56,7 +67,7 @@ export default function ArtistsDetail({
   const artistCover = record?.cover_url ? getAssetUrl(record.cover_url) : null;
   const coverPosition = normalizeCoverPosition(record?.cover_position);
   const showBanner = !!artistCover && !bannerImgError;
-  const songCount = albums.reduce((sum, a) => sum + (a.songs?.length || 0), 0);
+  const songCount = categorizedAlbums.reduce((sum, a) => sum + (a.songs?.length || 0), 0);
 
   // 相关流派：优先用艺人编辑里保存的流派，否则自动抓取歌曲 genre 去重
   const genres = (record?.genres && record.genres.length > 0)
@@ -67,16 +78,18 @@ export default function ArtistsDetail({
         return Array.from(set);
       })();
 
-  // 全部歌曲（带播放次数 / 导入时间）
+  // 全部歌曲（带播放次数 / 导入时间）：自动整理时仅保留该艺人演唱的歌曲
   const counts = loadPlayCounts();
-  const allSongs = albums.flatMap((a) =>
-    (a.songs || []).map((s, idx) => ({
-      ...s,
-      albumId: a.id,
-      songIndex: idx,
-      playCount: counts[songPlayKey(s)] || 0,
-      importTime: s.importTime || 0,
-    }))
+  const allSongs = categorizedAlbums.flatMap((a) =>
+    (a.songs || [])
+      .filter((s) => !autoOrganize || splitArtists(s.artist).includes(artist))
+      .map((s, idx) => ({
+        ...s,
+        albumId: a.id,
+        songIndex: idx,
+        playCount: counts[songPlayKey(s)] || 0,
+        importTime: s.importTime || 0,
+      }))
   );
 
   // 歌曲排序：播放次数降序 → 最近导入时间降序
@@ -302,70 +315,153 @@ export default function ArtistsDetail({
       )}
 
       {/* ============================================================ */}
-      {/* ④ 专辑：一排横向卡片 + 查看全部入口                       */}
+      {/* ④ 专辑 / 合作音乐 / 现场：一排横向卡片 + 查看全部入口 */}
       {/* ============================================================ */}
-      <div style={styles.blockSection}>
-        <div style={styles.titleRow}>
-          <h2 style={styles.sectionTitle}>专辑</h2>
-          {sortedAlbums.length > 0 && (
-            <button style={styles.moreBtn} onClick={() => setSubView("albums")} title="查看全部专辑">
-              <FaChevronRight size={13} />
-            </button>
+      {!autoOrganize ? (
+        <div style={styles.blockSection}>
+          <div style={styles.titleRow}>
+            <h2 style={styles.sectionTitle}>专辑</h2>
+            {sortedAlbums.length > 0 && (
+              <button style={styles.moreBtn} onClick={() => setSubView("albums")} title="查看全部专辑">
+                <FaChevronRight size={13} />
+              </button>
+            )}
+          </div>
+          {sortedAlbums.length === 0 ? (
+            <div style={styles.emptyState}>
+              <span style={styles.emptyIcon}>📀</span>
+              <p style={styles.emptyText}>该艺人暂无专辑</p>
+            </div>
+          ) : (
+            <div style={styles.hScrollRow}>
+              {sortedAlbums.map((album) => {
+                const isActive = album.id === currentAlbumId;
+                return (
+                  <div
+                    key={album.id}
+                    className="album-card"
+                    style={{
+                      ...styles.albumCard,
+                      ...(isActive ? styles.albumCardActive : {}),
+                    }}
+                    onClick={() => onOpenAlbum && onOpenAlbum(album.id)}
+                  >
+                    <div style={styles.albumCardCoverWrapper}>
+                      <div style={styles.albumCardCoverPlaceholder}>
+                        <span style={styles.albumCardCoverIcon}>🎶</span>
+                      </div>
+                      {album.coverURL && (
+                        <img
+                          src={album.coverURL}
+                          alt={album.title}
+                          onError={(e) => { e.currentTarget.style.display = "none"; }}
+                          style={{ ...styles.albumCardCover, position: "absolute", inset: 0 }}
+                        />
+                      )}
+                      <CoverPlayButton
+                        isActive={isActive}
+                        isPlaying={isPlaying}
+                        onTogglePlay={(e) => {
+                          e.stopPropagation();
+                          onPlayAlbum && onPlayAlbum(album.id);
+                        }}
+                      />
+                      {isActive && (
+                        <div style={styles.playingBadge}>▶</div>
+                      )}
+                    </div>
+                    <p style={styles.albumCardTitle}>{album.title}</p>
+                    <p style={styles.albumCardYear}>
+                      {album.year ? `${album.year}` : "未知年份"}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
-        {sortedAlbums.length === 0 ? (
-          <div style={styles.emptyState}>
-            <span style={styles.emptyIcon}>📀</span>
-            <p style={styles.emptyText}>该艺人暂无专辑</p>
-          </div>
-        ) : (
-          <div style={styles.hScrollRow}>
-            {sortedAlbums.map((album) => {
-              const isActive = album.id === currentAlbumId;
-              return (
-                <div
-                  key={album.id}
-                  className="album-card"
-                  style={{
-                    ...styles.albumCard,
-                    ...(isActive ? styles.albumCardActive : {}),
-                  }}
-                  onClick={() => onOpenAlbum && onOpenAlbum(album.id)}
-                >
-                  <div style={styles.albumCardCoverWrapper}>
-                    <div style={styles.albumCardCoverPlaceholder}>
-                      <span style={styles.albumCardCoverIcon}>🎶</span>
+      ) : (
+        <>
+          {primaryAlbums.length > 0 && (
+            <div style={styles.blockSection}>
+              <div style={styles.titleRow}>
+                <h2 style={styles.sectionTitle}>专辑</h2>
+              </div>
+              <div style={styles.hScrollRow}>
+                {primaryAlbums.map((album) => (
+                  <div key={album.id} className="album-card" style={styles.albumCard} onClick={() => onOpenAlbum && onOpenAlbum(album.id)}>
+                    <div style={styles.albumCardCoverWrapper}>
+                      <div style={styles.albumCardCoverPlaceholder}>
+                        <span style={styles.albumCardCoverIcon}>🎶</span>
+                      </div>
+                      {album.coverURL && (
+                        <img src={album.coverURL} alt={album.title} onError={(e) => { e.currentTarget.style.display = "none"; }} style={{ ...styles.albumCardCover, position: "absolute", inset: 0 }} />
+                      )}
+                      <CoverPlayButton isActive={album.id === currentAlbumId} isPlaying={isPlaying} onTogglePlay={(e) => { e.stopPropagation(); onPlayAlbum && onPlayAlbum(album.id); }} />
                     </div>
-                    {album.coverURL && (
-                      <img
-                        src={album.coverURL}
-                        alt={album.title}
-                        onError={(e) => { e.currentTarget.style.display = "none"; }}
-                        style={{ ...styles.albumCardCover, position: "absolute", inset: 0 }}
-                      />
-                    )}
-                    <CoverPlayButton
-                      isActive={isActive}
-                      isPlaying={isPlaying}
-                      onTogglePlay={(e) => {
-                        e.stopPropagation();
-                        onPlayAlbum && onPlayAlbum(album.id);
-                      }}
-                    />
-                    {isActive && (
-                      <div style={styles.playingBadge}>▶</div>
-                    )}
+                    <p style={styles.albumCardTitle}>{album.title}</p>
+                    <p style={styles.albumCardYear}>{album.year ? `${album.year}` : "未知年份"}</p>
                   </div>
-                  <p style={styles.albumCardTitle}>{album.title}</p>
-                  <p style={styles.albumCardYear}>
-                    {album.year ? `${album.year}` : "未知年份"}
-                  </p>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {collabAlbums.length > 0 && (
+            <div style={styles.blockSection}>
+              <div style={styles.titleRow}>
+                <h2 style={styles.sectionTitle}>合作音乐</h2>
+              </div>
+              <div style={styles.hScrollRow}>
+                {collabAlbums.map((album) => (
+                  <div key={album.id} className="album-card" style={styles.albumCard} onClick={() => onOpenAlbum && onOpenAlbum(album.id)}>
+                    <div style={styles.albumCardCoverWrapper}>
+                      <div style={styles.albumCardCoverPlaceholder}>
+                        <span style={styles.albumCardCoverIcon}>🎶</span>
+                      </div>
+                      {album.coverURL && (
+                        <img src={album.coverURL} alt={album.title} onError={(e) => { e.currentTarget.style.display = "none"; }} style={{ ...styles.albumCardCover, position: "absolute", inset: 0 }} />
+                      )}
+                      <CoverPlayButton isActive={album.id === currentAlbumId} isPlaying={isPlaying} onTogglePlay={(e) => { e.stopPropagation(); onPlayAlbum && onPlayAlbum(album.id); }} />
+                    </div>
+                    <p style={styles.albumCardTitle}>{album.title}</p>
+                    <p style={styles.albumCardYear}>{album.year ? `${album.year}` : "未知年份"}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {liveAlbums.length > 0 && (
+            <div style={styles.blockSection}>
+              <div style={styles.titleRow}>
+                <h2 style={styles.sectionTitle}>现场</h2>
+              </div>
+              <div style={styles.hScrollRow}>
+                {liveAlbums.map((album) => (
+                  <div key={album.id} className="album-card" style={styles.albumCard} onClick={() => onOpenAlbum && onOpenAlbum(album.id)}>
+                    <div style={styles.albumCardCoverWrapper}>
+                      <div style={styles.albumCardCoverPlaceholder}>
+                        <span style={styles.albumCardCoverIcon}>🎶</span>
+                      </div>
+                      {album.coverURL && (
+                        <img src={album.coverURL} alt={album.title} onError={(e) => { e.currentTarget.style.display = "none"; }} style={{ ...styles.albumCardCover, position: "absolute", inset: 0 }} />
+                      )}
+                      <CoverPlayButton isActive={album.id === currentAlbumId} isPlaying={isPlaying} onTogglePlay={(e) => { e.stopPropagation(); onPlayAlbum && onPlayAlbum(album.id); }} />
+                    </div>
+                    <p style={styles.albumCardTitle}>{album.title}</p>
+                    <p style={styles.albumCardYear}>{album.year ? `${album.year}` : "未知年份"}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {primaryAlbums.length === 0 && collabAlbums.length === 0 && liveAlbums.length === 0 && (
+            <div style={styles.emptyState}>
+              <span style={styles.emptyIcon}>📀</span>
+              <p style={styles.emptyText}>该艺人暂无专辑</p>
+            </div>
+          )}
+        </>
+      )}
 
       {/* ============================================================ */}
       {/* ⑤ 底部：艺人简介（仅在有内容时显示）                       */}

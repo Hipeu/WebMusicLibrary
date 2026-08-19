@@ -2,14 +2,15 @@ import { startTransition, useState, useRef, useEffect } from "react";
 import { FaChevronDown, FaList, FaMusic, FaHeart, FaRegHeart, FaEllipsisH, FaInfoCircle, FaPlus, FaCompactDisc, FaUser, FaRedo, FaRandom, FaExclamationCircle } from "react-icons/fa";
 import Lyrics from "./Lyrics";
 import { parseLRC } from "../utils/LyricsParser";
-import { getLyrics as fetchLyrics } from "../services/api";
-import { songPlayable } from "../utils/formatCheck";
+import { getLyrics as fetchLyrics, fetchCoverProxy } from "../services/api";
+import { songPlayable, isPlaceholderPublisher } from "../utils/formatCheck";
 import { incrementPlayCount } from "../utils/playCount";
 import PlayerControls from "./PlayerControls";
 import useCoverColor from "./CoverColor";
 
 const lyricsCache = new Map();
 const lyricsRequests = new Map();
+const artworkObjectUrls = new Map();
 
 function getCachedLyrics(filePath) {
   if (!filePath) return Promise.resolve({ lyrics: null });
@@ -242,6 +243,7 @@ export default function MusicPlayer({
   function handleLoadedMetadata() {
     if (audioRef.current) {
       setDuration(audioRef.current.duration);
+      updateMediaPosition();
     }
     // 编辑导致换路径的无缝续播：恢复播放位置并保持原播放/暂停状态
     if (restoreStateRef.current && audioRef.current) {
@@ -261,6 +263,7 @@ export default function MusicPlayer({
   function handleTimeUpdate() {
     if (audioRef.current) {
       setCurrentTime(audioRef.current.currentTime);
+      updateMediaPosition();
     }
   }
 
@@ -363,7 +366,103 @@ export default function MusicPlayer({
         })
       );
     }
-  }, [currentAlbumId, currentPlaylistId, currentSongIndex, currentSong?.url]);
+}, [currentAlbumId, currentPlaylistId, currentSongIndex, currentSong?.url]);
+
+  // ===== Media Session（Chrome 系统媒体控制部件） =====
+  const mediaHandlersRef = useRef({ togglePlay, prevTrack, nextTrack, isPlaying });
+  mediaHandlersRef.current = { togglePlay, prevTrack, nextTrack, isPlaying };
+
+  // 更新系统媒体元数据（标题/艺人/专辑/封面）
+  useEffect(() => {
+    if (!("mediaSession" in navigator)) return;
+    if (!currentSong) return;
+    const songTitle = currentSong.title || "未知标题";
+    const songArtist = currentSong.artist || displayAlbum?.artist || "未知艺人";
+    const songAlbum = displayAlbum?.title || currentSong.album || "";
+    const coverUrl = currentSong?.coverURL || displayAlbum?.coverURL || null;
+
+    let active = true;
+    const applyMetadata = (src) => {
+      if (!active) return;
+      try {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: songTitle,
+          artist: songArtist,
+          album: songAlbum,
+          ...(src ? { artwork: [{ src, sizes: "512x512" }] } : {}),
+        });
+      } catch {
+        // 忽略元数据设置失败
+      }
+    };
+
+    if (!coverUrl) {
+      applyMetadata(null);
+      return () => { active = false; };
+    }
+    const isLocal = /(127\.0\.0\.1|localhost)/.test(coverUrl);
+    if (isLocal) {
+      applyMetadata(coverUrl);
+      return () => { active = false; };
+    }
+    // 外链封面：经同源代理转 blob → objectURL（缓存复用）
+    if (artworkObjectUrls.has(coverUrl)) {
+      applyMetadata(artworkObjectUrls.get(coverUrl));
+      return () => { active = false; };
+    }
+    fetchCoverProxy(coverUrl)
+      .then((blob) => {
+        if (!blob) { if (active) applyMetadata(coverUrl); return; }
+        const objectUrl = URL.createObjectURL(blob);
+        artworkObjectUrls.set(coverUrl, objectUrl);
+        if (active) applyMetadata(objectUrl);
+      })
+      .catch(() => { if (active) applyMetadata(coverUrl); });
+    return () => { active = false; };
+  }, [currentSong?.url, currentSong?.coverURL, displayAlbum?.coverURL, displayAlbum?.title, currentSong?.title, currentSong?.artist, currentSong?.album]);
+
+  // 注册系统媒体控制操作（挂载一次，通过 ref 取最新 handler）
+  useEffect(() => {
+    if (!("mediaSession" in navigator)) return;
+    const ms = navigator.mediaSession;
+    ms.setActionHandler("play", () => { if (!mediaHandlersRef.current.isPlaying) mediaHandlersRef.current.togglePlay(); });
+    ms.setActionHandler("pause", () => { if (mediaHandlersRef.current.isPlaying) mediaHandlersRef.current.togglePlay(); });
+    ms.setActionHandler("previoustrack", () => mediaHandlersRef.current.prevTrack());
+    ms.setActionHandler("nexttrack", () => mediaHandlersRef.current.nextTrack());
+    ms.setActionHandler("seekto", (details) => {
+      if (audioRef.current && details.seekTime != null) audioRef.current.currentTime = details.seekTime;
+    });
+    return () => {
+      ms.setActionHandler("play", null);
+      ms.setActionHandler("pause", null);
+      ms.setActionHandler("previoustrack", null);
+      ms.setActionHandler("nexttrack", null);
+      ms.setActionHandler("seekto", null);
+    };
+  }, []);
+
+  // 同步系统播放状态
+  useEffect(() => {
+    if (!("mediaSession" in navigator)) return;
+    navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
+  }, [isPlaying]);
+
+  // 同步系统媒体进度（positionState）
+  function updateMediaPosition() {
+    if (!("mediaSession" in navigator)) return;
+    if (!audioRef.current) return;
+    const d = audioRef.current.duration;
+    if (!Number.isFinite(d) || d <= 0) return;
+    try {
+      navigator.mediaSession.setPositionState({
+        duration: d,
+        playbackRate: 1,
+        position: audioRef.current.currentTime,
+      });
+    } catch {
+      // 忽略
+    }
+  }
 
   // 自动加载歌词：优先后端备份，否则直接解析音乐文件内嵌歌词
   useEffect(() => {
@@ -820,7 +919,7 @@ export default function MusicPlayer({
                                             {(() => {
                                               const pub = currentSong.publisher || displayAlbum?.publisher;
                                               // 发布者仅 ℗ 年份 前缀（无真实名）视为无信息，不显示
-                                              const isJustPrefix = pub && /^℗\s*\d{4}\s*$/.test(String(pub).trim());
+                                              const isJustPrefix = pub && isPlaceholderPublisher(pub);
                                               return pub && !isJustPrefix ? (
                                                 <div style={styles.infoRow}>
                                                   <span style={styles.infoLabel}>发布者</span>

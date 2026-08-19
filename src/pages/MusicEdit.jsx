@@ -1,15 +1,17 @@
-import { startTransition, useState, useEffect, useRef } from "react";
-import { FaImage, FaMusic, FaPlus, FaClock, FaCodeBranch, FaCalendarAlt, FaLink } from "react-icons/fa";
+import { startTransition, useState, useEffect, useMemo, useRef } from "react";
+import { FaImage, FaMusic, FaPlus, FaClock, FaCodeBranch, FaCalendarAlt, FaLink, FaChevronDown } from "react-icons/fa";
 import { matchSong, updateMusicMetadata } from "../services/api";
 import LyricImport from "../components/LyricImport";
 import MatchResultPicker from "../components/MatchResultPicker";
 import AlbumMatchPicker from "../components/AlbumMatchPicker";
+import SuggestionDropdown from "../components/SuggestionDropdown";
+import { splitArtists } from "../utils/artistSplit";
 
 /* ================================================================
    ✏️ MusicEdit — 编辑音乐元信息弹窗
    右上角「匹配」：歌曲匹配填入表单 / 专辑匹配逐首写回
    ================================================================ */
-export default function MusicEdit({ target, onClose, onSave, onRefresh, onAlbumMatchProgress, onAlbumMatchSaved, onMatchError }) {
+export default function MusicEdit({ target, onClose, onSave, onRefresh, onAlbumMatchProgress, onAlbumMatchSaved, onMatchError, onBackgroundAlbumMatch, albums, artistRecords }) {
   const [form, setForm] = useState({});
   const [editCover, setEditCover] = useState(null);
   const [editCoverFile, setEditCoverFile] = useState(null);
@@ -23,6 +25,10 @@ export default function MusicEdit({ target, onClose, onSave, onRefresh, onAlbumM
   const [showAlbumPicker, setShowAlbumPicker] = useState(false);
   const [lyricImportOpen, setLyricImportOpen] = useState(false);
   const coverInputRef = useRef(null);
+  const artistInputRef = useRef(null);
+  const albumArtistInputRef = useRef(null);
+  const genreInputRef = useRef(null);
+  const [openField, setOpenField] = useState(null); // 'artist' | 'album_artist' | 'genre' | null
   const isAlbum = target?.type === "album";
   const data = target?.data;
   // 匹配状态：专辑 = 任一首已匹配；歌曲 = 自身已匹配
@@ -34,6 +40,22 @@ export default function MusicEdit({ target, onClose, onSave, onRefresh, onAlbumM
   const matchSourceDisplay = isAlbum
     ? Array.from(new Set((data?.songs || []).map((s) => s.match_source).filter(Boolean))).map(matchSourceLabel).join(" / ")
     : matchSourceLabel(data?.match_source);
+
+  // 自动补全候选：全量艺人（拆分合作艺人）与全量流派（资料库现有流派）
+  const allArtists = useMemo(() => {
+    const set = new Set();
+    (albums || []).forEach((a) => {
+      splitArtists(a.artist).forEach((n) => set.add(n));
+      (a.songs || []).forEach((s) => splitArtists(s.artist).forEach((n) => set.add(n)));
+    });
+    Object.keys(artistRecords || {}).forEach((n) => set.add(n));
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "zh-CN"));
+  }, [albums, artistRecords]);
+  const allGenres = useMemo(() => {
+    const set = new Set();
+    (albums || []).forEach((a) => (a.songs || []).forEach((s) => { if (s.genre) set.add(s.genre); }));
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "zh-CN"));
+  }, [albums]);
 
   useEffect(() => {
     if (!target) return;
@@ -108,71 +130,12 @@ export default function MusicEdit({ target, onClose, onSave, onRefresh, onAlbumM
     try {
       const config = buildMatchConfig();
       if (isAlbum) {
-        // 专辑：逐首匹配并直接写回（仅填空缺），完成后刷新；独立进度通知
-        const songs = data.songs || [];
-        let doneCount = 0;
-        let okCount = 0;
-        let skipCount = 0;
-        onAlbumMatchProgress?.({ status: "start", total: songs.length });
-        for (const song of songs) {
-          if (song.file_path) {
-            const selectedSources = selectedAlbum?.source
-              ? { qq: selectedAlbum.source === "qq", netease: selectedAlbum.source === "netease", itunes: selectedAlbum.source === "itunes", musicbrainz: false }
-              : config.sources;
-            const res = await matchSong({ song_name: song.title, artist_name: song.artist, file_path: song.file_path || "", ...config, sources: selectedSources });
-            if (res && !res.error) {
-              // 仅填空缺：源匹配其余字段，LRC 保底只补 作曲/作词/发布者，已有值不覆盖
-              const payload = {};
-              if (!song.composer && res.composers?.length) payload.composer = res.composers.join(", ");
-              if (!song.lyricist && res.lyricists?.length) payload.lyricist = res.lyricists.join(", ");
-              if (selectedAlbum?.album) payload.album = selectedAlbum.album;
-              else if (!song.album && res.album) payload.album = res.album;
-              if (selectedAlbum?.album_artist) {
-                payload.artist = selectedAlbum.album_artist;
-                payload.album_artist = selectedAlbum.album_artist;
-              } else if (!song.album_artist && res.album_artist) payload.album_artist = res.album_artist;
-              if (selectedAlbum?.year) payload.year = selectedAlbum.year;
-              else if (!song.year && res.year) payload.year = res.year;
-              if (selectedAlbum?.genre) payload.genre = selectedAlbum.genre;
-              else if (!song.genre && res.genre) payload.genre = res.genre;
-              if (song.trackNo == null && res.trackNo != null) payload.trackNo = res.trackNo;
-              if (song.discNo == null && res.discNo != null) payload.discNo = res.discNo;
-              if (!song.publisher && res.publisher) payload.publisher = res.publisher;
-              if (!song.arranger && res.arranger) payload.arranger = res.arranger;
-              if (!song.producer && res.producer) payload.producer = res.producer;
-              if (!song.lyrics && res.lyric) payload.lyrics = res.lyric;
-              const saveRes = await updateMusicMetadata({
-                file_path: song.file_path,
-                ...payload,
-                matched: "1",
-                match_source: res.source,
-              });
-              if (saveRes?.status === "ok") okCount++;
-              else skipCount++;
-              if (saveRes?.status === "ok") {
-                onAlbumMatchSaved?.(target.data?.id, song, {
-                  ...saveRes.song,
-                  matched: true,
-                  match_source: res.source || null,
-                });
-              }
-            } else {
-              skipCount++;
-            }
-          } else {
-            skipCount++;
-          }
-          doneCount++;
-          onAlbumMatchProgress?.({ status: "update", done: doneCount, total: songs.length });
-          setMatchMsg(`正在匹配 ${doneCount}/${songs.length}`);
-        }
-        setAlbumDidMatch(true);
-        const doneMessage = skipCount > 0
-          ? `匹配成功 ${okCount} 首，跳过 ${skipCount} 首`
-          : `匹配成功 ${okCount} 首`;
-        onAlbumMatchProgress?.({ status: "done", done: doneCount, total: songs.length, message: doneMessage, skipped: skipCount });
-        await onRefresh?.({ replace: true });
-        setMatchMsg("专辑匹配完成，已写回音乐文件");
+        // 专辑：交由后台任务逐首匹配写回（用户可关闭编辑器自由浏览），这里发起后立即关闭
+        onBackgroundAlbumMatch?.(data, {
+          config,
+          selectedAlbum,
+        });
+        onClose?.();
       } else {
         // 歌曲：匹配并填入表单（只填当前为空的字段）
         const res = await matchSong({
@@ -352,13 +315,19 @@ export default function MusicEdit({ target, onClose, onSave, onRefresh, onAlbumM
               </div>
               <div style={styles.field}>
                 <label style={styles.label}>艺人</label>
-                <input style={styles.input} value={form.artist || ""} onChange={(e) => handleChange("artist", e.target.value)} />
+                <div style={styles.inputWithArrow}>
+                  <input ref={artistInputRef} style={{ ...styles.input, flex: 1, minWidth: 0 }} value={form.artist || ""} onChange={(e) => handleChange("artist", e.target.value)} />
+                  <button type="button" style={styles.inputArrowBtn} onClick={() => setOpenField(openField === "artist" ? null : "artist")} title="选择艺人"><FaChevronDown size={12} /></button>
+                </div>
               </div>
               {isAlbum ? (
                 <>
                   <div style={styles.field}>
                     <label style={styles.label}>专辑艺人</label>
-                    <input style={styles.input} value={form.album_artist ?? ""} onChange={(e) => handleChange("album_artist", e.target.value)} />
+                    <div style={styles.inputWithArrow}>
+                      <input ref={albumArtistInputRef} style={{ ...styles.input, flex: 1, minWidth: 0 }} value={form.album_artist ?? ""} onChange={(e) => handleChange("album_artist", e.target.value)} />
+                      <button type="button" style={styles.inputArrowBtn} onClick={() => setOpenField(openField === "album_artist" ? null : "album_artist")} title="选择专辑艺人"><FaChevronDown size={12} /></button>
+                    </div>
                   </div>
                   <div style={styles.field}>
                     <label style={styles.label}>年份</label>
@@ -366,7 +335,10 @@ export default function MusicEdit({ target, onClose, onSave, onRefresh, onAlbumM
                   </div>
                   <div style={styles.field}>
                     <label style={styles.label}>流派</label>
-                    <input style={styles.input} value={form.genre || ""} onChange={(e) => handleChange("genre", e.target.value)} />
+                    <div style={styles.inputWithArrow}>
+                      <input ref={genreInputRef} style={{ ...styles.input, flex: 1, minWidth: 0 }} value={form.genre || ""} onChange={(e) => handleChange("genre", e.target.value)} />
+                      <button type="button" style={styles.inputArrowBtn} onClick={() => setOpenField(openField === "genre" ? null : "genre")} title="选择流派"><FaChevronDown size={12} /></button>
+                    </div>
                   </div>
                   <div style={styles.field}>
                     <label style={styles.label}>发布者</label>
@@ -381,7 +353,10 @@ export default function MusicEdit({ target, onClose, onSave, onRefresh, onAlbumM
                   </div>
                   <div style={styles.field}>
                     <label style={styles.label}>专辑艺人</label>
-                    <input style={styles.input} value={form.album_artist ?? ""} onChange={(e) => handleChange("album_artist", e.target.value)} />
+                    <div style={styles.inputWithArrow}>
+                      <input ref={albumArtistInputRef} style={{ ...styles.input, flex: 1, minWidth: 0 }} value={form.album_artist ?? ""} onChange={(e) => handleChange("album_artist", e.target.value)} />
+                      <button type="button" style={styles.inputArrowBtn} onClick={() => setOpenField(openField === "album_artist" ? null : "album_artist")} title="选择专辑艺人"><FaChevronDown size={12} /></button>
+                    </div>
                   </div>
                   <div style={styles.field}>
                     <label style={styles.label}>年份</label>
@@ -389,7 +364,10 @@ export default function MusicEdit({ target, onClose, onSave, onRefresh, onAlbumM
                   </div>
                   <div style={styles.field}>
                     <label style={styles.label}>流派</label>
-                    <input style={styles.input} value={form.genre || ""} onChange={(e) => handleChange("genre", e.target.value)} />
+                    <div style={styles.inputWithArrow}>
+                      <input ref={genreInputRef} style={{ ...styles.input, flex: 1, minWidth: 0 }} value={form.genre || ""} onChange={(e) => handleChange("genre", e.target.value)} />
+                      <button type="button" style={styles.inputArrowBtn} onClick={() => setOpenField(openField === "genre" ? null : "genre")} title="选择流派"><FaChevronDown size={12} /></button>
+                    </div>
                   </div>
                   <div style={styles.fieldRow}>
                     <div style={styles.field}>
@@ -583,6 +561,35 @@ export default function MusicEdit({ target, onClose, onSave, onRefresh, onAlbumM
             onClose={() => setShowAlbumPicker(false)}
           />
         )}
+
+        {/* 自动补全下拉（向上弹出） */}
+        {openField === "artist" && (
+          <SuggestionDropdown
+            anchorRef={artistInputRef}
+            items={allArtists}
+            value={form.artist || ""}
+            onPick={(v) => handleChange("artist", v)}
+            onClose={() => setOpenField(null)}
+          />
+        )}
+        {openField === "album_artist" && (
+          <SuggestionDropdown
+            anchorRef={albumArtistInputRef}
+            items={allArtists}
+            value={form.album_artist || ""}
+            onPick={(v) => handleChange("album_artist", v)}
+            onClose={() => setOpenField(null)}
+          />
+        )}
+        {openField === "genre" && (
+          <SuggestionDropdown
+            anchorRef={genreInputRef}
+            items={allGenres}
+            value={form.genre || ""}
+            onPick={(v) => handleChange("genre", v)}
+            onClose={() => setOpenField(null)}
+          />
+        )}
       </div>
     </div>
   );
@@ -721,6 +728,17 @@ const styles = {
     padding: "8px 10px", borderRadius: "6px", border: "1px solid #e5e7eb",
     fontSize: "13px", color: "#1f2937", background: "#f9fafb",
     outline: "none", fontFamily: "inherit",
+  },
+  inputWithArrow: {
+    display: "flex", alignItems: "center", gap: "6px", position: "relative",
+  },
+  inputArrowBtn: {
+    flexShrink: 0,
+    width: "26px", height: "26px", borderRadius: "6px",
+    border: "1px solid #e5e7eb", background: "#fff",
+    color: "#6b7280", cursor: "pointer", display: "flex",
+    alignItems: "center", justifyContent: "center",
+    fontFamily: "inherit",
   },
 
   /* 封面标签 */
