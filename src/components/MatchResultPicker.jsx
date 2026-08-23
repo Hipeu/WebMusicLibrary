@@ -154,7 +154,6 @@ export default function MatchResultPicker({ song_name, artist_name, file_path, o
                   {r.cover_url ? (
                     <img src={r.cover_url} alt="" style={styles.coverImg} onError={(e) => { e.currentTarget.style.display = "none"; }} />
                   ) : null}
-                  <span style={styles.coverPlaceholder}>🎵</span>
                 </div>
                 {/* 右侧信息 */}
                 <div style={styles.cardMain}>
@@ -332,12 +331,8 @@ const styles = {
     inset: 0,
     width: "100%",
     height: "100%",
-    objectFit: "cover",
+    objectFit: "contain",
     display: "block",
-  },
-  coverPlaceholder: {
-    fontSize: "20px",
-    opacity: 0.5,
   },
   cardMain: {
     flex: 1,

@@ -15,18 +15,49 @@ DEFAULT_LIBRARY = os.path.join(os.path.expanduser("~"), "Music", "Music_Library"
 _migration = {"running": False, "done": 0, "total": 0, "error": None}
 
 
+def _load_config():
+    """读取统一配置；损坏或不存在时返回空配置。"""
+    try:
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_config(config):
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(config, f, ensure_ascii=False, indent=2)
+
+
 def get_library_path():
     """返回当前资料库路径（读 data/config.json，缺省用默认路径）"""
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                cfg = json.load(f)
-            p = cfg.get("music_library")
-            if p and os.path.isabs(p):
-                return p
-        except Exception:
-            pass
+    cfg = _load_config()
+    p = cfg.get("music_library")
+    if p and os.path.isabs(p):
+        return p
     return DEFAULT_LIBRARY
+
+
+def get_app_settings():
+    """返回跨浏览器同步的应用设置；主题等本地偏好不在此处保存。"""
+    settings = _load_config().get("app_settings", {})
+    return settings if isinstance(settings, dict) else {}
+
+
+def save_app_settings(settings):
+    """合并保存应用设置，保留资料库路径和未涉及字段。"""
+    if not isinstance(settings, dict):
+        return False
+    config = _load_config()
+    current = config.get("app_settings", {})
+    if not isinstance(current, dict):
+        current = {}
+    current.update({k: v for k, v in settings.items() if isinstance(k, str)})
+    config["app_settings"] = current
+    _save_config(config)
+    return True
 
 
 def _count_items(path):
@@ -66,9 +97,9 @@ def _migrate_library_worker(old_path, new_path):
                 done += 1
                 _migration["done"] = done
         # 写配置
-        os.makedirs(DATA_DIR, exist_ok=True)
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump({"music_library": new_path}, f, ensure_ascii=False, indent=2)
+        config = _load_config()
+        config["music_library"] = new_path
+        _save_config(config)
         _migration.update(running=False, done=_migration["done"], total=_migration["total"], error=None)
     except Exception as e:
         _migration.update(running=False, error=str(e))

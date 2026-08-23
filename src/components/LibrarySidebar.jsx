@@ -4,7 +4,6 @@ import {
   FaCompactDisc,
   FaUser,
   FaListUl,
-  FaPlus,
   FaHeart,
   FaHeadphones,
   FaFolder,
@@ -20,7 +19,6 @@ export default function Sidebar({
   activeNav,
   onNavChange,
   playlists,
-  onCreatePlaylist,
   onOpenPlaylistMenu,
   onRenamePlaylist,
   filterText,
@@ -28,14 +26,6 @@ export default function Sidebar({
 }) {
   const [editingPlaylist, setEditingPlaylist] = useState(null);
   const [editName, setEditName] = useState("");
-
-  // ---------- 新建播放列表 ----------
-  function handleCreatePlaylist() {
-    const newId = "pl_" + Date.now();
-    onCreatePlaylist(newId);
-    setEditingPlaylist(newId);
-    setEditName("新建播放列表");
-  }
 
   // ---------- 确认重命名 ----------
   function handleRenameConfirm(id) {
@@ -120,7 +110,8 @@ export default function Sidebar({
           </span>
         </div>
 
-        {playlists.map((pl) => (
+        {/* 系统播放列表固定显示；只有显式置顶的自定义播放列表才显示在分割线下。 */}
+        {playlists.filter((pl) => pl.id === "liked" || pl.id === "recent").map((pl) => (
           <>
             <div
               key={pl.id}
@@ -184,8 +175,29 @@ export default function Sidebar({
               </span>
             )}
           </div>
-          {pl.id === "recent" && <div style={styles.sectionDivider} />}
           </>
+        ))}
+
+        <div style={styles.sectionDivider} />
+
+        {playlists.filter((pl) => pl.id !== "liked" && pl.id !== "recent" && pl.pinned).map((pl) => (
+          <div
+            key={pl.id}
+            className="sidebar-item"
+            style={{ ...styles.item, ...(activeNav === pl.id ? styles.itemActive : {}) }}
+            onClick={() => onNavChange(pl.id)}
+          >
+            <span style={{ ...styles.playlistThumb, ...(activeNav === pl.id ? styles.playlistThumbActive : {}) }}>
+              {playlistIcon(pl.id)}
+              {pl.coverURL && <img src={pl.coverURL} alt="" onError={(e) => { e.currentTarget.style.display = "none"; }} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", display: "block" }} />}
+            </span>
+            {editingPlaylist === pl.id ? (
+              <input style={styles.editInput} value={editName} onChange={(e) => setEditName(e.target.value)} onBlur={() => handleRenameConfirm(pl.id)} onKeyDown={(e) => { if (e.key === "Enter") handleRenameConfirm(pl.id); if (e.key === "Escape") setEditingPlaylist(null); }} autoFocus onClick={(e) => e.stopPropagation()} />
+            ) : (
+              <span style={{ ...styles.label, ...(activeNav === pl.id ? styles.labelActive : {}), flex: 1 }}>{pl.name}</span>
+            )}
+            <span className="sidebar-more-btn" style={styles.moreBtn} onClick={(e) => onOpenPlaylistMenu?.(e, pl)} title="更多操作">···</span>
+          </div>
         ))}
 
       </div>

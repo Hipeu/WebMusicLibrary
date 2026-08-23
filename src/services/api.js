@@ -129,6 +129,50 @@ export async function getResetProgress() {
   return res.json();
 }
 
+/** 启动资料库 ZIP 导出任务。 */
+export async function startDataExport(types) {
+  const res = await fetch(`${BASE_URL}/api/data/export`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ types }),
+  });
+  return res.json();
+}
+
+/** 获取导入/导出任务进度。 */
+export async function getDataJob(jobId) {
+  const res = await fetch(`${BASE_URL}/api/data/jobs/${encodeURIComponent(jobId)}`);
+  return res.json();
+}
+
+/** 上传 ZIP 备份并启动导入任务。 */
+export async function inspectDataImport(file) {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`${BASE_URL}/api/data/import/inspect`, { method: "POST", body: form });
+  return res.json();
+}
+
+/** 以预检令牌启动选择性导入任务。 */
+export async function startDataImport(token, mode, keepBackup, types) {
+  const form = new FormData();
+  form.append("token", token);
+  form.append("mode", mode);
+  form.append("keep_backup", keepBackup ? "true" : "false");
+  form.append("types", JSON.stringify(types));
+  const res = await fetch(`${BASE_URL}/api/data/import`, { method: "POST", body: form });
+  return res.json();
+}
+
+export async function cancelDataJob(jobId) {
+  const res = await fetch(`${BASE_URL}/api/data/jobs/${encodeURIComponent(jobId)}/cancel`, { method: "POST" });
+  return res.json();
+}
+
+export function getDataExportDownloadUrl(jobId) {
+  return `${BASE_URL}/api/data/export/${encodeURIComponent(jobId)}/download`;
+}
+
 /** 获取设置（资料库路径等） */
 export async function getSettings() {
   const res = await fetch(`${BASE_URL}/api/settings`);
@@ -141,6 +185,16 @@ export async function saveSettings(libraryPath) {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ library_path: libraryPath }),
+  });
+  return res.json();
+}
+
+/** 保存跨浏览器同步的应用设置（主题等浏览器偏好除外） */
+export async function saveAppSettings(settings) {
+  const res = await fetch(`${BASE_URL}/api/settings`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ app_settings: settings }),
   });
   return res.json();
 }
@@ -328,8 +382,15 @@ export default {
   savePlaylists,
   resetAll,
   getResetProgress,
+  startDataExport,
+  getDataJob,
+  startDataImport,
+  inspectDataImport,
+  cancelDataJob,
+  getDataExportDownloadUrl,
   getSettings,
   saveSettings,
+  saveAppSettings,
   getMigrationStatus,
   getArtists,
   saveArtist,

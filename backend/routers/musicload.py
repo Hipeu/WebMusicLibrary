@@ -463,7 +463,43 @@ def list_music():
                         "match_source": meta.get("match_source"),
                     })
 
-    # 3. 组装结果
+    # 3. 同步仅有资料信息的专辑。导入“专辑信息”而不导入音乐文件时，
+    #    metadata / picture 仍应在资料库中形成可查看的专辑。
+    if os.path.isdir(METADATA_DIR):
+        for artist_dir in sorted(os.listdir(METADATA_DIR)):
+            artist_path = os.path.join(METADATA_DIR, artist_dir)
+            if not os.path.isdir(artist_path):
+                continue
+            for album_dir in sorted(os.listdir(artist_path)):
+                album_path = os.path.join(artist_path, album_dir)
+                if not os.path.isdir(album_path):
+                    continue
+
+                canonical_artist, canonical_album = artist_dir, album_dir
+                # 歌曲元信息保留原始名称，优先用它避免文件夹名被清理后的显示差异。
+                for metadata_file in sorted(os.listdir(album_path)):
+                    if not metadata_file.lower().endswith(".json") or metadata_file == "album.json":
+                        continue
+                    try:
+                        with open(os.path.join(album_path, metadata_file), "r", encoding="utf-8") as mf:
+                            metadata = json.load(mf)
+                        canonical_artist = metadata.get("album_artist") or metadata.get("artist") or canonical_artist
+                        canonical_album = metadata.get("album") or canonical_album
+                        break
+                    except Exception:
+                        continue
+
+                g = ensure_group(canonical_artist, canonical_album)
+                description = read_album_description(album_path)
+                if description is not None and g["description"] is None:
+                    g["description"] = description
+                if not g["cover_url"]:
+                    cover = find_cover_in_dir(os.path.join(PICTURE_DIR, artist_dir, album_dir))
+                    if cover:
+                        g["cover_url"] = f"/data/picture/{artist_dir}/{album_dir}/{cover}"
+                g["import_time"] = max(g.get("import_time", 0), int(os.path.getmtime(album_path) * 1000))
+
+    # 4. 组装结果
     result = []
     for artist, albums_map in sorted(groups.items()):
         albums_list = []
@@ -474,6 +510,7 @@ def list_music():
                 "songs": data["songs"],
                 "cover_url": data["cover_url"],
                 "description": data.get("description"),
+                "import_time": data.get("import_time"),
             })
         result.append({"artist": artist, "albums": albums_list})
 

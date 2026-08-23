@@ -1,18 +1,22 @@
-import { useState } from "react";
-import { FaPlay, FaPause, FaArrowLeft, FaEdit, FaEllipsisH, FaHeart, FaPlus, FaStepForward, FaClock, FaCompactDisc, FaUser, FaTrash, FaInfoCircle, FaTimes, FaMusic, FaExclamationCircle } from "react-icons/fa";
+import { useEffect, useRef, useState } from "react";
+import { FaPlay, FaPause, FaArrowLeft, FaEdit, FaEllipsisH, FaHeart, FaPlus, FaStepForward, FaClock, FaCompactDisc, FaUser, FaTrash, FaInfoCircle, FaTimes, FaMusic, FaExclamationCircle, FaSearch, FaSort } from "react-icons/fa";
 import PlayingAnimation from "../components/PlayingAnimation";
 import { songPlayable } from "../utils/formatCheck";
+import useCoverColor from "../components/CoverColor";
 
 /* ================================================================
    📋 PlaylistDetail — 播放列表详情页
    布局与 AlbumDetail 一致：
    - 播放全部按钮旁有「编辑」按钮（点击打开编辑弹窗，liked/recent 不显示）
+   - liked/recent 封面使用首歌封面 + 取色覆盖 + 右下角标题
+   - 歌曲列表支持搜索（按标题）
    ================================================================ */
 export default function PlaylistDetail({
   playlist,
   playlists,
   setPlaylists,
   onEditPlaylist,
+  onDeletePlaylist,
   currentSongIndex,
   isPlaying,
   onPlayAll,
@@ -20,6 +24,7 @@ export default function PlaylistDetail({
   onBack,
   onPlayNext,
   onPlayLater,
+  onOpenAlbum,
   onOpenArtist,
   onRemoveFromPlaylist,
   onDeleteSong,
@@ -30,11 +35,73 @@ export default function PlaylistDetail({
   const [menuSongIdx, setMenuSongIdx] = useState(null);
   const [panelSong, setPanelSong] = useState(null);
   const [panelSearch, setPanelSearch] = useState("");
-
-  if (!playlist) return null;
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchText, setSearchText] = useState("");
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [playlistActionOpen, setPlaylistActionOpen] = useState(false);
+  const [filterMode, setFilterMode] = useState(null); // null | "name" | "artist" | "year" | "added"
+  const [filterDir, setFilterDir] = useState("asc"); // "asc" | "desc"
+  const searchInputRef = useRef(null);
 
   // ---------- 获取播放列表的歌曲 ----------
-  const songs = playlist.songs || [];
+  const songs = playlist?.songs || [];
+
+  // 封面：优先 playlist.coverURL，否则用第一首歌封面
+  const firstSongCover = songs[0]?.coverURL || null;
+  const coverSrc = playlist?.coverURL || firstSongCover || null;
+  // liked/recent 始终启用封面样式；其他播放列表由 coverStyle 开关控制
+  const coverStyleEnabled = playlist?.id === "liked" || playlist?.id === "recent" || !!playlist?.coverStyle;
+  const palette = useCoverColor(coverSrc || null);
+  const themeSwatch = palette?.Vibrant || palette?.Muted || palette?.DarkVibrant || palette?.LightVibrant || null;
+  const themeColor = themeSwatch ? themeSwatch.hex : null;
+  const coverGlowStyle = themeColor ? { background: themeColor, filter: "blur(60px)" } : {};
+
+  // 保留原始索引，避免搜索或排序后按展示索引播放到错误歌曲。
+  // “我喜欢”默认按最新喜欢排序，其余播放列表默认保持添加顺序。
+  const sortedSongs = (() => {
+    const arr = songs.map((song, sourceIndex) => ({ song, sourceIndex }));
+    if (!filterMode) return playlist?.id === "liked" ? arr.reverse() : arr;
+    const dir = filterDir === "asc" ? 1 : -1;
+    if (filterMode === "added") {
+      // 添加顺序：正序 = 原顺序，倒序 = 逆序
+      return dir === 1 ? arr : arr.reverse();
+    }
+    arr.sort((a, b) => {
+      let cmp = 0;
+      if (filterMode === "name") cmp = (a.song.title || "").localeCompare(b.song.title || "", "zh-CN");
+      else if (filterMode === "artist") cmp = (a.song.artist || "").localeCompare(b.song.artist || "", "zh-CN");
+      else if (filterMode === "year") cmp = ((a.song.year || 0) - (b.song.year || 0));
+      return cmp * dir;
+    });
+    return arr;
+  })();
+
+  // 搜索：先按排序规则排列，再按标题过滤
+  const filteredSongs = searchText.trim()
+    ? sortedSongs.filter(({ song }) => (song.title || "").toLowerCase().includes(searchText.trim().toLowerCase()))
+    : sortedSongs;
+
+  function handleFilterPick(mode) {
+    if (filterMode === mode) {
+      setFilterDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setFilterMode(mode);
+      setFilterDir("asc");
+    }
+  }
+  const filterArrow = (mode) => (filterMode === mode ? (filterDir === "asc" ? " ↑" : " ↓") : "");
+
+  // 搜索框：无输入内容离开收起；有输入内容不收起
+  function handleSearchBlur() {
+    if (!searchText.trim()) {
+      setSearchOpen(false);
+    }
+  }
+  useEffect(() => {
+    if (searchOpen) searchInputRef.current?.focus();
+  }, [searchOpen]);
+
+  if (!playlist) return null;
 
   return (
     <div style={styles.container} className="playlist-detail-page">
@@ -46,19 +113,28 @@ export default function PlaylistDetail({
       <div style={styles.topSection}>
         {/* 左：封面（独立） */}
         <div style={styles.coverColumn}>
+          {themeColor && coverStyleEnabled && <div style={{ ...styles.coverGlowLayer, ...coverGlowStyle }} />}
           <div style={styles.coverWrapper}>
             <div style={styles.coverPlaceholder}>
               <span style={styles.coverPlaceholderIcon}>
                 {playlist.id === "liked" ? "❤️" : playlist.id === "recent" ? "🕐" : "📋"}
               </span>
             </div>
-            {playlist.coverURL && (
+            {coverSrc && (
               <img
-                src={playlist.coverURL}
+                src={coverSrc}
                 alt={playlist.name}
                 onError={(e) => { e.currentTarget.style.display = "none"; }}
                 style={{ ...styles.cover, position: "absolute", inset: 0 }}
               />
+            )}
+            {coverStyleEnabled && coverSrc && themeColor && (
+              <div style={{ ...styles.coverOverlay, background: themeColor }} />
+            )}
+            {coverStyleEnabled && coverSrc && (
+              <div style={styles.coverTitleOverlay}>
+                <span style={styles.coverTitle}>{playlist.name}</span>
+              </div>
             )}
           </div>
         </div>
@@ -73,7 +149,13 @@ export default function PlaylistDetail({
             {songs.length > 0 ? `${songs.length} 首歌曲` : "暂无歌曲"}
           </p>
           <div style={styles.actionRow}>
-            <button style={styles.playButton} onClick={onPlayAll}>
+            <button
+              style={{
+                ...styles.playButton,
+                ...(themeColor ? { background: themeColor, boxShadow: `0 6px 20px ${themeColor}55` } : {}),
+              }}
+              onClick={() => onPlayAll?.(playlist.id === "liked")}
+            >
               {isPlaying ? (
                 <FaPause size={16} />
               ) : (
@@ -81,9 +163,31 @@ export default function PlaylistDetail({
               )}
             </button>
             {playlist.id !== "liked" && playlist.id !== "recent" && (
-              <button style={styles.editButton} onClick={() => onEditPlaylist?.(playlist)}>
-                <FaEdit size={16} /> 编辑
-              </button>
+              <div style={styles.playlistActionMenu}>
+                <button
+                  className="song-action-btn"
+                  style={{ ...styles.songActionBtn, opacity: 1 }}
+                  onClick={() => setPlaylistActionOpen((open) => !open)}
+                  title="更多操作"
+                >
+                  <FaEllipsisH size={17} />
+                </button>
+                {playlistActionOpen && (
+                  <>
+                    <div style={styles.menuOverlay} onClick={() => setPlaylistActionOpen(false)} />
+                    <div style={{ ...styles.songDropdown, top: "calc(100% + 6px)", right: 0 }}>
+                      <button className="song-dropdown-item" style={styles.dropdownItem} onClick={() => { onEditPlaylist?.(playlist); setPlaylistActionOpen(false); }}>
+                        <FaEdit size={14} style={{ marginRight: "10px" }} />
+                        编辑
+                      </button>
+                      <button className="song-dropdown-item" style={{ ...styles.dropdownItem, color: "#e94560" }} onClick={() => { onDeletePlaylist?.(playlist.id); setPlaylistActionOpen(false); }}>
+                        <FaTrash size={14} style={{ marginRight: "10px" }} />
+                        删除
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
             )}
           </div>
         </div>
@@ -102,13 +206,52 @@ export default function PlaylistDetail({
           </div>
         ) : (
           <div style={styles.songList}>
-            {songs.map((song, idx) => {
-              const isActive = idx === currentSongIndex;
-              const isMenuOpen = menuSongIdx === idx;
+            {/* 搜索栏：有音乐才显示，点击展开，无输入离开收起 */}
+            <div style={styles.searchBar}>
+              {searchOpen ? (
+                <input
+                  ref={searchInputRef}
+                  style={styles.searchInput}
+                  placeholder="搜索歌曲"
+                  value={searchText}
+                  onChange={(e) => setSearchText(e.target.value)}
+                  onBlur={handleSearchBlur}
+                  onKeyDown={(e) => { if (e.key === "Escape") { setSearchText(""); setSearchOpen(false); } }}
+                />
+              ) : (
+                <button style={styles.searchBtn} onClick={() => setSearchOpen(true)} title="搜索歌曲">
+                  <FaSearch size={14} />
+                </button>
+              )}
+              <div style={{ position: "relative" }}>
+                <button style={{ ...styles.searchBtn, marginLeft: "8px" }} onClick={() => setFilterOpen((v) => !v)} title="过滤排序">
+                  <FaSort size={14} />
+                </button>
+                {filterOpen && (
+                  <>
+                    <div style={styles.filterOverlay} onClick={() => setFilterOpen(false)} />
+                    <div style={styles.filterMenu}>
+                      <button style={styles.filterItem} onClick={() => handleFilterPick("name")}>按名称（A-Z）{filterArrow("name")}</button>
+                      <button style={styles.filterItem} onClick={() => handleFilterPick("artist")}>按艺人（A-Z）{filterArrow("artist")}</button>
+                      <button style={styles.filterItem} onClick={() => handleFilterPick("year")}>按时间（专辑年份）{filterArrow("year")}</button>
+                      <button style={styles.filterItem} onClick={() => handleFilterPick("added")}>按添加顺序{filterArrow("added")}</button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+            {filteredSongs.length === 0 && searchText.trim() ? (
+              <div style={styles.searchEmpty}>
+                <p style={styles.emptyText}>未找到匹配的歌曲</p>
+              </div>
+            ) : (
+              filteredSongs.map(({ song, sourceIndex }) => {
+              const isActive = sourceIndex === currentSongIndex;
+              const isMenuOpen = menuSongIdx === sourceIndex;
               const isMissing = song.file_path && missingSongs?.has(song.file_path);
               return (
                 <div
-                  key={idx}
+                  key={song.file_path || song.url || sourceIndex}
                   style={{
                     ...styles.songItem,
                     ...(isActive ? styles.songItemActive : {}),
@@ -118,7 +261,7 @@ export default function PlaylistDetail({
                     if (isMissing) {
                       onMissingSongClick?.(song);
                     } else {
-                      onPlaySong(idx);
+                      onPlaySong(sourceIndex);
                     }
                   }}
                   className="detail-song-item"
@@ -178,7 +321,7 @@ export default function PlaylistDetail({
                     <button
                       className="song-action-btn"
                       style={styles.songActionBtn}
-                      onClick={(e) => { e.stopPropagation(); setMenuSongIdx(isMenuOpen ? null : idx); }}
+                      onClick={(e) => { e.stopPropagation(); setMenuSongIdx(isMenuOpen ? null : sourceIndex); }}
                       title="更多操作"
                     >
                       <FaEllipsisH size={14} />
@@ -187,7 +330,7 @@ export default function PlaylistDetail({
                       <>
                         <div style={styles.menuOverlay} onClick={(e) => { e.stopPropagation(); setMenuSongIdx(null); }} />
                         <div style={styles.songDropdown} onClick={(e) => e.stopPropagation()}>
-                          <button className="song-dropdown-item" style={styles.dropdownItem} onClick={() => { setMenuSongIdx(null); }}>
+                          <button className="song-dropdown-item" style={styles.dropdownItem} onClick={() => { onOpenAlbum?.(song); setMenuSongIdx(null); }}>
                             <FaCompactDisc size={14} style={{ marginRight: "10px" }} />
                             专辑
                           </button>
@@ -254,7 +397,8 @@ export default function PlaylistDetail({
                   </div>
                 </div>
               );
-            })}
+              })
+            )}
           <div style={styles.songListFooter}>
             <div style={styles.dividerLine} />
             <span style={styles.songCount}>{songs.length} 首</span>
@@ -377,6 +521,20 @@ const styles = {
   coverColumn: {
     flex: "0 0 260px",
     alignSelf: "flex-start",
+    position: "relative",
+  },
+  coverGlowLayer: {
+    position: "absolute",
+    top: "50%",
+    left: "50%",
+    transform: "translate(-50%, -50%)",
+    width: "230px",
+    height: "230px",
+    borderRadius: "12px",
+    opacity: 0.9,
+    pointerEvents: "none",
+    zIndex: 0,
+    animation: "glowFadeIn 0.8s ease",
   },
   coverWrapper: {
     width: "260px",
@@ -385,9 +543,21 @@ const styles = {
     overflow: "hidden",
     boxShadow: "0 16px 48px rgba(0,0,0,0.5), 0 0 30px rgba(233,69,96,0.08)",
     position: "relative",
+    zIndex: 1,
   },
   cover: {
     width: "100%", height: "100%", objectFit: "cover", display: "block",
+  },
+  coverOverlay: {
+    position: "absolute", inset: 0, zIndex: 2, opacity: 0.35, pointerEvents: "none",
+  },
+  coverTitleOverlay: {
+    position: "absolute", right: "12px", bottom: "12px", left: "12px", zIndex: 3,
+    display: "flex", justifyContent: "flex-end",
+  },
+  coverTitle: {
+    color: "#ffffff", fontSize: "25px", fontWeight: 600, textShadow: "0 1px 6px rgba(0,0,0,0.6)",
+    whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
   },
   coverPlaceholder: {
     width: "100%", height: "100%", display: "flex",
@@ -457,6 +627,39 @@ const styles = {
     flex: 1, display: "flex", flexDirection: "column",
     gap: "2px", paddingRight: "4px",
   },
+  searchBar: {
+    display: "flex", justifyContent: "flex-end", marginBottom: "6px",
+  },
+  searchBtn: {
+    width: "34px", height: "34px", borderRadius: "50%",
+    border: "1px solid #e5e7eb", background: "#f3f4f6",
+    color: "#6b7280", cursor: "pointer", display: "flex",
+    alignItems: "center", justifyContent: "center",
+  },
+  searchInput: {
+    width: "220px", padding: "7px 12px", borderRadius: "16px",
+    border: "1px solid #e5e7eb", background: "#f9fafb",
+    fontSize: "13px", color: "#1f2937", outline: "none", fontFamily: "inherit",
+  },
+  searchEmpty: {
+    padding: "30px 0", textAlign: "center",
+  },
+  filterOverlay: {
+    position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 999, background: "transparent",
+  },
+  filterMenu: {
+    position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 1000,
+    minWidth: "180px", padding: "6px", borderRadius: "10px",
+    background: "#ffffff", boxShadow: "0 12px 40px rgba(0,0,0,0.18)",
+    border: "1px solid #e5e7eb",
+  },
+  filterItem: {
+    display: "block", width: "100%", textAlign: "left",
+    padding: "8px 12px", borderRadius: "6px",
+    border: "none", background: "transparent", cursor: "pointer",
+    fontSize: "13px", color: "#374151", fontFamily: "inherit",
+    whiteSpace: "nowrap",
+  },
   songItem: {
     display: "flex", alignItems: "center", gap: "14px",
     padding: "10px 14px", borderRadius: "10px",
@@ -490,6 +693,7 @@ const styles = {
     flexShrink: 0,
     marginLeft: "8px",
   },
+  playlistActionMenu: { position: "relative", flexShrink: 0 },
   songActionBtn: {
     background: "none", border: "none", cursor: "pointer",
     width: "32px", height: "32px", borderRadius: "50%",

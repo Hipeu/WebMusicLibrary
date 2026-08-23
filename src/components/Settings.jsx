@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef } from "react";
-import { FaSlidersH, FaLink, FaTrashAlt, FaInfoCircle, FaTimes, FaPen } from "react-icons/fa";
-import { saveSettings, getMigrationStatus, matchAll, cancelMatchAll } from "../services/api";
+import { FaSlidersH, FaLink, FaDatabase, FaInfoCircle, FaTimes, FaPen, FaFileImport } from "react-icons/fa";
+import { saveSettings, getMigrationStatus, matchAll, cancelMatchAll, startDataExport, startDataImport, inspectDataImport } from "../services/api";
 
 /* ================================================================
    ⚙️ Settings — 设置悬浮窗口
    左侧功能栏 + 右侧内容区
    ================================================================ */
-export default function Settings({ show, onClose, onReset, onSettingsSaved, matchState, onOpenMatchDetail, onMatchStarted, onRefreshLibrary, onArtistVisibilityChange, onMatchNothing }) {
+export default function Settings({ show, onClose, onReset, onSettingsSaved, matchState, onOpenMatchDetail, onMatchStarted, onRefreshLibrary, onArtistVisibilityChange, onMatchNothing, onDataJobStarted }) {
   const [active, setActive] = useState("appearance");
 
   if (!show) return null;
@@ -15,7 +15,7 @@ export default function Settings({ show, onClose, onReset, onSettingsSaved, matc
     { id: "appearance", label: "通用设置", icon: <FaSlidersH /> },
     { id: "edit", label: "编辑", icon: <FaPen /> },
     { id: "match", label: "匹配", icon: <FaLink /> },
-    { id: "reset", label: "重置", icon: <FaTrashAlt /> },
+    { id: "data", label: "数据", icon: <FaDatabase /> },
     { id: "about", label: "关于", icon: <FaInfoCircle /> },
   ];
 
@@ -53,7 +53,7 @@ export default function Settings({ show, onClose, onReset, onSettingsSaved, matc
             {active === "appearance" && <AppearancePanel onSettingsSaved={onSettingsSaved} onRefreshLibrary={onRefreshLibrary} onArtistVisibilityChange={onArtistVisibilityChange} />}
             {active === "edit" && <EditPanel onSettingsSaved={onSettingsSaved} />}
             {active === "match" && <MatchPanel matchState={matchState} onOpenMatchDetail={onOpenMatchDetail} onMatchStarted={onMatchStarted} onSettingsSaved={onSettingsSaved} onMatchNothing={onMatchNothing} />}
-            {active === "reset" && <ResetPanel onReset={onReset} />}
+            {active === "data" && <DataPanel onReset={onReset} onDataJobStarted={onDataJobStarted} />}
             {active === "about" && <AboutPanel />}
           </div>
         </div>
@@ -67,7 +67,7 @@ export default function Settings({ show, onClose, onReset, onSettingsSaved, matc
    ================================================================ */
 function AppearancePanel({ onSettingsSaved, onRefreshLibrary, onArtistVisibilityChange }) {
   const [theme, setTheme] = useState(
-    localStorage.getItem("app-theme") || "system"
+    localStorage.getItem("app-theme") || "light"
   );
 
   function handleChange(value) {
@@ -731,7 +731,7 @@ function ImportSettings({ onSettingsSaved }) {
           setMigrating(false);
           setError(res.msg || "迁移失败");
         }
-      } catch (err) {
+      } catch {
         setMigrating(false);
         setError("获取迁移状态失败");
       }
@@ -860,14 +860,101 @@ function InfoRow({ label, value }) {
 /* ================================================================
    🗑️ 重置面板
    ================================================================ */
-function ResetPanel({ onReset }) {
+function DataPanel({ onReset, onDataJobStarted }) {
   const [confirming, setConfirming] = useState(false);
+  const [confirmText, setConfirmText] = useState("");
+  const [importFile, setImportFile] = useState(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [mode, setMode] = useState("merge");
+  const [keepBackup, setKeepBackup] = useState(true);
+  const [error, setError] = useState("");
+  const [inspecting, setInspecting] = useState(false);
+  const [importToken, setImportToken] = useState(null);
+  const [availableTypes, setAvailableTypes] = useState([]);
+  const [importTypes, setImportTypes] = useState([]);
+  const [exportTypes, setExportTypes] = useState(["artists", "albums", "playlists", "settings", "music"]);
+  const importInputRef = useRef(null);
+
+  const typeOptions = [
+    ["artists", "艺人信息"], ["albums", "专辑信息"], ["playlists", "播放列表"],
+    ["settings", "设置"], ["music", "音乐文件"],
+  ];
+
+  function toggleType(value, setter) {
+    setter((prev) => prev.includes(value) ? prev.filter((item) => item !== value) : [...prev, value]);
+  }
+
+  async function handleExport() {
+    if (exportTypes.length === 0) return;
+    setError("");
+    try {
+      const result = await startDataExport(exportTypes);
+      if (result?.job_id) {
+        setExportOpen(false);
+        onDataJobStarted?.({ kind: "export", jobId: result.job_id });
+      } else setError(result?.detail || "无法启动导出");
+    } catch {
+      setError("无法启动导出，请确认后端正在运行");
+    }
+  }
+
+  async function handleImportFile(file) {
+    setImportFile(file || null);
+    setImportToken(null);
+    setAvailableTypes([]);
+    setImportTypes([]);
+    if (!file) return;
+    setInspecting(true);
+    setError("");
+    try {
+      const result = await inspectDataImport(file);
+      if (result?.status === "ok") {
+        setImportToken(result.token);
+        setAvailableTypes(result.types || []);
+        setImportTypes(result.types || []);
+      } else setError(result?.detail || "无法读取该备份包");
+    } catch {
+      setError("无法读取该备份包");
+    } finally {
+      setInspecting(false);
+    }
+  }
+
+  async function handleImport() {
+    if (!importToken || importTypes.length === 0) return;
+    setError("");
+    try {
+      const result = await startDataImport(importToken, mode, keepBackup, importTypes);
+      if (result?.job_id) {
+        setImportOpen(false);
+        setImportFile(null);
+        setImportToken(null);
+        onDataJobStarted?.({ kind: "import", jobId: result.job_id });
+      } else setError(result?.detail || "无法启动导入");
+    } catch {
+      setError("无法启动导入，请确认备份包有效且后端正在运行");
+    }
+  }
+
   return (
     <>
       <div style={panelStyles.container}>
-        <h3 style={panelStyles.title}>重置</h3>
-        <div style={panelStyles.resetBox}>
-          <p style={panelStyles.resetDesc}>重置整个资料库，会删除资料库内的所有数据和设置</p>
+        <h3 style={panelStyles.title}>数据</h3>
+        <p style={panelStyles.desc}>导入、导出或重置音乐资料库数据</p>
+        <div style={panelStyles.locationRow}>
+          <p style={panelStyles.locationDesc}>导出音乐、封面、歌词、艺人、简介、播放列表及应用设置为 ZIP 备份包</p>
+          <button style={panelStyles.modifyBtn} onClick={() => { setError(""); setExportOpen(true); }}>导出数据</button>
+        </div>
+        <div style={{ ...panelStyles.locationRow, marginTop: "14px" }}>
+          <p style={panelStyles.locationDesc}>从 WebMusicPlayer ZIP 备份包恢复数据</p>
+          <button style={panelStyles.modifyBtn} onClick={() => {
+            setError(""); setImportFile(null); setImportToken(null);
+            setAvailableTypes([]); setImportTypes([]); setImportOpen(true);
+          }}>导入数据</button>
+        </div>
+        <div style={{ ...panelStyles.resetBox, marginTop: "14px" }}>
+          <p style={panelStyles.resetDesc}>重置会删除资料库中的音乐、封面、歌词、艺人、简介和播放列表数据</p>
           <div style={panelStyles.resetBtnWrap}>
             <button style={panelStyles.resetBtn} onClick={() => setConfirming(true)}>
               重置
@@ -879,14 +966,17 @@ function ResetPanel({ onReset }) {
       {confirming && (
         <div style={resetDialogStyles.overlay} onClick={() => setConfirming(false)}>
           <div style={resetDialogStyles.box} onClick={(e) => e.stopPropagation()}>
-            <h3 style={resetDialogStyles.title}>继续重置</h3>
+            <h3 style={resetDialogStyles.title}>确认重置数据</h3>
             <div style={resetDialogStyles.divider} />
-            <p style={resetDialogStyles.text}>这会删除你所有的数据，该操作不能够恢复！</p>
-            <div style={resetDialogStyles.actions}>
+            <p style={resetDialogStyles.text}>这会删除所有资料库数据，且无法恢复。请输入「是，我确认」继续。</p>
+            <input value={confirmText} onChange={(e) => setConfirmText(e.target.value)} placeholder="是，我确认" style={dataStyles.confirmInput} />
+            <div style={{ ...resetDialogStyles.actions, marginTop: "18px" }}>
               <button
                 style={resetDialogStyles.confirmBtn}
+                disabled={confirmText.trim() !== "是，我确认"}
                 onClick={() => {
                   setConfirming(false);
+                  setConfirmText("");
                   onReset?.();
                 }}
               >
@@ -899,6 +989,87 @@ function ResetPanel({ onReset }) {
           </div>
         </div>
       )}
+      {exportOpen && (
+        <div style={resetDialogStyles.overlay} onClick={() => setExportOpen(false)}>
+          <div style={resetDialogStyles.box} onClick={(e) => e.stopPropagation()}>
+            <h3 style={resetDialogStyles.title}>选择导出数据</h3>
+            <div style={resetDialogStyles.divider} />
+            <div style={dataStyles.typeList}>{typeOptions.map(([value, label]) => {
+              const checked = exportTypes.includes(value);
+              return <label key={value} style={{ ...dataStyles.typeRow, ...(checked ? dataStyles.typeRowActive : {}) }}>
+                <input type="checkbox" checked={checked} onChange={() => toggleType(value, setExportTypes)} style={dataStyles.nativeCheck} />
+                <span style={{ ...dataStyles.typeCheck, ...(checked ? dataStyles.typeCheckActive : {}) }}>{checked ? "✓" : ""}</span>
+                <span>{label}</span>
+              </label>;
+            })}</div>
+            {error && <p style={dataStyles.error}>{error}</p>}
+            <div style={{ ...resetDialogStyles.actions, marginTop: "24px" }}>
+              <button style={resetDialogStyles.confirmBtn} disabled={exportTypes.length === 0} onClick={handleExport}>开始导出</button>
+              <button style={resetDialogStyles.cancelBtn} onClick={() => setExportOpen(false)}>取消</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {importOpen && (
+        <div style={resetDialogStyles.overlay} onClick={() => setImportOpen(false)}>
+          <div style={resetDialogStyles.box} onClick={(e) => e.stopPropagation()}>
+            <h3 style={resetDialogStyles.title}>导入数据</h3>
+            <div style={resetDialogStyles.divider} />
+            <div style={dataStyles.fileRow}>
+              <button style={dataStyles.fileBtn} onClick={() => importInputRef.current?.click()}>
+                <FaFileImport size={13} style={{ marginRight: 6 }} /> 浏览备份包
+              </button>
+              <span style={dataStyles.fileName}>{importFile?.name || "尚未选择 ZIP 文件"}</span>
+              <input ref={importInputRef} type="file" accept=".zip,application/zip" style={{ display: "none" }} onChange={(e) => handleImportFile(e.target.files?.[0] || null)} />
+            </div>
+            {inspecting && <p style={dataStyles.hint}>正在读取备份包内容…</p>}
+            {availableTypes.length > 0 && <>
+              <p style={dataStyles.sectionLabel}>选择要恢复的数据</p>
+              <div style={dataStyles.typeList}>{typeOptions.filter(([value]) => availableTypes.includes(value)).map(([value, label]) => {
+                const checked = importTypes.includes(value);
+                return <label key={value} style={{ ...dataStyles.typeRow, ...(checked ? dataStyles.typeRowActive : {}) }}>
+                  <input type="checkbox" checked={checked} onChange={() => toggleType(value, setImportTypes)} style={dataStyles.nativeCheck} />
+                  <span style={{ ...dataStyles.typeCheck, ...(checked ? dataStyles.typeCheckActive : {}) }}>{checked ? "✓" : ""}</span>
+                  <span>{label}</span>
+                </label>;
+              })}</div>
+            </>}
+            <p style={dataStyles.sectionLabel}>选择导入方式</p>
+            <div style={dataStyles.typeList}>
+              {[
+                ["merge", "合并导入", "重复音乐跳过，同名不同内容自动重命名"],
+                ["replace", "覆盖恢复", "替换现有资料数据，保留本机资料库路径"],
+              ].map(([value, title, description]) => {
+                const checked = mode === value;
+                return <label key={value} style={{ ...dataStyles.typeRow, ...dataStyles.modeRow, ...(checked ? dataStyles.typeRowActive : {}) }}>
+                  <input type="radio" name="data-import-mode" checked={checked} onChange={() => setMode(value)} style={dataStyles.nativeCheck} />
+                  <span style={{ ...dataStyles.typeCheck, ...(checked ? dataStyles.typeCheckActive : {}) }}>{checked ? "✓" : ""}</span>
+                  <span style={dataStyles.modeText}>
+                    <span style={dataStyles.modeTitle}>{title}</span>
+                    <span style={dataStyles.modeDesc}>{description}</span>
+                  </span>
+                </label>;
+              })}
+            </div>
+            {mode === "replace" && <div style={dataStyles.backupToggleRow}>
+              <span style={dataStyles.backupToggleText}>导入前自动备份当前数据</span>
+              <button
+                type="button"
+                style={{ ...panelStyles.toggleSwitch, ...(keepBackup ? panelStyles.toggleSwitchOn : {}) }}
+                onClick={() => setKeepBackup((value) => !value)}
+                title={keepBackup ? "点击关闭" : "点击开启"}
+              >
+                <span style={{ ...panelStyles.toggleKnob, ...(keepBackup ? panelStyles.toggleKnobOn : {}) }} />
+              </button>
+            </div>}
+            {error && <p style={dataStyles.error}>{error}</p>}
+            <div style={{ ...resetDialogStyles.actions, marginTop: mode === "replace" ? "24px" : undefined }}>
+              <button style={resetDialogStyles.confirmBtn} disabled={!importToken || importTypes.length === 0 || inspecting} onClick={handleImport}>开始导入</button>
+              <button style={resetDialogStyles.cancelBtn} onClick={() => setImportOpen(false)}>取消</button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -906,16 +1077,10 @@ function ResetPanel({ onReset }) {
 /* ================================================================
    📦 主题切换辅助
    ================================================================ */
+// eslint-disable-next-line react-refresh/only-export-components
 export function applyTheme(theme) {
   const root = document.documentElement;
-  let isDark = false;
-  if (theme === "dark") {
-    isDark = true;
-  } else if (theme === "light") {
-    isDark = false;
-  } else {
-    isDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-  }
+  const isDark = theme === "dark" || (theme !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
   root.setAttribute("data-theme", isDark ? "dark" : "light");
   if (isDark) {
     root.style.setProperty("--bg", "#1a1a2e");
@@ -1328,6 +1493,36 @@ const resetDialogStyles = {
     cursor: "pointer",
     fontFamily: "inherit",
   },
+};
+
+const dataStyles = {
+  confirmInput: {
+    width: "100%", boxSizing: "border-box", padding: "11px 14px",
+    borderRadius: "10px", border: "1px solid #d1d5db", outline: "none",
+    background: "#f9fafb", color: "#1f2937", fontSize: "14px", fontFamily: "inherit",
+  },
+  fileRow: { display: "flex", alignItems: "center", gap: "12px", margin: "12px 0 4px" },
+  fileBtn: {
+    display: "inline-flex", alignItems: "center", padding: "7px 18px", borderRadius: "18px",
+    border: "1px solid #d1d5db", background: "#ffffff", color: "#374151",
+    fontSize: "13px", cursor: "pointer", fontFamily: "inherit", flexShrink: 0,
+  },
+  fileName: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "13px", color: "#6b7280" },
+  typeList: { display: "flex", flexDirection: "column", gap: "9px", margin: "12px 0 4px" },
+  typeRow: { display: "flex", alignItems: "center", gap: "10px", minHeight: "42px", padding: "0 13px", border: "1px solid #e5e7eb", borderRadius: "10px", fontSize: "14px", color: "#374151", cursor: "pointer", transition: "all 0.15s", userSelect: "none" },
+  typeRowActive: { borderColor: "rgba(233,69,96,0.25)", background: "rgba(233,69,96,0.12)", color: "#1f2937" },
+  nativeCheck: { position: "absolute", opacity: 0, pointerEvents: "none" },
+  typeCheck: { width: "17px", height: "17px", boxSizing: "border-box", border: "1.5px solid #e94560", borderRadius: "4px", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#ffffff", fontSize: "13px", fontWeight: 700, lineHeight: 1, flexShrink: 0 },
+  typeCheckActive: { background: "#e94560" },
+  modeRow: { minHeight: "58px", alignItems: "center" },
+  modeText: { display: "flex", flexDirection: "column", gap: "3px", minWidth: 0 },
+  modeTitle: { fontSize: "14px", fontWeight: 600, color: "#1f2937" },
+  modeDesc: { fontSize: "12px", lineHeight: 1.45, color: "#6b7280" },
+  backupToggleRow: { display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "12px", padding: "10px 13px", borderRadius: "10px", background: "#f9fafb" },
+  backupToggleText: { fontSize: "13px", fontWeight: 500, color: "#374151" },
+  sectionLabel: { margin: "18px 0 0", fontSize: "14px", fontWeight: 600, color: "#1f2937" },
+  hint: { margin: "10px 0 0", fontSize: "13px", color: "#6b7280" },
+  error: { margin: "10px 0 0", color: "#dc2626", fontSize: "13px" },
 };
 
 const dialogStyles = {

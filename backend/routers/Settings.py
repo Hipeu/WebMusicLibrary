@@ -1,24 +1,31 @@
 import os
 from fastapi import APIRouter, Body
-from services.library_config import get_library_path, start_library_migration, migration_status
+from services.library_config import get_library_path, start_library_migration, migration_status, get_app_settings, save_app_settings
 
 router = APIRouter(prefix="/api")
 
 
 @router.get("/settings")
 def get_settings():
-    """返回当前资料库路径等设置"""
+    """返回资料库路径与跨浏览器同步的应用设置。"""
     return {
         "library_path": get_library_path(),
+        "app_settings": get_app_settings(),
     }
 
 
 @router.put("/settings")
 def put_settings(data: dict = Body(...)):
-    """更新资料库位置：校验绝对路径 → 后台迁移旧文件 → 保存配置。
-    立即返回，前端通过 /api/settings/migration 轮询进度。
-    """
-    new_path = data.get("library_path") if isinstance(data, dict) else None
+    """更新应用设置，或更新资料库位置并启动迁移。"""
+    if not isinstance(data, dict):
+        return {"status": "error", "msg": "设置格式错误"}
+    app_settings = data.get("app_settings")
+    if app_settings is not None:
+        if not save_app_settings(app_settings):
+            return {"status": "error", "msg": "保存设置失败"}
+        return {"status": "ok", "app_settings": get_app_settings()}
+
+    new_path = data.get("library_path")
     path, error = start_library_migration(new_path)
     if error:
         return {"status": "error", "msg": error}

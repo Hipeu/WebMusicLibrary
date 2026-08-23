@@ -152,7 +152,6 @@ export default function AlbumMatchPicker({ album_name, artist_name, onPick, onCl
                   {r.cover_url ? (
                     <img src={r.cover_url} alt="" style={styles.albumCoverImg} onError={(e) => { e.currentTarget.style.display = "none"; }} />
                   ) : null}
-                  <span style={styles.coverPlaceholder}>🎵</span>
                   {searchMode === "all" && (
                     <span style={styles.sourceBadge}>{r.source_label || r.source}</span>
                   )}
@@ -308,10 +307,6 @@ const styles = {
     height: "100%",
     objectFit: "cover",
     display: "block",
-  },
-  coverPlaceholder: {
-    fontSize: "26px",
-    opacity: 0.5,
   },
   sourceBadge: {
     position: "absolute",

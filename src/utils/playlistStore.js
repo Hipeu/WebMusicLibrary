@@ -13,8 +13,10 @@ export function normalizePlaylistSong(song) {
     title: song.title || "",
     artist: song.artist || "",
     album: song.album || "",
+    albumKey: song.albumKey || `${song.album_artist || song.artist || ""}|${song.album || ""}`,
     coverURL: song.coverURL || null,
     duration: song.duration || null,
+    year: song.year || null,
   };
 }
 
@@ -28,6 +30,8 @@ export function normalizePlaylists(playlists) {
       description: p.description || "",
       coverURL: p.coverURL || null,
       pinned: !!p.pinned,
+      coverStyle: !!p.coverStyle,
+      createdAt: Number(p.createdAt) || (String(p.id || "").startsWith("pl_") ? Number(String(p.id).slice(3)) || 0 : 0),
       songs: (p.songs || []).map(normalizePlaylistSong).filter(Boolean),
     }));
 }

@@ -201,12 +201,15 @@ async def match_lyric(payload: dict = Body(...)):
 
 @router.post("/artist")
 async def match_artist(payload: dict = Body(...)):
-    """按艺人名返回写真 URL和 QQ 音乐简介。"""
+    """按艺人名返回写真 URL和 QQ 音乐简介。拿到任一数据即标记已处理。"""
     artist_name = (payload.get("artist_name") or "").strip()
     if not artist_name:
         return {"error": "缺少 artist_name"}
     matcher = MusicMatcher(rate=payload.get("match_rate"))
-    return await matcher.match_artist(artist_name)
+    result = await matcher.match_artist(artist_name)
+    if result.get("avatar_url") or result.get("bio"):
+        await asyncio.to_thread(_mark_artist_matched, artist_name)
+    return result
 
 
 @router.post("/artist/candidates")
@@ -568,6 +571,15 @@ def _write_artist_bio(name, bio, bio_source=None, bio_source_id=None):
     return save_artists(artists)
 
 
+def _mark_artist_matched(name):
+    """标记艺人已尝试过自动匹配，避免后续全部匹配重复处理。"""
+    artists = load_artists()
+    rec = artists.get(name) or {}
+    rec["matched"] = True
+    artists[name] = rec
+    return save_artists(artists)
+
+
 # ================================================================
 # 全部匹配（后台线程 + 进度轮询）
 # ================================================================
@@ -807,6 +819,8 @@ async def _match_all_async(matcher, songs, artist_list, config=None, artist_need
                     else:
                         _match_state["skipped"] += 1
                         _log("skip", f"艺人 {name}：未找到简介")
+                # 写真与简介都尝试完毕，标记已处理，避免后续全部匹配重复
+                await asyncio.to_thread(_mark_artist_matched, name)
                 done += 1
                 _match_state["done"] = done
 
@@ -884,8 +898,8 @@ def match_all(payload: dict = Body(...)):
             artist_records = load_artists()
             for name in sorted(artists):
                 rec = artist_records.get(name) or {}
-                need_avatar = not rec.get("cover_url")
-                need_bio = not rec.get("bio")
+                need_avatar = not rec.get("matched") and not rec.get("cover_url")
+                need_bio = not rec.get("matched") and not rec.get("bio")
                 if need_avatar or need_bio:
                     artist_need[name] = {"avatar": need_avatar, "bio": need_bio}
                     artist_list.append(name)

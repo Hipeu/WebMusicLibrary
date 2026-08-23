@@ -50,6 +50,7 @@ export default function ArtistEdit({ artist, record, albums, onClose, onSaved, o
   const [bioSourceId, setBioSourceId] = useState(record?.bio_source_id || null);
   const [coverSource, setCoverSource] = useState(record?.cover_source || null);
   const [coverSourceId, setCoverSourceId] = useState(record?.cover_source_id || null);
+  const [matchGotData, setMatchGotData] = useState(false); // 本次匹配是否拿到任一数据
   const coverInputRef = useRef(null);
 
   const isEmpty = (albums || []).length === 0;
@@ -139,6 +140,7 @@ export default function ArtistEdit({ artist, record, albums, onClose, onSaved, o
       bio_source_id: bioSourceId,
       cover_source: coverSource,
       cover_source_id: coverSourceId,
+      ...(matchGotData ? { matched: true } : {}),
     };
     if (coverFile) {
       const res = await uploadArtistCover(artist, coverFile);
@@ -156,7 +158,7 @@ export default function ArtistEdit({ artist, record, albums, onClose, onSaved, o
       console.warn("保存艺人失败:", err);
     }
     if (ok) {
-      onSaved?.({ name: artist, cover_url: payload.cover_url || null, bio, genres, cover_position: coverPosition, bio_source: bioSource, bio_source_id: bioSourceId, cover_source: coverSource, cover_source_id: coverSourceId });
+      onSaved?.({ name: artist, cover_url: payload.cover_url || null, bio, genres, cover_position: coverPosition, bio_source: bioSource, bio_source_id: bioSourceId, cover_source: coverSource, cover_source_id: coverSourceId, ...(matchGotData ? { matched: true } : {}) });
     }
     onClose?.();
   }
@@ -357,6 +359,7 @@ export default function ArtistEdit({ artist, record, albums, onClose, onSaved, o
               setBioSourceId(candidate.singermid || candidate.artist_id || null);
               setCoverSource(candidate.source || null);
               setCoverSourceId(candidate.singermid || candidate.artist_id || null);
+              if (candidate.bio || candidate.avatar_url) setMatchGotData(true);
               setActiveTab("bio");
             }}
             onClose={() => setShowMatchPicker(false)}

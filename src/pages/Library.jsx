@@ -3,7 +3,7 @@ import { FiPlus } from "react-icons/fi";
 import { FaEllipsisH, FaCompactDisc, FaUser, FaHeart, FaStepForward, FaClock, FaPlus, FaArrowUp, FaTrash, FaMusic, FaInfoCircle, FaCog, FaPlay, FaExclamationCircle, FaCheckCircle, FaTimes, FaBell } from "react-icons/fa";
 import { readMetadata } from "../utils/MetadataReader";
 import { splitArtists, joinArtists, albumBelongsToArtist, collectAllArtists, isPrimaryAlbum } from "../utils/artistSplit";
-import { uploadMusic, getMusicList, getAssetUrl, deleteMusic, checkMusicFiles, updateMusicMetadata, updateAlbumDescription, matchSong, getLyrics, getPlaylists, savePlaylists, resetAll, getResetProgress, openMusicFile, getArtists, saveArtist, deleteArtist, getMatchAllProgress, cancelMatchAll } from "../services/api";
+import { uploadMusic, getMusicList, getAssetUrl, deleteMusic, checkMusicFiles, updateMusicMetadata, updateAlbumDescription, matchSong, getLyrics, getPlaylists, savePlaylists, resetAll, getResetProgress, openMusicFile, getArtists, saveArtist, deleteArtist, getMatchAllProgress, cancelMatchAll, getSettings, saveAppSettings, getDataJob, getDataExportDownloadUrl, cancelDataJob } from "../services/api";
 import { saveSongToIndex, removeSongFromIndex, loadMusicIndex } from "../utils/musicIndex";
 import { normalizePlaylists, loadPlaylistCache, savePlaylistCache } from "../utils/playlistStore";
 import { isUnplayableCodec, songPlayable, isPlaceholderPublisher } from "../utils/formatCheck";
@@ -15,6 +15,8 @@ import PlaylistDetail from "./PlaylistDetail";
 import ArtistEdit from "./ArtistEdit";
 import { SearchResults } from "../components/Search";
 import CoverPlayButton from "../components/CoverPlayButton";
+import PlayingAnimation from "../components/PlayingAnimation";
+import useCoverColor from "../components/CoverColor";
 import MusicEdit from "./MusicEdit";
 import DetailErrorBoundary from "../components/DetailErrorBoundary";
 import Sidebar from "../components/LibrarySidebar";
@@ -36,6 +38,42 @@ function isMusicFile(name) {
   if (!name) return false;
   const ext = name.split(".").pop().toLowerCase();
   return MUSIC_EXTS.includes(`.${ext}`);
+}
+
+/* 播放列表卡片：应用首歌封面 + 取色覆盖 + 右下角标题（不含光晕） */
+function PlaylistCard({ pl, onOpen, onMenu, order }) {
+  const cover = pl.coverURL || pl.songs?.[0]?.coverURL || null;
+  const styleEnabled = pl.id === "liked" || pl.id === "recent" || !!pl.coverStyle;
+  const palette = useCoverColor(styleEnabled && cover ? cover : null);
+  const themeSwatch = palette?.Vibrant || palette?.Muted || palette?.DarkVibrant || palette?.LightVibrant || null;
+  const themeColor = themeSwatch ? themeSwatch.hex : null;
+  return (
+    <div className="album-card" style={{ ...styles.libraryCard, order }} onClick={() => onOpen(pl.id)}>
+      <div style={styles.coverWrapper}>
+        <div style={styles.playlistCoverPlaceholder}>
+          {pl.id === "liked" ? "❤️" : pl.id === "recent" ? "🕐" : "📋"}
+        </div>
+        {cover && (
+          <img src={cover} alt={pl.name} onError={(e) => { e.currentTarget.style.display = "none"; }} style={{ ...styles.coverImage, position: "absolute", inset: 0 }} />
+        )}
+        {styleEnabled && cover && themeColor && (
+          <div style={{ ...styles.playlistCardOverlay, background: themeColor }} />
+        )}
+        {styleEnabled && cover && (
+          <div style={styles.playlistCardTitleOverlay}>
+            <span style={styles.playlistCardTitle}>{pl.name}</span>
+          </div>
+        )}
+      </div>
+      <div style={styles.albumTitleRow}>
+        <p style={styles.albumTitle}>{pl.name}</p>
+        <button className="album-menu-btn" style={styles.albumMenuBtnInline} onClick={(e) => onMenu(e, pl)} title="更多操作">
+          <span style={styles.albumMenuDotsInline}>···</span>
+        </button>
+      </div>
+      <p style={styles.albumArtist}>{pl.songs?.length || 0} 首歌曲</p>
+    </div>
+  );
 }
 
 /** 归一化歌曲身份键（title|artist|album），用于判断"同一首" */
@@ -164,24 +202,23 @@ function buildAlbumsFromServer(data) {
         matched: !!s.matched,
         match_source: s.match_source || null,
       }));
-      if (songs.length === 0) continue;
       const firstSong = songs[0];
       const songTimes = songs.map((x) => x.importTime).filter(Boolean);
       loadedAlbums.push({
         id: albumId,
         title: albumEntry.album,
         artist: artistEntry.artist,
-        album_artist: firstSong.album_artist || null,
-        year: firstSong.year || null,
-        genre: firstSong.genre || null,
-        publisher: firstSong.publisher || null,
+        album_artist: firstSong?.album_artist || null,
+        year: firstSong?.year || null,
+        genre: firstSong?.genre || null,
+        publisher: firstSong?.publisher || null,
         // 专辑封面取第一首歌封面（回退专辑封面）
-         coverURL: firstSong.coverURL || albumCover,
+         coverURL: firstSong?.coverURL || albumCover,
          description: albumEntry.description || "",
         // 专辑匹配状态：任一首已匹配即视为已匹配
         matched: songs.some((sg) => sg.matched),
-        // 专辑导入时间 = 该专辑歌曲最早导入时间（保持「最近添加」排序稳定）
-        importTime: songTimes.length ? Math.min(...songTimes) : Date.now(),
+        // 专辑最近添加时间 = 专辑内最新导入歌曲的时间；追加歌曲后应重新靠前。
+        importTime: songTimes.length ? Math.max(...songTimes) : (albumEntry.import_time || Date.now()),
         songs,
       });
     }
@@ -210,8 +247,8 @@ function mergeAlbumsByTitle(prev, newAlbums) {
       merged.set(k, { ...a, songs: [...a.songs] });
     }
   }
-  // 兜底：过滤空专辑（防止残留空专辑卡片）
-  return Array.from(merged.values()).filter((a) => a.songs.length > 0);
+  // 保留仅导入专辑资料（无音乐文件）的专辑，以便仍可查看封面和简介。
+  return Array.from(merged.values());
 }
 
 /** 用服务端最新专辑重建资料库：按「专辑艺人|专辑名」去重，服务端优先；
@@ -246,6 +283,21 @@ const DEFAULT_PLAYLISTS = [
   { id: "liked", name: "我喜欢的音乐", songs: [], description: "" },
   { id: "recent", name: "最近播放", songs: [], description: "最近播放的歌曲" },
 ];
+
+// 主题是当前浏览器偏好；其余设置由后端同步到所有浏览器。
+const APP_SETTING_KEYS = [
+  "artist-keep-empty", "artist-hide-empty", "edit-publisher-copyright",
+  "delete-to-trash", "edit-auto-organize-collab", "import-skip-unplayable",
+  "match-skip-matched", "match-lyric-fallback", "match-overwrite", "match-rate",
+  ...["title", "artist", "album", "year", "track_disc", "genre", "album_artist", "description", "composer", "lyricist", "lyric", "publisher", "arranger", "producer"].map((key) => `match-field-${key}`),
+  ...["qq", "netease", "itunes", "musicbrainz"].map((key) => `match-source-${key}`),
+];
+
+function collectAppSettings() {
+  return Object.fromEntries(APP_SETTING_KEYS
+    .map((key) => [key, localStorage.getItem(key)])
+    .filter(([, value]) => value !== null));
+}
 
 /** 保证 liked / recent 始终存在 */
 function ensureDefaultPlaylists(playlists) {
@@ -310,12 +362,14 @@ export default function MusicLibrary() {
   const [unplayableDialogSong, setUnplayableDialogSong] = useState(null); // 播放被拦截的歌曲
   const [resetting, setResetting] = useState(false); // 是否正在重置资料库
   const [resetProgress, setResetProgress] = useState({ done: 0, total: 0 }); // 重置进度 { done, total }
+  const [dataCancelConfirm, setDataCancelConfirm] = useState(null); // { jobId, kind, notificationId }
   const [showImportMenu, setShowImportMenu] = useState(false);
   const [showCreatePlaylist, setShowCreatePlaylist] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [newPlaylistCover, setNewPlaylistCover] = useState(null);
   const [newPlaylistName, setNewPlaylistName] = useState("");
   const [newPlaylistDesc, setNewPlaylistDesc] = useState("");
+  const [newPlaylistCoverStyle, setNewPlaylistCoverStyle] = useState(false);
   const [editingPlaylistId, setEditingPlaylistId] = useState(null); // null=新建，有值=编辑该播放列表
   const coverInputRef = useRef(null);
   const [panelTarget, setPanelTarget] = useState(null); // {type:"song",data} | {type:"album",data}
@@ -363,13 +417,6 @@ export default function MusicLibrary() {
     || null;
 
   // ---------- 播放列表操作 ----------
-    function handleCreatePlaylist(newId) {
-    setPlaylists((prev) => [
-      ...prev,
-      { id: newId, name: "新建播放列表", songs: [], description: "" },
-    ]);
-  }
-
   function handleCreatePlaylistWithDetails() {
     const newId = "pl_" + Date.now();
     const pl = {
@@ -377,13 +424,17 @@ export default function MusicLibrary() {
       name: newPlaylistName.trim() || "新建播放列表",
       songs: [],
       description: newPlaylistDesc.trim(),
+      pinned: false,
+      createdAt: Date.now(),
     };
     if (newPlaylistCover) pl.coverURL = newPlaylistCover;
+    pl.coverStyle = newPlaylistCoverStyle;
     setPlaylists((prev) => [...prev, pl]);
     setShowCreatePlaylist(false);
     setNewPlaylistCover(null);
     setNewPlaylistName("");
     setNewPlaylistDesc("");
+    setNewPlaylistCoverStyle(false);
   }
 
   // ---------- 打开新建播放列表弹窗（复位为新建模式） ----------
@@ -392,6 +443,7 @@ export default function MusicLibrary() {
     setNewPlaylistCover(null);
     setNewPlaylistName("");
     setNewPlaylistDesc("");
+    setNewPlaylistCoverStyle(false);
     setShowCreatePlaylist(true);
   }
 
@@ -401,6 +453,7 @@ export default function MusicLibrary() {
     setNewPlaylistName(playlist.name || "");
     setNewPlaylistDesc(playlist.description || "");
     setNewPlaylistCover(playlist.coverURL || null);
+    setNewPlaylistCoverStyle(!!playlist.coverStyle);
     setEditingPlaylistId(playlist.id);
     setShowCreatePlaylist(true);
   }
@@ -412,6 +465,7 @@ export default function MusicLibrary() {
     setNewPlaylistCover(null);
     setNewPlaylistName("");
     setNewPlaylistDesc("");
+    setNewPlaylistCoverStyle(false);
   }
 
   // ---------- 弹窗提交：编辑则更新，新建则创建 ----------
@@ -423,6 +477,7 @@ export default function MusicLibrary() {
           ...target,
           name: newPlaylistName.trim() || target.name,
           description: newPlaylistDesc.trim(),
+          coverStyle: newPlaylistCoverStyle,
         };
         if (newPlaylistCover) updated.coverURL = newPlaylistCover;
         handleUpdatePlaylist(editingPlaylistId, updated);
@@ -434,7 +489,23 @@ export default function MusicLibrary() {
   }
 
   function handleDeletePlaylist(id) {
-    setPlaylists((prev) => prev.filter((p) => p.id !== id));
+    const next = playlists.filter((p) => p.id !== id);
+    setPlaylists(next);
+    // 删除当前详情或播放来源时，先退出这些状态，避免子组件接收到已删除的播放列表。
+    if (detailPlaylistId === id) {
+      setDetailPlaylistId(null);
+      setActiveNav("playlists");
+    }
+    if (currentPlaylistId === id) {
+      setIsPlaying(false);
+      setCurrentPlaylistId(null);
+      setCurrentSongIndex(0);
+      setPlayQueue([]);
+    }
+    setNavStack((prev) => prev.filter((frame) => !(frame.kind === "playlist" && frame.id === id)));
+    // 立即持久化，避免渲染异常或刷新落在防抖写入之前时恢复已删除的歌单。
+    savePlaylistCache(next);
+    savePlaylists(normalizePlaylists(next)).catch(() => {});
   }
 
     function handleRenamePlaylist(id, name) {
@@ -636,14 +707,26 @@ export default function MusicLibrary() {
         </div>
       );
     }
+    if (n.kind === "progress_data") {
+      return (
+        <div style={container} {...rest}>
+          <p style={styles.importProgressTitle}>{n.title}</p>
+          <div style={styles.importProgressRow}>
+            <span style={styles.importProgressCount}>{n.content || `已处理：${n.progress?.done || 0}/${n.progress?.total || 0}`}</span>
+            {n.action?.jobId && <button style={styles.importProgressCancel} onClick={() => setDataCancelConfirm({ jobId: n.action.jobId, kind: n.action.kind, notificationId: n.id })}>取消</button>}
+          </div>
+          <div style={{ ...styles.importProgressTrack, marginTop: "12px" }}>
+            <div style={{ ...styles.importProgressFill, width: `${pct}%` }} />
+          </div>
+        </div>
+      );
+    }
     if (n.kind === "progress_update") {
       return (
         <div style={container} {...rest}>
           <p style={styles.importProgressTitle}>{n.title}</p>
           <div style={styles.importProgressRow}>
-            <span style={styles.importProgressCount}>
-              已更新：{n.progress?.done || 0}/{n.progress?.total || 0}
-            </span>
+            <span style={styles.importProgressCount}>已更新：{n.progress?.done || 0}/{n.progress?.total || 0}</span>
           </div>
           <div style={{ ...styles.importProgressTrack, marginTop: "12px" }}>
             <div style={{ ...styles.importProgressFill, width: `${pct}%` }} />
@@ -671,6 +754,7 @@ export default function MusicLibrary() {
   // ---------- 设置保存成功提示（瞬态：弹出即消失，不进活动盒子、不计未读） ----------
   function handleSettingsSaved() {
     addNotification({ kind: "success", title: "设置已保存", transient: true });
+    saveAppSettings(collectAppSettings()).catch(() => {});
   }
 
   // ---------- 全部匹配完成：刷新专辑 / 艺人数据 + 匹配结束通知 ----------
@@ -1390,6 +1474,76 @@ export default function MusicLibrary() {
     if (pl) runFileCheck((pl.songs || []).map((s) => s.file_path));
   }
 
+  function handleDataJobStarted({ kind, jobId }) {
+    const notificationId = addNotification({ kind: "progress_data", title: kind === "export" ? "正在导出数据" : "正在导入数据", ongoing: true, progress: { done: 0, total: 0 }, content: "正在准备…", action: { jobId, kind } });
+    const poll = async () => {
+      try {
+        const job = await getDataJob(jobId);
+        updateNotification(notificationId, { progress: { done: job.done || 0, total: job.total || 0 }, content: job.message || "正在处理" });
+        if (job.status === "queued" || job.status === "running") {
+          updateNotification(notificationId, { action: job.cancellable === false ? null : { jobId, kind } });
+          return setTimeout(poll, 400);
+        }
+        if (job.status === "done") {
+          updateNotification(notificationId, { ongoing: false, kind: "success", action: null, title: kind === "export" ? "数据导出成功" : "数据导入成功", content: job.message || "操作已完成" });
+          if (kind === "export") {
+            const link = document.createElement("a");
+            link.href = getDataExportDownloadUrl(jobId);
+            link.click();
+          } else {
+            await refreshFromServer();
+            const [nextPlaylists, nextArtists, nextSettings] = await Promise.all([getPlaylists(), getArtists(), getSettings()]);
+            setPlaylists(ensureDefaultPlaylists(normalizePlaylists(nextPlaylists)));
+            setArtistRecords(nextArtists || {});
+            const importedSettings = nextSettings?.app_settings;
+            if (importedSettings && typeof importedSettings === "object") {
+              APP_SETTING_KEYS.forEach((key) => {
+                if (importedSettings[key] !== undefined && importedSettings[key] !== null) localStorage.setItem(key, String(importedSettings[key]));
+              });
+              setHideEmptyArtists(localStorage.getItem("artist-hide-empty") !== "false");
+            }
+          }
+          return;
+        }
+        if (job.status === "cancelled") {
+          updateNotification(notificationId, { ongoing: false, kind: "warning", action: null, title: kind === "export" ? "已取消导出" : "已取消导入", content: job.message || "操作已取消" });
+          return;
+        }
+        updateNotification(notificationId, { ongoing: false, kind: "warning", action: null, title: kind === "export" ? "数据导出失败" : "数据导入失败", content: job.error || job.message || "请检查备份包后重试" });
+      } catch {
+        updateNotification(notificationId, { ongoing: false, kind: "warning", action: null, title: "数据任务失败", content: "无法获取任务进度" });
+      }
+    };
+    poll();
+  }
+
+  async function handleConfirmCancelDataJob() {
+    const target = dataCancelConfirm;
+    if (!target) return;
+    setDataCancelConfirm(null);
+    try {
+      const result = await cancelDataJob(target.jobId);
+      if (result?.status === "locked") {
+        updateNotification(target.notificationId, { action: null, content: result.msg || "当前阶段不能取消" });
+      } else {
+        updateNotification(target.notificationId, { action: null, content: "正在取消…" });
+      }
+    } catch {
+      updateNotification(target.notificationId, { content: "取消请求失败，请稍后重试" });
+    }
+  }
+
+  // 播放列表保存的是歌曲快照；优先用 file_path 定位其所属专辑，兼容旧快照再回退 URL/专辑名。
+  function handleOpenAlbumFromPlaylistSong(song) {
+    const albumKey = song.albumKey || `${song.album_artist || song.artist || ""}|${song.album || ""}`;
+    const album = albums.find((item) => (item.songs || []).some((candidate) =>
+      (song.file_path && candidate.file_path === song.file_path)
+      || (!song.file_path && song.url && candidate.url === song.url)
+    )) || albums.find((item) => `${item.album_artist || item.artist || ""}|${item.title || ""}` === albumKey)
+      || albums.find((item) => item.title === song.album);
+    if (album) handleOpenAlbumDetail(album.id);
+  }
+
     // ---------- 关闭播放列表详情 ----------
     function handleClosePlaylistDetail() {
       if (!popNavBack()) setDetailPlaylistId(null);
@@ -1579,12 +1733,20 @@ export default function MusicLibrary() {
   }
 
     // ---------- 从播放列表详情播放全部 ----------
-  function handlePlayAllFromPlaylist() {
+  function handlePlayAllFromPlaylist(preferLatest = false) {
     const pl = playlists.find((p) => p.id === detailPlaylistId);
     if (!pl || !pl.songs || pl.songs.length === 0) return;
 
-    // 跳过不可播放歌曲，从第一首可播放的开始
-    const firstPlayable = pl.songs.findIndex((s) => songPlayable(s));
+    // “我喜欢”默认新喜欢在前；播放全部也从当前展示的第一首可播放歌曲开始。
+    let firstPlayable = pl.songs.findIndex((s) => songPlayable(s));
+    if (preferLatest) {
+      for (let index = pl.songs.length - 1; index >= 0; index -= 1) {
+        if (songPlayable(pl.songs[index])) {
+          firstPlayable = index;
+          break;
+        }
+      }
+    }
     if (firstPlayable === -1) {
       if (pl.songs.length > 0) setUnplayableDialogSong(pl.songs[0]);
       return;
@@ -2198,6 +2360,19 @@ export default function MusicLibrary() {
         fields: {},
         lyric_credits_fallback: false,
       };
+      // 专辑候选的简介在选择阶段已取回；后台逐曲匹配会立即关闭编辑器，
+      // 因此需要在这里单独持久化，不能依赖编辑表单的“保存”按钮。
+      if (selectedAlbum?.description && String(selectedAlbum.description).trim()) {
+        try {
+          await updateAlbumDescription({
+            artist: selectedAlbum.album_artist || album.album_artist || album.artist,
+            album: selectedAlbum.album || album.title,
+            description: selectedAlbum.description,
+          });
+        } catch {
+          // 简介保存失败不阻塞歌曲匹配，结束刷新时会保留原有专辑信息。
+        }
+      }
       handleAlbumMatchProgress({ status: "start", total: songs.length });
       let doneCount = 0, okCount = 0, skipCount = 0;
       for (const song of songs) {
@@ -2555,14 +2730,9 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
     if (!playlist) return;
 
     if (action === "pin") {
-      setPlaylists((prev) => {
-        const idx = prev.findIndex((p) => p.id === playlist.id);
-        if (idx <= 0) return prev;
-        const arr = [...prev];
-        const [item] = arr.splice(idx, 1);
-        arr.splice(1, 0, item);
-        return arr;
-      });
+      setPlaylists((prev) => prev.map((p) => (
+        p.id === playlist.id ? { ...p, pinned: !p.pinned } : p
+      )));
     } else if (action === "play") {
       const songs = (playlist.songs || []).map(s => ({ ...s, albumId: playlist.id }));
       if (songs.length === 0) return;
@@ -2626,8 +2796,6 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
 
   // ---------- 过滤专辑 ----------
   const filteredAlbums = albums.filter((a) => {
-    // 兜底：跳过空专辑
-    if (!a.songs || a.songs.length === 0) return false;
     if (!filterText) return true;
     const t = filterText.toLowerCase();
         return (
@@ -2643,19 +2811,38 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
   const prevAlbumIdRef = useRef(null);
   useEffect(() => {
     // 应用已保存的主题（深色/浅色/跟随系统）
-    const savedTheme = localStorage.getItem("app-theme") || "system";
+    const savedTheme = localStorage.getItem("app-theme") || "light";
     applyTheme(savedTheme);
 
     // 跟随系统：监听系统主题变化并实时更新
     const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
     const handleSystemThemeChange = () => {
-      const current = localStorage.getItem("app-theme") || "system";
+      const current = localStorage.getItem("app-theme") || "light";
       if (current === "system") {
         applyTheme("system");
       }
     };
     mediaQuery.addEventListener("change", handleSystemThemeChange);
     return () => mediaQuery.removeEventListener("change", handleSystemThemeChange);
+  }, []);
+
+  // 启动时以服务端设置为准，并把旧版 localStorage 设置迁移到服务端一次。
+  useEffect(() => {
+    let cancelled = false;
+    getSettings().then((data) => {
+      if (cancelled) return;
+      const remote = data?.app_settings;
+      if (remote && typeof remote === "object" && Object.keys(remote).length > 0) {
+        APP_SETTING_KEYS.forEach((key) => {
+          if (remote[key] !== undefined && remote[key] !== null) localStorage.setItem(key, String(remote[key]));
+        });
+        setHideEmptyArtists(localStorage.getItem("artist-hide-empty") !== "false");
+      } else {
+        const legacy = collectAppSettings();
+        if (Object.keys(legacy).length > 0) saveAppSettings(legacy).catch(() => {});
+      }
+    }).catch(() => {});
+    return () => { cancelled = true; };
   }, []);
 
   // ---------- 启动时加载已导入的音乐（本地索引优先，后端用于校验缺失） ----------
@@ -2812,12 +2999,11 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
   const [librarySortMode, setLibrarySortMode] = useState("recent_add"); // "recent_add" | "recent_play" | "time" | "album" | "playlist"
 
   // ---------- 全部播放列表排序 ----------
-  const [playlistSortMode, setPlaylistSortMode] = useState("recent_add"); // "recent_add" | "recent_create" | "create_time" | "a-z"
+  const [playlistSortMode, setPlaylistSortMode] = useState("recent_create"); // "recent_create" | "create_time" | "a-z"
   const [playlistTimeDir, setPlaylistTimeDir] = useState("desc"); // "desc" | "asc"
   const sortedPlaylists = [...playlists].sort((a, b) => {
     const getTime = (pl) => {
-      const ts = parseInt(pl.id.replace("pl_", "")) || 0;
-      return ts;
+      return Number(pl.createdAt) || parseInt(String(pl.id || "").replace("pl_", "")) || 0;
     };
     switch (playlistSortMode) {
       case "a-z":
@@ -2827,7 +3013,6 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
         return playlistTimeDir === "desc" ? -diff : diff;
       }
       case "recent_create":
-      case "recent_add":
       default:
         return getTime(b) - getTime(a);
     }
@@ -2866,6 +3051,23 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
         return (b.importTime || 0) - (a.importTime || 0);
     }
   });
+
+  // 资料库中的专辑和播放列表必须共用一条排序序列，不能先渲染全部专辑再追加播放列表。
+  const libraryItems = [
+    ...librarySortedAlbums.map((album) => ({ type: "album", item: album, sortTime: album.importTime || 0 })),
+    ...playlists.map((playlist) => ({
+      type: "playlist",
+      item: playlist,
+      sortTime: Number(playlist.createdAt) || parseInt(String(playlist.id || "").replace("pl_", "")) || 0,
+    })),
+  ].filter(({ type }) => librarySortMode !== "album" || type === "album").sort((a, b) => {
+    if (librarySortMode === "recent_add") return b.sortTime - a.sortTime;
+    if (librarySortMode === "time") return (b.item.year || 0) - (a.item.year || 0);
+    if (librarySortMode === "album") return (a.item.title || a.item.name || "").localeCompare(b.item.title || b.item.name || "", "zh-CN");
+    if (librarySortMode === "recent_play") return a.type === b.type ? 0 : (a.type === "album" ? -1 : 1);
+    return 0;
+  });
+  const libraryItemOrder = new Map(libraryItems.map(({ type, item }, index) => [`${type}:${item.id}`, index]));
 
         // ---------- 歌曲视图排序 ----------
     const [songFilters, setSongFilters] = useState(new Set(["recent_add"])); // 多选过滤标签
@@ -2944,7 +3146,6 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                               activeNav={activeNav}
                               onNavChange={handleNavChange}
                               playlists={playlists}
-                              onCreatePlaylist={handleCreatePlaylist}
                               onOpenPlaylistMenu={handleOpenPlaylistMenu}
                               onRenamePlaylist={handleRenamePlaylist}
                               filterText={filterText}
@@ -3101,7 +3302,9 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                       onPlayAll={handlePlayAllFromPlaylist}
                       onPlaySong={handlePlaySongFromPlaylist}
                       onBack={handleClosePlaylistDetail}
+                      onOpenAlbum={handleOpenAlbumFromPlaylistSong}
                       onOpenArtist={handleOpenArtistDetail}
+                      onDeletePlaylist={(id) => setDeletePlaylistConfirm(id)}
                       setPlaylists={setPlaylists}
                       onPlayNext={(song) => {
                         setPlayQueue((prev) => [song, ...prev]);
@@ -3178,7 +3381,13 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                               } else {
                                 setAlbumFilters((prev) => {
                                   const next = new Set(prev);
-                                  if (next.has(tag)) next.delete(tag); else next.add(tag);
+                                  if (next.has(tag)) {
+                                    next.delete(tag);
+                                  } else {
+                                    if (tag === "matched") next.delete("unmatched");
+                                    if (tag === "unmatched") next.delete("matched");
+                                    next.add(tag);
+                                  }
                                   if (next.size === 0) next.add("recent_add");
                                   return next;
                                 });
@@ -3498,7 +3707,13 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                                                 } else {
                                                   setSongFilters((prev) => {
                                                     const next = new Set(prev);
-                                                    if (next.has(tag)) next.delete(tag); else next.add(tag);
+                                                    if (next.has(tag)) {
+                                                      next.delete(tag);
+                                                    } else {
+                                                      if (tag === "matched") next.delete("unmatched");
+                                                      if (tag === "unmatched") next.delete("matched");
+                                                      next.add(tag);
+                                                    }
                                                     if (next.size === 0) next.add("recent_add");
                                                     return next;
                                                   });
@@ -3571,7 +3786,10 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                           </div>
                                                     {/* 歌曲行 */}
                            {sortedSongs.slice(0, visibleCount).map((song, idx) => {
-                            const isActive = currentAlbumId === song.albumId && currentSongIndex === albums.find((a) => a.id === song.albumId)?.songs.findIndex((s) => s.title === song.title && s.url === song.url);
+                            const isActive = !!currentSong && (
+                              (song.file_path && currentSong.file_path === song.file_path)
+                              || (!song.file_path && song.url && currentSong.url === song.url)
+                            );
                             const albumLocalIdx = albums.find((a) => a.id === song.albumId)?.songs.findIndex((s) => s.url === song.url) ?? idx;
                             const songKey = `${song.albumId}-${albumLocalIdx}`;
                             const isChecked = selectedSongs.has(songKey);
@@ -3604,14 +3822,18 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                                 }}
                               >
                                                                 <div style={styles.songColCheck}>
-                                  <input
-                                    type="checkbox"
-                                    className="song-checkbox"
-                                    style={styles.songCheckbox}
-                                    checked={isChecked}
-                                    onChange={(e) => handleCheckboxChange(songKey, e)}
-                                    onClick={(e) => e.stopPropagation()}
-                                  />
+                                  {isActive && isPlaying && !isSelecting ? (
+                                    <PlayingAnimation />
+                                  ) : (
+                                    <input
+                                      type="checkbox"
+                                      className="song-checkbox"
+                                      style={styles.songCheckbox}
+                                      checked={isChecked}
+                                      onChange={(e) => handleCheckboxChange(songKey, e)}
+                                      onClick={(e) => e.stopPropagation()}
+                                    />
+                                  )}
                                 </div>
                                                                 <div style={styles.songColTitle}>
                                                                   <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
@@ -3773,9 +3995,7 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                                       <h2 style={styles.playlistHeaderTitle}>全部播放列表</h2>
                                     </div>
                                     <div style={styles.sortBar}>
-                                      <span style={styles.sortLabel}>排序：</span>
                                       {[
-                                        { id: "recent_add", label: "最近添加" },
                                         { id: "recent_create", label: "最近创建" },
                                         { id: "create_time", label: "创建时间" },
                                         { id: "a-z", label: "A-Z" },
@@ -3810,38 +4030,12 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                                     ) : (
                                       <div style={styles.libraryGrid}>
                                         {sortedPlaylists.map((pl) => (
-                                          <div
+                                          <PlaylistCard
                                             key={pl.id}
-                                            className="album-card"
-                                            style={styles.libraryCard}
-                                            onClick={() => handleOpenPlaylistDetail(pl.id)}
-                                          >
-                                            <div style={styles.coverWrapper}>
-                                              <div style={styles.playlistCoverPlaceholder}>
-                                                {pl.id === "liked" ? "❤️" : pl.id === "recent" ? "🕐" : "📋"}
-                                              </div>
-                                              {pl.coverURL && (
-                                                <img
-                                                  src={pl.coverURL}
-                                                  alt={pl.name}
-                                                  onError={(e) => { e.currentTarget.style.display = "none"; }}
-                                                  style={{ ...styles.coverImage, position: "absolute", inset: 0 }}
-                                                />
-                                              )}
-                                            </div>
-                                            <div style={styles.albumTitleRow}>
-                                              <p style={styles.albumTitle}>{pl.name}</p>
-                                              <button
-                                                className="album-menu-btn"
-                                                style={styles.albumMenuBtnInline}
-                                                onClick={(e) => handleOpenPlaylistMenu(e, pl)}
-                                                title="更多操作"
-                                              >
-                                                <span style={styles.albumMenuDotsInline}>···</span>
-                                              </button>
-                                            </div>
-                                            <p style={styles.albumArtist}>{pl.songs?.length || 0} 首歌曲</p>
-                                          </div>
+                                            pl={pl}
+                                            onOpen={handleOpenPlaylistDetail}
+                                            onMenu={handleOpenPlaylistMenu}
+                                          />
                                         ))}
                                       </div>
                                     )}
@@ -3882,7 +4076,7 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                                       </button>
                                     </div>
 
-                                    {librarySortedAlbums.length === 0 && playlists.length === 0 ? (
+                                    {libraryItems.length === 0 ? (
                                       <div style={styles.emptyState}>
                                         <span style={styles.emptyIcon}>📀</span>
                                         <p style={styles.emptyText}>还没有导入任何专辑</p>
@@ -3900,6 +4094,7 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                                               className="album-card"
                                               style={{
                                                 ...styles.libraryCard,
+                                                order: libraryItemOrder.get(`album:${album.id}`),
                                                 ...(isActive ? styles.albumCardActive : {}),
                                               }}
                                               onClick={() => handleOpenAlbumDetail(album.id)}
@@ -3941,42 +4136,17 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                                             </div>
                                           );
                                         })}
-                                                                                                                                 {/* 播放列表卡片 */}
-                                                                {playlists.map((pl) => (
-                                          <div
+                                                                 {/* 播放列表卡片 */}
+                                                                {librarySortMode !== "album" && playlists.map((pl) => (
+                                          <PlaylistCard
                                             key={pl.id}
-                                            className="album-card"
-                                            style={styles.libraryCard}
-                                            onClick={() => handleOpenPlaylistDetail(pl.id)}
-                                          >
-                                            <div style={styles.coverWrapper}>
-                                              <div style={styles.playlistCoverPlaceholder}>
-                                                {pl.id === "liked" ? "❤️" : pl.id === "recent" ? "🕐" : "📋"}
-                                              </div>
-                                              {pl.coverURL && (
-                                                <img
-                                                  src={pl.coverURL}
-                                                  alt={pl.name}
-                                                  onError={(e) => { e.currentTarget.style.display = "none"; }}
-                                                  style={{ ...styles.coverImage, position: "absolute", inset: 0 }}
-                                                />
-                                              )}
-                                            </div>
-                                            <div style={styles.albumTitleRow}>
-                                              <p style={styles.albumTitle}>{pl.name}</p>
-                                              <button
-                                                className="album-menu-btn"
-                                                style={styles.albumMenuBtnInline}
-                                                onClick={(e) => handleOpenPlaylistMenu(e, pl)}
-                                                title="更多操作"
-                                              >
-                                                <span style={styles.albumMenuDotsInline}>···</span>
-                                              </button>
-                                            </div>
-                                             <p style={styles.albumArtist}>播放列表</p>
-                                           </div>
-                                         ))}
-                                       </div>
+                                            pl={pl}
+                                            order={libraryItemOrder.get(`playlist:${pl.id}`)}
+                                            onOpen={handleOpenPlaylistDetail}
+                                            onMenu={handleOpenPlaylistMenu}
+                                          />
+                                          ))}
+                                        </div>
                                        <div ref={sentinelRef} style={{ height: 1 }} />
                                        </>
                                      )}
@@ -4050,10 +4220,12 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
               <FaPlay size={14} style={{ marginRight: "10px" }} />
               <span>播放</span>
             </div>
-            <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handlePlaylistMenuAction("pin", playlistMenu.playlist)}>
-              <FaArrowUp size={14} style={{ marginRight: "10px" }} />
-              <span>置顶</span>
-            </div>
+            {playlistMenu.playlist.id !== "liked" && playlistMenu.playlist.id !== "recent" && (
+              <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handlePlaylistMenuAction("pin", playlistMenu.playlist)}>
+                <FaArrowUp size={14} style={{ marginRight: "10px" }} />
+                <span>{playlistMenu.playlist.pinned ? "取消置顶" : "置顶"}</span>
+              </div>
+            )}
             <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handlePlaylistMenuAction("playNext", playlistMenu.playlist)}>
               <FaStepForward size={14} style={{ marginRight: "10px" }} />
               <span>插播</span>
@@ -4100,6 +4272,24 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
         </div>
       )}
 
+      {/* ===== 数据导入/导出取消确认 ===== */}
+      {dataCancelConfirm && (
+        <div style={{ ...styles.overlay, zIndex: 1500 }} onClick={() => setDataCancelConfirm(null)}>
+          <div style={styles.confirmDialog} onClick={(e) => e.stopPropagation()}>
+            <h3 style={styles.confirmTitle}>确认取消</h3>
+            <div style={styles.confirmDivider} />
+            <p style={styles.confirmText}>
+              确定要取消{dataCancelConfirm.kind === "export" ? "导出" : "导入"}数据吗？
+              {dataCancelConfirm.kind === "import" ? " 合并导入中已经完成的内容将会保留。" : ""}
+            </p>
+            <div style={styles.confirmActions}>
+              <button style={styles.confirmDeleteBtn} onClick={handleConfirmCancelDataJob}>确认取消</button>
+              <button style={styles.confirmCancelBtn} onClick={() => setDataCancelConfirm(null)}>继续执行</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ===== 新建 / 编辑播放列表对话框 ===== */}
       {showCreatePlaylist && (
         <div style={styles.overlay}>
@@ -4134,6 +4324,19 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
               onChange={(e) => setNewPlaylistDesc(e.target.value)}
               rows={3}
             />
+            <label style={styles.createToggleRow}>
+              <span style={styles.createToggleText}>启用封面样式</span>
+              <button
+                type="button"
+                style={{
+                  ...styles.createToggleSwitch,
+                  ...(newPlaylistCoverStyle ? styles.createToggleSwitchOn : {}),
+                }}
+                onClick={() => setNewPlaylistCoverStyle((v) => !v)}
+              >
+                <div style={{ ...styles.createToggleKnob, ...(newPlaylistCoverStyle ? styles.createToggleKnobOn : {}) }} />
+              </button>
+            </label>
             <div style={styles.createActions}>
               <button style={styles.confirmDeleteBtn} onClick={handlePlaylistFormSubmit}>
                 {editingPlaylistId ? "保存" : "创建"}
@@ -4283,6 +4486,7 @@ onArtistVisibilityChange={(value) => {
     setDetailArtistName(null);
   }
 }}
+        onDataJobStarted={handleDataJobStarted}
       />
 
       {/* ===== 匹配详情独立窗口 ===== */}
@@ -4335,7 +4539,7 @@ onArtistVisibilityChange={(value) => {
               },
             };
 
-            if (n.kind === "progress_import" || n.kind === "progress_match" || n.kind === "progress_album_match" || n.kind === "progress_update") {
+            if (n.kind === "progress_import" || n.kind === "progress_match" || n.kind === "progress_album_match" || n.kind === "progress_update" || n.kind === "progress_data") {
               return renderProgressCard(n, { key: n.id, style: anim, ...hoverProps });
             }
 
@@ -4426,7 +4630,7 @@ onArtistVisibilityChange={(value) => {
                 }
                 return sorted.map((n) => {
                   // 进行中的进度卡片：复用弹出区卡片（含取消 / 查看详情 / 专辑进度 / 更新资料库）
-                  if (n.ongoing && (n.kind === "progress_import" || n.kind === "progress_match" || n.kind === "progress_album_match" || n.kind === "progress_update")) {
+                  if (n.ongoing && (n.kind === "progress_import" || n.kind === "progress_match" || n.kind === "progress_album_match" || n.kind === "progress_update" || n.kind === "progress_data")) {
                     return renderProgressCard(n, { key: n.id, style: { width: "100%", maxWidth: "none" } });
                   }
                   const pct = n.progress && n.progress.total > 0
@@ -4887,6 +5091,17 @@ const styles = {
     background: "linear-gradient(135deg, #f9fafb, #f3f4f6)",
     fontSize: "48px",
   },
+  playlistCardOverlay: {
+    position: "absolute", inset: 0, zIndex: 2, opacity: 0.35, pointerEvents: "none",
+  },
+  playlistCardTitleOverlay: {
+    position: "absolute", right: "8px", bottom: "8px", left: "8px", zIndex: 3,
+    display: "flex", justifyContent: "flex-end",
+  },
+  playlistCardTitle: {
+    color: "#ffffff", fontSize: "25px", fontWeight: 600, textShadow: "0 1px 6px rgba(0,0,0,0.6)",
+    whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+  },
 
   // ---- 艺人视图 ----
   artistGrid: {
@@ -4940,7 +5155,8 @@ const styles = {
     cursor: "pointer", transition: "background 0.15s",
   },
     songTableRowActive: {
-    border: "1px solid rgba(233,69,96,0.2)",
+    background: "rgba(233,69,96,0.12)",
+    border: "1px solid rgba(233,69,96,0.25)",
   },
     // 列宽定义
             songColCheck: { width: "36px", flexShrink: 0, display: "flex", alignItems: "center" },
@@ -5751,6 +5967,24 @@ const styles = {
     boxSizing: "border-box", resize: "vertical",
     lineHeight: 1.5,
   },
+  createToggleRow: {
+    display: "flex", alignItems: "center", justifyContent: "space-between",
+    width: "100%", cursor: "pointer", marginTop: "4px",
+  },
+  createToggleText: { fontSize: "13px", color: "#374151", fontWeight: 500 },
+  createToggleSwitch: {
+    width: "40px", height: "22px", borderRadius: "11px",
+    border: "none", background: "#d1d5db", padding: "2px",
+    cursor: "pointer", position: "relative", transition: "background 0.2s",
+  },
+  createToggleSwitchOn: { background: "#e94560" },
+  createToggleKnob: {
+    width: "18px", height: "18px", borderRadius: "50%",
+    background: "#ffffff", boxShadow: "0 1px 3px rgba(0,0,0,0.25)",
+    position: "absolute", top: "2px", left: "2px",
+    transition: "transform 0.2s",
+  },
+  createToggleKnobOn: { transform: "translateX(18px)" },
   createActions: {
     display: "flex", gap: "10px", justifyContent: "flex-end", marginTop: "4px",
   },

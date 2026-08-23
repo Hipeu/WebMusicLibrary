@@ -81,7 +81,7 @@ def put_artist(data: dict = Body(...)):
         record["genres"] = data.get("genres") or []
     elif current.get("genres"):
         record["genres"] = current.get("genres")
-    for key in ("bio_source", "bio_source_id", "cover_source", "cover_source_id", "cover_position"):
+    for key in ("bio_source", "bio_source_id", "cover_source", "cover_source_id", "cover_position", "matched"):
         if key in data and data.get(key):
             record[key] = data.get(key)
         elif current.get(key):
