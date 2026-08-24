@@ -50,10 +50,10 @@ export default function Settings({ show, onClose, onReset, onSettingsSaved, matc
         {/* 右侧内容区（外层留白内缩滚动区，避开右上角 X 与窗口下边） */}
         <div style={styles.contentWrap}>
           <div style={styles.content}>
-            {active === "appearance" && <AppearancePanel onSettingsSaved={onSettingsSaved} onRefreshLibrary={onRefreshLibrary} onArtistVisibilityChange={onArtistVisibilityChange} />}
-            {active === "edit" && <EditPanel onSettingsSaved={onSettingsSaved} />}
+            {active === "appearance" && <AppearancePanel onSettingsSaved={onSettingsSaved} onRefreshLibrary={onRefreshLibrary} />}
+            {active === "edit" && <EditPanel onSettingsSaved={onSettingsSaved} onArtistVisibilityChange={onArtistVisibilityChange} />}
             {active === "match" && <MatchPanel matchState={matchState} onOpenMatchDetail={onOpenMatchDetail} onMatchStarted={onMatchStarted} onSettingsSaved={onSettingsSaved} onMatchNothing={onMatchNothing} />}
-            {active === "data" && <DataPanel onReset={onReset} onDataJobStarted={onDataJobStarted} />}
+            {active === "data" && <DataPanel onReset={onReset} onDataJobStarted={onDataJobStarted} onSettingsSaved={onSettingsSaved} />}
             {active === "about" && <AboutPanel />}
           </div>
         </div>
@@ -65,7 +65,7 @@ export default function Settings({ show, onClose, onReset, onSettingsSaved, matc
 /* ================================================================
    📦 外观设置面板
    ================================================================ */
-function AppearancePanel({ onSettingsSaved, onRefreshLibrary, onArtistVisibilityChange }) {
+function AppearancePanel({ onSettingsSaved, onRefreshLibrary }) {
   const [theme, setTheme] = useState(
     localStorage.getItem("app-theme") || "light"
   );
@@ -105,10 +105,6 @@ function AppearancePanel({ onSettingsSaved, onRefreshLibrary, onArtistVisibility
         ))}
       </div>
 
-      <ImportSettings onSettingsSaved={onSettingsSaved} />
-
-       <ArtistSettings onSettingsSaved={onSettingsSaved} onArtistVisibilityChange={onArtistVisibilityChange} />
-
       <RefreshLibrary onRefreshLibrary={onRefreshLibrary} />
     </div>
   );
@@ -141,6 +137,9 @@ function ArtistSettings({ onSettingsSaved, onArtistVisibilityChange }) {
   const [hideEmpty, setHideEmpty] = useState(
     () => localStorage.getItem("artist-hide-empty") !== "false"
   );
+  const [autoOrganizeCollab, setAutoOrganizeCollab] = useState(
+    () => localStorage.getItem("edit-auto-organize-collab") !== "false"
+  );
 
   function handleToggleKeepEmpty() {
     const next = !keepEmpty;
@@ -154,6 +153,13 @@ function ArtistSettings({ onSettingsSaved, onArtistVisibilityChange }) {
     setHideEmpty(next);
     localStorage.setItem("artist-hide-empty", String(next));
     onArtistVisibilityChange?.(next);
+    onSettingsSaved?.();
+  }
+
+  function handleToggleAutoOrganizeCollab() {
+    const next = !autoOrganizeCollab;
+    setAutoOrganizeCollab(next);
+    localStorage.setItem("edit-auto-organize-collab", String(next));
     onSettingsSaved?.();
   }
 
@@ -194,6 +200,19 @@ function ArtistSettings({ onSettingsSaved, onArtistVisibilityChange }) {
           <div style={{ ...panelStyles.toggleKnob, ...(hideEmpty ? panelStyles.toggleKnobOn : {}) }} />
         </button>
       </div>
+      <div style={panelStyles.toggleRow}>
+        <div style={panelStyles.toggleText}>
+          <p style={panelStyles.toggleTitle}>自动整理合作艺人</p>
+          <p style={panelStyles.toggleDesc}>开启后，导入、编辑和匹配写入时把多位艺人统一为「A & B & C」格式</p>
+        </div>
+        <button
+          style={{ ...panelStyles.toggleSwitch, ...(autoOrganizeCollab ? panelStyles.toggleSwitchOn : {}) }}
+          onClick={handleToggleAutoOrganizeCollab}
+          title={autoOrganizeCollab ? "点击关闭" : "点击开启"}
+        >
+          <div style={{ ...panelStyles.toggleKnob, ...(autoOrganizeCollab ? panelStyles.toggleKnobOn : {}) }} />
+        </button>
+      </div>
     </div>
   );
 }
@@ -201,15 +220,15 @@ function ArtistSettings({ onSettingsSaved, onArtistVisibilityChange }) {
 /* ================================================================
    ✏️ 编辑设置面板 — 编辑音乐信息时的默认行为
    ================================================================ */
-function EditPanel({ onSettingsSaved }) {
+function EditPanel({ onSettingsSaved, onArtistVisibilityChange }) {
   const [publisherCopyright, setPublisherCopyright] = useState(
     () => localStorage.getItem("edit-publisher-copyright") !== "false"
   );
   const [deleteToTrash, setDeleteToTrash] = useState(
     () => localStorage.getItem("delete-to-trash") === "1"
   );
-  const [autoOrganizeCollab, setAutoOrganizeCollab] = useState(
-    () => localStorage.getItem("edit-auto-organize-collab") !== "false"
+  const [skipUnplayable, setSkipUnplayable] = useState(
+    () => localStorage.getItem("import-skip-unplayable") !== "false"
   );
 
   function handleTogglePublisherCopyright() {
@@ -226,10 +245,10 @@ function EditPanel({ onSettingsSaved }) {
     onSettingsSaved?.();
   }
 
-  function handleToggleAutoOrganizeCollab() {
-    const next = !autoOrganizeCollab;
-    setAutoOrganizeCollab(next);
-    localStorage.setItem("edit-auto-organize-collab", String(next));
+  function handleToggleSkipUnplayable() {
+    const next = !skipUnplayable;
+    setSkipUnplayable(next);
+    localStorage.setItem("import-skip-unplayable", String(next));
     onSettingsSaved?.();
   }
 
@@ -237,6 +256,8 @@ function EditPanel({ onSettingsSaved }) {
     <div style={panelStyles.container}>
       <h3 style={panelStyles.title}>编辑</h3>
       <p style={panelStyles.desc}>编辑音乐信息时的默认行为</p>
+      <div style={{ marginTop: "28px" }}>
+        <h3 style={panelStyles.title}>音乐设置</h3>
       <div style={panelStyles.toggleRow}>
         <div style={panelStyles.toggleText}>
           <p style={panelStyles.toggleTitle}>编辑发布者默认携带发布符号和日期</p>
@@ -281,25 +302,19 @@ function EditPanel({ onSettingsSaved }) {
       </div>
       <div style={panelStyles.toggleRow}>
         <div style={panelStyles.toggleText}>
-          <p style={panelStyles.toggleTitle}>自动整理合作艺人</p>
-          <p style={panelStyles.toggleDesc}>开启后，导入、编辑和匹配写入时把多位艺人统一为「A & B & C」格式</p>
+          <p style={panelStyles.toggleTitle}>导入不支持播放的格式时跳过导入</p>
+          <p style={panelStyles.toggleDesc}>开启后，导入时会自动跳过浏览器无法播放的格式（如 ALAC / APE 等）</p>
         </div>
         <button
-          style={{
-            ...panelStyles.toggleSwitch,
-            ...(autoOrganizeCollab ? panelStyles.toggleSwitchOn : {}),
-          }}
-          onClick={handleToggleAutoOrganizeCollab}
-          title={autoOrganizeCollab ? "点击关闭" : "点击开启"}
+          style={{ ...panelStyles.toggleSwitch, ...(skipUnplayable ? panelStyles.toggleSwitchOn : {}) }}
+          onClick={handleToggleSkipUnplayable}
+          title={skipUnplayable ? "点击关闭" : "点击开启"}
         >
-          <div
-            style={{
-              ...panelStyles.toggleKnob,
-              ...(autoOrganizeCollab ? panelStyles.toggleKnobOn : {}),
-            }}
-          />
+          <div style={{ ...panelStyles.toggleKnob, ...(skipUnplayable ? panelStyles.toggleKnobOn : {}) }} />
         </button>
       </div>
+      </div>
+      <ArtistSettings onSettingsSaved={onSettingsSaved} onArtistVisibilityChange={onArtistVisibilityChange} />
     </div>
   );
 }
@@ -674,18 +689,6 @@ function ImportSettings({ onSettingsSaved }) {
   const [error, setError] = useState("");
   const [migrating, setMigrating] = useState(false);
   const [migProgress, setMigProgress] = useState({ done: 0, total: 0 });
-  // 导入时跳过不支持播放的格式（localStorage 持久化，默认开启）
-  const [skipUnplayable, setSkipUnplayable] = useState(
-    () => localStorage.getItem("import-skip-unplayable") !== "false"
-  );
-
-  function handleToggleSkipUnplayable() {
-    const next = !skipUnplayable;
-    setSkipUnplayable(next);
-    localStorage.setItem("import-skip-unplayable", String(next));
-    onSettingsSaved?.();
-  }
-
   async function handleConfirm() {
     const p = pathInput.trim();
     if (!p) {
@@ -744,32 +747,11 @@ function ImportSettings({ onSettingsSaved }) {
   return (
     <>
       <div style={{ marginTop: "28px" }}>
-        <h3 style={panelStyles.title}>导入设置</h3>
+            <h3 style={panelStyles.title}>资料库位置</h3>
         <div style={panelStyles.locationRow}>
           <p style={panelStyles.locationDesc}>修改音乐资料库的存放位置</p>
           <button style={panelStyles.modifyBtn} onClick={() => setShowDialog(true)}>
             修改
-          </button>
-        </div>
-        <div style={panelStyles.toggleRow}>
-          <div style={panelStyles.toggleText}>
-            <p style={panelStyles.toggleTitle}>导入不支持播放的格式时跳过导入</p>
-            <p style={panelStyles.toggleDesc}>开启后，导入时会自动跳过浏览器无法播放的格式（如 ALAC / APE 等）</p>
-          </div>
-          <button
-            style={{
-              ...panelStyles.toggleSwitch,
-              ...(skipUnplayable ? panelStyles.toggleSwitchOn : {}),
-            }}
-            onClick={handleToggleSkipUnplayable}
-            title={skipUnplayable ? "点击关闭" : "点击开启"}
-          >
-            <div
-              style={{
-                ...panelStyles.toggleKnob,
-                ...(skipUnplayable ? panelStyles.toggleKnobOn : {}),
-              }}
-            />
           </button>
         </div>
       </div>
@@ -860,7 +842,7 @@ function InfoRow({ label, value }) {
 /* ================================================================
    🗑️ 重置面板
    ================================================================ */
-function DataPanel({ onReset, onDataJobStarted }) {
+function DataPanel({ onReset, onDataJobStarted, onSettingsSaved }) {
   const [confirming, setConfirming] = useState(false);
   const [confirmText, setConfirmText] = useState("");
   const [importFile, setImportFile] = useState(null);
@@ -941,7 +923,9 @@ function DataPanel({ onReset, onDataJobStarted }) {
     <>
       <div style={panelStyles.container}>
         <h3 style={panelStyles.title}>数据</h3>
-        <p style={panelStyles.desc}>导入、导出或重置音乐资料库数据</p>
+        <p style={panelStyles.desc}>管理资料库的备份、恢复与存放位置</p>
+        <div style={{ marginTop: "28px" }}>
+          <h3 style={panelStyles.title}>备份和恢复</h3>
         <div style={panelStyles.locationRow}>
           <p style={panelStyles.locationDesc}>导出音乐、封面、歌词、艺人、简介、播放列表及应用设置为 ZIP 备份包</p>
           <button style={panelStyles.modifyBtn} onClick={() => { setError(""); setExportOpen(true); }}>导出数据</button>
@@ -961,6 +945,8 @@ function DataPanel({ onReset, onDataJobStarted }) {
             </button>
           </div>
         </div>
+        </div>
+        <ImportSettings onSettingsSaved={onSettingsSaved} />
       </div>
 
       {confirming && (

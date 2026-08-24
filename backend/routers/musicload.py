@@ -476,6 +476,7 @@ def list_music():
                     continue
 
                 canonical_artist, canonical_album = artist_dir, album_dir
+                has_track_metadata = False
                 # 歌曲元信息保留原始名称，优先用它避免文件夹名被清理后的显示差异。
                 for metadata_file in sorted(os.listdir(album_path)):
                     if not metadata_file.lower().endswith(".json") or metadata_file == "album.json":
@@ -483,12 +484,18 @@ def list_music():
                     try:
                         with open(os.path.join(album_path, metadata_file), "r", encoding="utf-8") as mf:
                             metadata = json.load(mf)
+                        has_track_metadata = True
                         canonical_artist = metadata.get("album_artist") or metadata.get("artist") or canonical_artist
                         canonical_album = metadata.get("album") or canonical_album
                         break
                     except Exception:
                         continue
 
+                # 仅剩 album.json 的目录是外部删除歌曲后留下的孤立简介，
+                # 不能将其重新生成为空专辑；已有清单分组则仍允许补充简介/封面。
+                has_existing_group = canonical_artist in groups and canonical_album in groups[canonical_artist]
+                if not has_track_metadata and not has_existing_group:
+                    continue
                 g = ensure_group(canonical_artist, canonical_album)
                 description = read_album_description(album_path)
                 if description is not None and g["description"] is None:
