@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 
+# Python 运行时缓存（不包含任何源码，不纳入版本控制）
+__pycache__/
+*.py[cod]
+
 # 删除的音乐移入的回收文件夹（本地保留，不纳入版本控制）
 trash/
 

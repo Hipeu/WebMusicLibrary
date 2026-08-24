@@ -1,8 +1,10 @@
 import { FaPause, FaPlay, FaTimes } from "react-icons/fa";
 import { isPlaceholderPublisher } from "../utils/formatCheck";
 
-export default function AlbumDescriptionModal({ album, isPlaying, themeColor, onPlayAlbum, onClose }) {
-  if (!album) return null;
+export default function AlbumDescriptionModal({ album, playlist, isPlaying, themeColor, onPlayAlbum, onPlayPlaylist, onClose }) {
+  const item = playlist || album;
+  const isPlaylist = !!playlist;
+  if (!item) return null;
 
   return (
     <div style={styles.overlay} onClick={onClose}>
@@ -20,20 +22,20 @@ export default function AlbumDescriptionModal({ album, isPlaying, themeColor, on
           }}
         >
           <div style={styles.coverWrap}>
-            {album.coverURL ? (
-              <img src={album.coverURL} alt={album.title} style={styles.cover} />
+            {item.coverURL ? (
+              <img src={item.coverURL} alt={item.title || item.name} style={styles.cover} />
             ) : (
               <div style={styles.coverPlaceholder}>🎶</div>
             )}
           </div>
           <div style={styles.headerInfo}>
-            <h2 style={styles.title}>{album.title}</h2>
-            <p style={styles.artist}>{album.artist || "未知艺人"}</p>
-            <p style={styles.meta}>
-              {album.year ? `${album.year}年` : "未知年份"}
-              {album.genre ? ` · ${album.genre}` : ""}
-            </p>
-            {album.publisher && !isPlaceholderPublisher(album.publisher) && <p style={styles.publisher}>{album.publisher}</p>}
+            <h2 style={styles.title}>{item.title || item.name}</h2>
+            <p style={styles.artist}>{isPlaylist ? `${item.songs?.length || 0} 首歌曲` : (item.artist || "未知艺人")}</p>
+            {!isPlaylist && <p style={styles.meta}>
+              {item.year ? `${item.year}年` : "未知年份"}
+              {item.genre ? ` · ${item.genre}` : ""}
+            </p>}
+            {!isPlaylist && item.publisher && !isPlaceholderPublisher(item.publisher) && <p style={styles.publisher}>{item.publisher}</p>}
             <button
               type="button"
               style={{
@@ -43,7 +45,7 @@ export default function AlbumDescriptionModal({ album, isPlaying, themeColor, on
                   boxShadow: `0 6px 20px ${themeColor}55`,
                 } : {}),
               }}
-              onClick={onPlayAlbum}
+              onClick={isPlaylist ? onPlayPlaylist : onPlayAlbum}
               title={isPlaying ? "暂停" : "播放"}
               aria-label={isPlaying ? "暂停" : "播放"}
             >
@@ -53,8 +55,8 @@ export default function AlbumDescriptionModal({ album, isPlaying, themeColor, on
         </div>
 
         <div style={styles.body}>
-          <h3 style={styles.sectionTitle}>专辑简介</h3>
-          <p style={styles.description}>{album.description || "暂无简介"}</p>
+          <h3 style={styles.sectionTitle}>{isPlaylist ? "播放列表简介" : "专辑简介"}</h3>
+          <p style={styles.description}>{item.description || "暂无简介"}</p>
 
         </div>
       </div>

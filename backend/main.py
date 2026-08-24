@@ -11,6 +11,7 @@ from routers.Settings import router as settings_router
 from routers.Artists import router as artists_router
 from routers.Match import router as match_router
 from routers.Backup import router as backup_router
+from routers.Smart import router as smart_router
 from services.library_config import get_library_path
 
 app = FastAPI()
@@ -32,6 +33,7 @@ app.include_router(settings_router)
 app.include_router(artists_router)
 app.include_router(match_router)
 app.include_router(backup_router)
+app.include_router(smart_router)
 
 # 数据备份目录（封面 / 歌词 / 元信息）
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

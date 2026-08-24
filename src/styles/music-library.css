@@ -60,6 +60,9 @@
   from { opacity: 0; }
   to { opacity: 0.9; }
 }
+@keyframes smartActivitySpin {
+  to { transform: rotate(360deg); }
+}
 /* 右上角弹窗：从浏览器右侧滑入 */
 @keyframes slideInRight {
   from { transform: translateX(120%); }
@@ -891,4 +894,3 @@ html[data-theme="dark"] .player-detail-overlay .detailBackBtn {
     padding: 30px 40px 40px !important;
   }
 }
-

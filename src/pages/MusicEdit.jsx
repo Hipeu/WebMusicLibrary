@@ -1,6 +1,6 @@
 import { startTransition, useState, useEffect, useMemo, useRef } from "react";
-import { FaImage, FaMusic, FaPlus, FaClock, FaCodeBranch, FaCalendarAlt, FaLink, FaChevronDown } from "react-icons/fa";
-import { matchSong, updateMusicMetadata } from "../services/api";
+import { FaImage, FaMusic, FaPlus, FaClock, FaCodeBranch, FaCalendarAlt, FaLink, FaChevronDown, FaRobot } from "react-icons/fa";
+import { matchSong } from "../services/api";
 import LyricImport from "../components/LyricImport";
 import MatchResultPicker from "../components/MatchResultPicker";
 import AlbumMatchPicker from "../components/AlbumMatchPicker";
@@ -11,7 +11,7 @@ import { splitArtists } from "../utils/artistSplit";
    ✏️ MusicEdit — 编辑音乐元信息弹窗
    右上角「匹配」：歌曲匹配填入表单 / 专辑匹配逐首写回
    ================================================================ */
-export default function MusicEdit({ target, onClose, onSave, onRefresh, onAlbumMatchProgress, onAlbumMatchSaved, onMatchError, onBackgroundAlbumMatch, albums, artistRecords }) {
+export default function MusicEdit({ target, onClose, onSave, onMatchError, onBackgroundAlbumMatch, onSmartSuggestion, smartAvailable, albums, artistRecords }) {
   const [form, setForm] = useState({});
   const [editCover, setEditCover] = useState(null);
   const [editCoverFile, setEditCoverFile] = useState(null);
@@ -23,6 +23,8 @@ export default function MusicEdit({ target, onClose, onSave, onRefresh, onAlbumM
   const [lastSource, setLastSource] = useState(null);
   const [showSongPicker, setShowSongPicker] = useState(false);
   const [showAlbumPicker, setShowAlbumPicker] = useState(false);
+  const [showSmartSuggestion, setShowSmartSuggestion] = useState(false);
+  const [smartSuggestion, setSmartSuggestion] = useState(null);
   const [lyricImportOpen, setLyricImportOpen] = useState(false);
   const coverInputRef = useRef(null);
   const artistInputRef = useRef(null);
@@ -234,6 +236,24 @@ export default function MusicEdit({ target, onClose, onSave, onRefresh, onAlbumM
     setForm((prev) => ({ ...prev, [field]: value }));
   }
 
+  function handleSmartSuggestion() {
+    const kind = isAlbum ? "album_suggestion" : "song_suggestion";
+    const payload = isAlbum
+      ? { album: { ...form, songs: (data?.songs || []).slice(0, 2000).map((song) => ({ title: song.title, artist: song.artist, album: song.album, year: song.year, genre: song.genre, trackNo: song.trackNo, discNo: song.discNo })) } }
+      : { song: { ...form, file_path: data?.file_path || "" } };
+    onSmartSuggestion?.(kind, payload, (result) => {
+      setSmartSuggestion(result);
+      setShowSmartSuggestion(true);
+    });
+  }
+
+  function applySmartSuggestion() {
+    if (!smartSuggestion) return;
+    setForm((prev) => ({ ...prev, ...Object.fromEntries(Object.entries(smartSuggestion).filter(([, value]) => value !== null && value !== undefined && value !== "")) }));
+    setMatchMsg("已应用智能建议，请确认后保存");
+    setShowSmartSuggestion(false);
+  }
+
   function handleCoverSelect(e) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -265,6 +285,9 @@ export default function MusicEdit({ target, onClose, onSave, onRefresh, onAlbumM
           <FaLink size={13} style={{ marginRight: 6 }} />
           {matching ? "匹配中…" : (didMatch || albumDidMatch) ? "✔已匹配" : (isAlbum ? "匹配专辑" : "匹配")}
         </button>
+        {smartAvailable && <button style={styles.smartBtn} onClick={handleSmartSuggestion} title="由默认智能供应商补充文字信息">
+          <FaRobot size={13} style={{ marginRight: 6 }} />智能建议
+        </button>}
         {matchMsg && <p style={styles.matchMsg}>{matchMsg}</p>}
 
         {/* 上半部分：封面 + 标题 + 艺人 */}
@@ -562,6 +585,19 @@ export default function MusicEdit({ target, onClose, onSave, onRefresh, onAlbumM
           />
         )}
 
+        {showSmartSuggestion && (
+          <div style={styles.suggestionOverlay}>
+            <div style={styles.suggestionDialog}>
+              <h4 style={{ margin: "0 0 10px", color: "#1f2937" }}>智能建议</h4>
+              <p style={{ margin: "0 0 12px", color: "#6b7280", fontSize: "13px" }}>确认后将回填到编辑表单，仍需点击“保存”才会写入资料库。</p>
+              <div style={styles.suggestionContent}>
+                {Object.entries(smartSuggestion || {}).map(([key, value]) => <div key={key} style={styles.suggestionRow}><span>{smartFieldLabel(key)}</span><strong>{String(value)}</strong></div>)}
+              </div>
+              <div style={{ ...styles.footer, padding: "14px 0 0" }}><button style={styles.cancelBtn} onClick={() => setShowSmartSuggestion(false)}>取消</button><button style={styles.saveBtn} onClick={applySmartSuggestion}>使用建议</button></div>
+            </div>
+          </div>
+        )}
+
         {/* 自动补全下拉（向上弹出） */}
         {openField === "artist" && (
           <SuggestionDropdown
@@ -608,6 +644,10 @@ function matchSourceLabel(source) {
   const LABELS = { qq: "QQ音乐", itunes: "iTunes", musicbrainz: "MusicBrainz", netease: "网易云音乐" };
   const parts = String(source).split(/[^\w]+/).map((s) => s.trim()).filter(Boolean);
   return parts.map((s) => LABELS[s] || s).join(" / ");
+}
+
+function smartFieldLabel(key) {
+  return ({ title: "标题", artist: "艺人", album: "专辑", album_artist: "专辑艺人", year: "年份", genre: "流派", trackNo: "曲序", discNo: "碟序", composer: "作曲", lyricist: "作词", publisher: "发布者", comment: "备注", description: "简介" })[key] || key;
 }
 
 /** 发布者预输入：设置「编辑发布者默认携带发布符号和日期」开启且有年份时，返回 "℗ 年份 "，否则空字符串 */
@@ -663,6 +703,11 @@ const styles = {
     cursor: "pointer",
     fontFamily: "inherit",
   },
+  smartBtn: {
+    position: "absolute", top: "14px", right: "122px", zIndex: 10,
+    display: "inline-flex", alignItems: "center", padding: "7px 14px", borderRadius: "16px",
+    border: "1px solid #e94560", background: "#fff5f6", color: "#d93651", fontSize: "13px", fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+  },
   matchMsg: {
     position: "absolute",
     top: "58px",
@@ -677,6 +722,10 @@ const styles = {
     border: "1px solid #f3f4f6",
     boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
   },
+  suggestionOverlay: { position: "absolute", inset: 0, zIndex: 30, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(17,24,39,0.42)", borderRadius: "14px" },
+  suggestionDialog: { width: "430px", maxWidth: "calc(100% - 36px)", maxHeight: "70vh", overflow: "auto", background: "#fff", padding: "20px", borderRadius: "12px", boxShadow: "0 16px 40px rgba(0,0,0,.25)" },
+  suggestionContent: { border: "1px solid #f1d1d6", borderRadius: "10px", overflow: "hidden" },
+  suggestionRow: { display: "grid", gridTemplateColumns: "100px 1fr", gap: "10px", padding: "9px 12px", borderBottom: "1px solid #f5f5f5", fontSize: "13px", color: "#4b5563" },
 
   /* 上半部分 */
   topSection: {

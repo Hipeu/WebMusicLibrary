@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef } from "react";
-import { FaSlidersH, FaLink, FaDatabase, FaInfoCircle, FaTimes, FaPen, FaFileImport } from "react-icons/fa";
-import { saveSettings, getMigrationStatus, matchAll, cancelMatchAll, startDataExport, startDataImport, inspectDataImport } from "../services/api";
+import { FaSlidersH, FaLink, FaDatabase, FaInfoCircle, FaTimes, FaPen, FaFileImport, FaRobot, FaPlus, FaPencilAlt, FaTrashAlt } from "react-icons/fa";
+import { SiDeepseek } from "react-icons/si";
+import { saveSettings, getMigrationStatus, matchAll, cancelMatchAll, startDataExport, startDataImport, inspectDataImport, getSmartProviders, testSmartProvider, saveSmartProvider, toggleSmartProvider, deleteSmartProvider } from "../services/api";
 
 /* ================================================================
    ⚙️ Settings — 设置悬浮窗口
    左侧功能栏 + 右侧内容区
    ================================================================ */
-export default function Settings({ show, onClose, onReset, onSettingsSaved, matchState, onOpenMatchDetail, onMatchStarted, onRefreshLibrary, onArtistVisibilityChange, onMatchNothing, onDataJobStarted }) {
+export default function Settings({ show, onClose, onReset, onSettingsSaved, matchState, onOpenMatchDetail, onMatchStarted, onRefreshLibrary, onArtistVisibilityChange, onMatchNothing, onDataJobStarted, onSmartProvidersChanged }) {
   const [active, setActive] = useState("appearance");
 
   if (!show) return null;
@@ -15,6 +16,7 @@ export default function Settings({ show, onClose, onReset, onSettingsSaved, matc
     { id: "appearance", label: "通用设置", icon: <FaSlidersH /> },
     { id: "edit", label: "编辑", icon: <FaPen /> },
     { id: "match", label: "匹配", icon: <FaLink /> },
+    { id: "smart", label: "智能", icon: <FaRobot /> },
     { id: "data", label: "数据", icon: <FaDatabase /> },
     { id: "about", label: "关于", icon: <FaInfoCircle /> },
   ];
@@ -53,6 +55,7 @@ export default function Settings({ show, onClose, onReset, onSettingsSaved, matc
             {active === "appearance" && <AppearancePanel onSettingsSaved={onSettingsSaved} onRefreshLibrary={onRefreshLibrary} />}
             {active === "edit" && <EditPanel onSettingsSaved={onSettingsSaved} onArtistVisibilityChange={onArtistVisibilityChange} />}
             {active === "match" && <MatchPanel matchState={matchState} onOpenMatchDetail={onOpenMatchDetail} onMatchStarted={onMatchStarted} onSettingsSaved={onSettingsSaved} onMatchNothing={onMatchNothing} />}
+            {active === "smart" && <SmartPanel onProvidersChanged={onSmartProvidersChanged} />}
             {active === "data" && <DataPanel onReset={onReset} onDataJobStarted={onDataJobStarted} onSettingsSaved={onSettingsSaved} />}
             {active === "about" && <AboutPanel />}
           </div>
@@ -332,6 +335,82 @@ const MATCH_FIELDS = [
 const MATCH_SOURCES = [
   ["qq", "QQ音乐"], ["netease", "网易云音乐"], ["itunes", "iTunes"], ["musicbrainz", "MusicBrainz"],
 ];
+
+/* ================================================================
+   🤖 智能设置 — 本机后端保存 API Key，不参与数据备份
+   ================================================================ */
+function SmartPanel({ onProvidersChanged }) {
+  const [providers, setProviders] = useState([]);
+  const [editor, setEditor] = useState(null);
+  const [apiKey, setApiKey] = useState("");
+  const [models, setModels] = useState([]);
+  const [model, setModel] = useState("");
+  const [tested, setTested] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [message, setMessage] = useState("");
+
+  const defaults = { openai: "gpt-5.6-lunna", deepseek: "deepseek-v4-flash" };
+  const names = { openai: "ChatGPT", deepseek: "DeepSeek" };
+  const refresh = async () => {
+    try {
+      const next = (await getSmartProviders()).providers || [];
+      setProviders(next);
+      onProvidersChanged?.(next);
+    } catch { setMessage("无法读取智能供应商配置"); }
+  };
+  // 供应商列表仅在智能设置面板挂载时读取一次；保存、删除、开关后会显式 refresh。
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { const timer = setTimeout(refresh, 0); return () => clearTimeout(timer); }, []);
+  const openEditor = (kind) => {
+    const found = providers.find((item) => item.id === kind);
+    setEditor(kind); setApiKey(""); setModels([]); setModel(found?.model || defaults[kind]); setMessage(""); setTested(false);
+  };
+  const testConnection = async () => {
+    if (!apiKey.trim()) { setMessage("请输入 API Key"); return; }
+    setTesting(true); setMessage("");
+    try {
+      const result = await testSmartProvider({ provider: editor, api_key: apiKey, model });
+      const nextModels = result.models || [];
+      setModels(nextModels);
+      setTested(!!result.model_available);
+      setMessage(result.model_available ? "连接测试成功" : "API Key 已连接，但当前模型不可用，请选择其他模型");
+    } catch { setMessage("连接测试失败，请检查 API Key 和网络"); }
+    finally { setTesting(false); }
+  };
+  const save = async () => {
+    if (!apiKey.trim()) { setMessage("修改时请重新输入 API Key"); return; }
+    if (!tested) { setMessage("请先通过连接测试，并选择可用模型"); return; }
+    try {
+      await saveSmartProvider(editor, { api_key: apiKey, model, connected: true, enabled: true, make_default: true });
+      setEditor(null); await refresh();
+    } catch { setMessage("保存失败"); }
+  };
+
+  return <div style={panelStyles.container}>
+    <h3 style={panelStyles.title}>智能</h3>
+    <p style={panelStyles.desc}>连接 AI 服务以生成歌单、简介和元信息建议。</p>
+    <p style={panelStyles.desc}>使用对应服务即你同意相应服务商条款。</p>
+    <button style={smartStyles.addBtn} onClick={() => setEditor("choose")}><FaPlus size={12} /> 添加</button>
+    <div style={smartStyles.providerList}>
+      {providers.map((item) => <div key={item.id} style={smartStyles.providerRow}>
+        {item.id === "deepseek" ? <SiDeepseek size={19} color="#4d6bfe" /> : <FaRobot size={19} color="#e94560" />}
+        <span style={smartStyles.providerName}>{item.name}{item.is_default ? "（默认）" : ""}</span>
+        <button style={smartStyles.iconBtn} onClick={() => openEditor(item.id)} title="编辑"><FaPencilAlt size={12} /></button>
+        <span style={{ ...smartStyles.status, color: item.connected ? "#16a34a" : "#dc2626" }}>● {item.connected ? "已连接" : "已断开"}</span>
+        <button style={{ ...panelStyles.toggleSwitch, ...(item.enabled ? panelStyles.toggleSwitchOn : {}) }} onClick={async () => { await toggleSmartProvider(item.id, !item.enabled); refresh(); }}><span style={{ ...panelStyles.toggleKnob, ...(item.enabled ? panelStyles.toggleKnobOn : {}) }} /></button>
+      </div>)}
+    </div>
+    {editor && <div style={resetDialogStyles.overlay} onClick={() => setEditor(null)}><div style={resetDialogStyles.box} onClick={(e) => e.stopPropagation()}>
+      <h3 style={resetDialogStyles.title}>{editor === "choose" ? "添加智能供应商" : `编辑 ${names[editor]}`}</h3><div style={resetDialogStyles.divider} />
+      {editor === "choose" ? <div style={smartStyles.choices}>{["openai", "deepseek"].map((kind) => <button key={kind} style={smartStyles.choiceBtn} onClick={() => openEditor(kind)}>{names[kind]}</button>)}</div> : <>
+        <label style={smartStyles.fieldLabel}>API Key</label><input type="password" style={dataStyles.confirmInput} value={apiKey} onChange={(e) => { setApiKey(e.target.value); setTested(false); }} placeholder="输入 API Key" />
+        <label style={smartStyles.fieldLabel}>模型</label>{models.length ? <select style={dataStyles.confirmInput} value={model} onChange={(e) => { setModel(e.target.value); setTested(true); }}>{models.map((item) => <option key={item}>{item}</option>)}</select> : <input style={dataStyles.confirmInput} value={model} onChange={(e) => { setModel(e.target.value); setTested(false); }} />}
+        {message && <p style={dataStyles.hint}>{message}</p>}
+        <div style={{ ...resetDialogStyles.actions, marginTop: "20px" }}><button style={resetDialogStyles.cancelBtn} onClick={testConnection} disabled={testing}>{testing ? "测试中…" : "测试连接"}</button><button style={resetDialogStyles.confirmBtn} onClick={save}>保存</button><button style={smartStyles.deleteBtn} onClick={async () => { await deleteSmartProvider(editor); setEditor(null); refresh(); }}><FaTrashAlt /> 删除</button></div>
+      </>}
+    </div></div>}
+  </div>;
+}
 
 function MatchPanel({ matchState, onOpenMatchDetail, onMatchStarted, onSettingsSaved, onMatchNothing }) {
   // 元信息字段开关（localStorage 持久化，默认全开）
@@ -1509,6 +1588,19 @@ const dataStyles = {
   sectionLabel: { margin: "18px 0 0", fontSize: "14px", fontWeight: 600, color: "#1f2937" },
   hint: { margin: "10px 0 0", fontSize: "13px", color: "#6b7280" },
   error: { margin: "10px 0 0", color: "#dc2626", fontSize: "13px" },
+};
+
+const smartStyles = {
+  addBtn: { display: "inline-flex", alignItems: "center", gap: "7px", marginTop: "16px", padding: "8px 14px", border: "none", borderRadius: "18px", background: "#e94560", color: "#fff", cursor: "pointer", fontFamily: "inherit", fontWeight: 600 },
+  providerList: { display: "flex", flexDirection: "column", gap: "10px", marginTop: "16px" },
+  providerRow: { display: "flex", alignItems: "center", gap: "10px", padding: "12px", border: "1px solid #e5e7eb", borderRadius: "10px" },
+  providerName: { flex: 1, fontWeight: 600, color: "#1f2937" },
+  status: { fontSize: "13px", whiteSpace: "nowrap" },
+  iconBtn: { border: "none", background: "transparent", color: "#6b7280", cursor: "pointer" },
+  choices: { display: "flex", gap: "12px", marginTop: "18px" },
+  choiceBtn: { flex: 1, padding: "18px", border: "1px solid #e5e7eb", borderRadius: "10px", background: "#fff", cursor: "pointer", fontSize: "15px", fontWeight: 600, color: "#374151" },
+  fieldLabel: { display: "block", margin: "14px 0 6px", fontSize: "13px", fontWeight: 600, color: "#374151" },
+  deleteBtn: { display: "inline-flex", alignItems: "center", gap: "5px", border: "none", background: "transparent", color: "#dc2626", cursor: "pointer", fontFamily: "inherit" },
 };
 
 const dialogStyles = {

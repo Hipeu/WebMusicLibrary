@@ -199,6 +199,42 @@ export async function saveAppSettings(settings) {
   return res.json();
 }
 
+// 智能功能（供应商密钥仅保存在后端，本接口不会返回密钥）
+export async function getSmartProviders() {
+  const res = await fetch(`${BASE_URL}/api/smart/providers`);
+  return res.json();
+}
+export async function testSmartProvider(payload) {
+  const res = await fetch(`${BASE_URL}/api/smart/providers/test`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  return res.json();
+}
+export async function saveSmartProvider(kind, payload) {
+  const res = await fetch(`${BASE_URL}/api/smart/providers/${kind}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  return res.json();
+}
+export async function toggleSmartProvider(kind, enabled) {
+  const res = await fetch(`${BASE_URL}/api/smart/providers/${kind}/toggle`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled }) });
+  return res.json();
+}
+export async function deleteSmartProvider(kind) {
+  const res = await fetch(`${BASE_URL}/api/smart/providers/${kind}`, { method: "DELETE" });
+  return res.json();
+}
+export async function startSmartJob(kind, payload) {
+  const res = await fetch(`${BASE_URL}/api/smart/jobs`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind, payload }) });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.detail || "智能任务启动失败");
+  return data;
+}
+export async function getSmartJob(jobId) {
+  const res = await fetch(`${BASE_URL}/api/smart/jobs/${jobId}`);
+  return res.json();
+}
+export async function cancelSmartJob(jobId) {
+  const res = await fetch(`${BASE_URL}/api/smart/jobs/${jobId}/cancel`, { method: "POST" });
+  return res.json();
+}
+
 /** 获取资料库迁移进度 */
 export async function getMigrationStatus() {
   const res = await fetch(`${BASE_URL}/api/settings/migration`);
@@ -391,6 +427,14 @@ export default {
   getSettings,
   saveSettings,
   saveAppSettings,
+  getSmartProviders,
+  testSmartProvider,
+  saveSmartProvider,
+  toggleSmartProvider,
+  deleteSmartProvider,
+  startSmartJob,
+  getSmartJob,
+  cancelSmartJob,
   getMigrationStatus,
   getArtists,
   saveArtist,

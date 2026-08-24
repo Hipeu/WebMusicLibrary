@@ -1,9 +1,9 @@
 import { startTransition, useState, useRef, useEffect, useCallback } from "react";
 import { FiPlus } from "react-icons/fi";
-import { FaEllipsisH, FaCompactDisc, FaUser, FaHeart, FaStepForward, FaClock, FaPlus, FaArrowUp, FaTrash, FaMusic, FaInfoCircle, FaCog, FaPlay, FaExclamationCircle, FaCheckCircle, FaTimes, FaBell } from "react-icons/fa";
+import { FaEllipsisH, FaCompactDisc, FaUser, FaHeart, FaStepForward, FaClock, FaPlus, FaArrowUp, FaTrash, FaMusic, FaInfoCircle, FaCog, FaPlay, FaExclamationCircle, FaCheckCircle, FaTimes, FaBell, FaStar } from "react-icons/fa";
 import { readMetadata } from "../utils/MetadataReader";
 import { splitArtists, joinArtists, albumBelongsToArtist, collectAllArtists, isPrimaryAlbum } from "../utils/artistSplit";
-import { uploadMusic, getMusicList, getAssetUrl, deleteMusic, checkMusicFiles, updateMusicMetadata, updateAlbumDescription, matchSong, getLyrics, getPlaylists, savePlaylists, resetAll, getResetProgress, openMusicFile, getArtists, saveArtist, deleteArtist, getMatchAllProgress, cancelMatchAll, getSettings, saveAppSettings, getDataJob, getDataExportDownloadUrl, cancelDataJob } from "../services/api";
+import { uploadMusic, getMusicList, getAssetUrl, deleteMusic, checkMusicFiles, updateMusicMetadata, updateAlbumDescription, matchSong, getLyrics, getPlaylists, savePlaylists, resetAll, getResetProgress, openMusicFile, getArtists, saveArtist, deleteArtist, getMatchAllProgress, cancelMatchAll, getSettings, saveAppSettings, getDataJob, getDataExportDownloadUrl, cancelDataJob, startSmartJob, getSmartJob, cancelSmartJob, getSmartProviders } from "../services/api";
 import { saveSongToIndex, removeSongFromIndex, loadMusicIndex } from "../utils/musicIndex";
 import { normalizePlaylists, loadPlaylistCache, savePlaylistCache } from "../utils/playlistStore";
 import { isUnplayableCodec, songPlayable, isPlaceholderPublisher } from "../utils/formatCheck";
@@ -365,6 +365,11 @@ export default function MusicLibrary() {
   const [dataCancelConfirm, setDataCancelConfirm] = useState(null); // { jobId, kind, notificationId }
   const [showImportMenu, setShowImportMenu] = useState(false);
   const [showCreatePlaylist, setShowCreatePlaylist] = useState(false);
+  const [showSmartPlaylist, setShowSmartPlaylist] = useState(false);
+  const [smartPlaylistName, setSmartPlaylistName] = useState("");
+  const [smartPlaylistPrompt, setSmartPlaylistPrompt] = useState("");
+  const [smartAvailable, setSmartAvailable] = useState(false);
+  const [smartProviderName, setSmartProviderName] = useState("智能体");
   const [showSettings, setShowSettings] = useState(false);
   const [newPlaylistCover, setNewPlaylistCover] = useState(null);
   const [newPlaylistName, setNewPlaylistName] = useState("");
@@ -415,6 +420,16 @@ export default function MusicLibrary() {
     || currentPlaylistFound?.songs?.[currentSongIndex]
     || playQueue[currentSongIndex - sourceSongsCount]
     || null;
+
+  function handleSmartProvidersChanged(providers) {
+    const provider = (providers || []).find((item) => item.is_default && item.connected && item.enabled);
+    setSmartAvailable(!!provider);
+    setSmartProviderName(provider?.name || "智能体");
+  }
+
+  useEffect(() => {
+    getSmartProviders().then((res) => handleSmartProvidersChanged(res.providers)).catch(() => handleSmartProvidersChanged([]));
+  }, []);
 
   // ---------- 播放列表操作 ----------
   function handleCreatePlaylistWithDetails() {
@@ -506,6 +521,69 @@ export default function MusicLibrary() {
     // 立即持久化，避免渲染异常或刷新落在防抖写入之前时恢复已删除的歌单。
     savePlaylistCache(next);
     savePlaylists(normalizePlaylists(next)).catch(() => {});
+  }
+
+  function startSmartPlaylist() {
+    const catalog = albums.flatMap((album) => (album.songs || []).map((song) => ({ id: song.file_path || song.url, title: song.title, artist: song.artist, album: song.album, year: song.year, genre: song.genre }))).filter((song) => song.id).slice(0, 2000);
+    if (!smartPlaylistPrompt.trim() || catalog.length === 0) { showToast("请输入描述词，且资料库至少需要一首歌曲", "warning"); return; }
+    setShowSmartPlaylist(false);
+    const notifId = addNotification({ kind: "smart_progress", title: "正在生成智能歌单", content: `正在向 ${smartProviderName} 发送请求`, ongoing: true });
+    startSmartJob("playlist", { name: smartPlaylistName.trim(), prompt: smartPlaylistPrompt.trim(), catalog }).then(({ job_id }) => {
+      updateNotification(notifId, { action: { label: "取消", onClick: () => cancelSmartJob(job_id) } });
+      const poll = async () => {
+        try {
+          const job = await getSmartJob(job_id);
+          if (job.status === "queued" || job.status === "running") {
+            updateNotification(notifId, { content: job.message || `正在接收 ${smartProviderName} 数据` });
+            return setTimeout(poll, 700);
+          }
+          if (job.status === "done") {
+            const ids = new Set(job.result?.song_ids || []);
+            const songs = albums.flatMap((album) => album.songs || []).filter((song) => ids.has(song.file_path || song.url));
+            setPlaylists((prev) => [...prev, { id: `pl_${Date.now()}`, name: smartPlaylistName.trim() || "智能歌单", description: job.result?.description || "", songs, pinned: false, createdAt: Date.now(), coverStyle: true, smart: true }]);
+            updateNotification(notifId, { ongoing: false, action: null, kind: "success", title: "智能歌单生成完成", content: `已加入 ${songs.length} 首歌曲` });
+          } else updateNotification(notifId, { ongoing: false, action: null, kind: "warning", title: job.status === "cancelled" ? "已取消智能生成" : "智能歌单生成失败", content: job.error || job.message });
+        } catch {
+          updateNotification(notifId, { ongoing: false, action: null, kind: "warning", title: "智能歌单生成失败", content: "无法读取生成结果" });
+        }
+      }; poll();
+    }).catch(() => updateNotification(notifId, { ongoing: false, kind: "warning", title: "智能歌单生成失败", content: "请检查智能供应商连接" }));
+  }
+
+  // 所有智能生成都走同一套活动通知与可取消任务；结果只回填编辑表单，仍需用户确认保存。
+  function startSmartSuggestion(kind, payload, onDone) {
+    const label = kind === "album_suggestion" ? "专辑信息" : "歌曲信息";
+    const notifId = addNotification({ kind: "smart_progress", title: `正在生成${label}建议`, content: `正在向 ${smartProviderName} 发送请求`, ongoing: true });
+    startSmartJob(kind, payload).then(({ job_id }) => {
+      updateNotification(notifId, { action: { label: "取消", onClick: () => cancelSmartJob(job_id) } });
+      const poll = async () => {
+        try {
+          const job = await getSmartJob(job_id);
+          if (job.status === "queued" || job.status === "running") {
+            updateNotification(notifId, { content: job.message || `正在接收 ${smartProviderName} 数据` });
+            return setTimeout(poll, 700);
+          }
+          if (job.status === "done") {
+            onDone?.(job.result || {});
+            updateNotification(notifId, { ongoing: false, action: null, kind: "success", title: `${label}建议已生成`, content: "请选择建议内容后再保存" });
+          } else {
+            updateNotification(notifId, { ongoing: false, action: null, kind: "warning", title: job.status === "cancelled" ? "已取消智能生成" : "智能生成失败", content: job.error || job.message });
+          }
+        } catch {
+          updateNotification(notifId, { ongoing: false, action: null, kind: "warning", title: "智能生成失败", content: "无法读取生成结果" });
+        }
+      };
+      poll();
+    }).catch(() => updateNotification(notifId, { ongoing: false, kind: "warning", title: "智能生成失败", content: "请检查智能供应商连接" }));
+  }
+
+  function generatePlaylistDescription() {
+    const playlist = playlists.find((item) => item.id === editingPlaylistId);
+    if (!playlist?.songs?.length) { showToast("请先创建播放列表并添加歌曲", "warning"); return; }
+    const songs = playlist.songs.slice(0, 2000).map((song) => ({ title: song.title, artist: song.artist, album: song.album, year: song.year, genre: song.genre }));
+    startSmartSuggestion("playlist_description", { name: newPlaylistName.trim() || playlist.name, songs }, (result) => {
+      if (result.description) setNewPlaylistDesc(result.description);
+    });
   }
 
     function handleRenamePlaylist(id, name) {
@@ -667,6 +745,18 @@ export default function MusicLibrary() {
       ? Math.round((n.progress.done / n.progress.total) * 100)
       : 0;
     const container = { ...styles.toastNotify, ...styles.toastNotifyCard, ...styles.notifCard, ...(style || {}) };
+    if (n.kind === "smart_progress") {
+      return (
+        <div style={container} {...rest}>
+          <span style={styles.smartActivitySpinner} aria-label="智能体正在处理中" />
+          <div style={styles.toastCardBody}>
+            <p style={styles.importProgressTitle}>{n.title}</p>
+            <p style={{ ...styles.matchProgressCurrent, margin: "5px 0 0" }}>{n.content || "智能体正在处理中"}</p>
+          </div>
+          {n.action && <button style={styles.importProgressCancel} onClick={n.action.onClick}>{n.action.label}</button>}
+        </div>
+      );
+    }
     if (n.kind === "progress_import") {
       return (
         <div style={container} {...rest}>
@@ -3185,6 +3275,10 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                               <FaPlus size={14} style={{ marginRight: "10px" }} />
                               <span>新建播放列表</span>
                             </div>
+                            {smartAvailable && <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => { setShowImportMenu(false); setSmartPlaylistName(""); setSmartPlaylistPrompt(""); setShowSmartPlaylist(true); }}>
+                              <FaStar size={14} style={{ marginRight: "10px", color: "#e94560" }} />
+                              <span>智能歌单</span>
+                            </div>}
                           </div>
                         </>
                       )}
@@ -4337,6 +4431,11 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                 <div style={{ ...styles.createToggleKnob, ...(newPlaylistCoverStyle ? styles.createToggleKnobOn : {}) }} />
               </button>
             </label>
+            {smartAvailable && editingPlaylistId && (
+              <button type="button" style={{ ...styles.confirmCancelBtn, width: "100%", marginTop: "4px" }} onClick={generatePlaylistDescription}>
+                生成简介
+              </button>
+            )}
             <div style={styles.createActions}>
               <button style={styles.confirmDeleteBtn} onClick={handlePlaylistFormSubmit}>
                 {editingPlaylistId ? "保存" : "创建"}
@@ -4345,6 +4444,18 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                 取消
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {showSmartPlaylist && (
+        <div style={styles.overlay} onClick={() => setShowSmartPlaylist(false)}>
+          <div style={{ ...styles.createDialog, ...styles.confirmDialog }} onClick={(e) => e.stopPropagation()}>
+            <h3 style={styles.createDialogTitle}>智能歌单</h3>
+            <input style={styles.createInput} placeholder="播放列表名称" value={smartPlaylistName} onChange={(e) => setSmartPlaylistName(e.target.value)} autoFocus />
+            <textarea style={styles.createTextarea} placeholder="描述词，例如：适合深夜放松的电子音乐" value={smartPlaylistPrompt} onChange={(e) => setSmartPlaylistPrompt(e.target.value)} rows={4} />
+            <p style={{ margin: "0", color: "#6b7280", fontSize: "12px" }}>将向默认智能供应商发送最多 2,000 首本地曲目的文字元信息，不会发送音频或图片。</p>
+            <div style={styles.createActions}><button style={styles.confirmDeleteBtn} onClick={startSmartPlaylist}>生成歌单</button><button style={styles.confirmCancelBtn} onClick={() => setShowSmartPlaylist(false)}>取消</button></div>
           </div>
         </div>
       )}
@@ -4452,6 +4563,8 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
         onAlbumMatchSaved={handleAlbumMatchSaved}
         onMatchError={handleAlbumMatchError}
         onBackgroundAlbumMatch={runBackgroundAlbumMatch}
+        onSmartSuggestion={smartAvailable ? startSmartSuggestion : null}
+        smartAvailable={smartAvailable}
       />
 
       {artistEditTarget && (
@@ -4487,6 +4600,7 @@ onArtistVisibilityChange={(value) => {
   }
 }}
         onDataJobStarted={handleDataJobStarted}
+        onSmartProvidersChanged={handleSmartProvidersChanged}
       />
 
       {/* ===== 匹配详情独立窗口 ===== */}
@@ -4539,7 +4653,7 @@ onArtistVisibilityChange={(value) => {
               },
             };
 
-            if (n.kind === "progress_import" || n.kind === "progress_match" || n.kind === "progress_album_match" || n.kind === "progress_update" || n.kind === "progress_data") {
+            if (n.kind === "progress_import" || n.kind === "progress_match" || n.kind === "progress_album_match" || n.kind === "progress_update" || n.kind === "progress_data" || n.kind === "smart_progress") {
               return renderProgressCard(n, { key: n.id, style: anim, ...hoverProps });
             }
 
@@ -4630,7 +4744,7 @@ onArtistVisibilityChange={(value) => {
                 }
                 return sorted.map((n) => {
                   // 进行中的进度卡片：复用弹出区卡片（含取消 / 查看详情 / 专辑进度 / 更新资料库）
-                  if (n.ongoing && (n.kind === "progress_import" || n.kind === "progress_match" || n.kind === "progress_album_match" || n.kind === "progress_update" || n.kind === "progress_data")) {
+                  if (n.ongoing && (n.kind === "progress_import" || n.kind === "progress_match" || n.kind === "progress_album_match" || n.kind === "progress_update" || n.kind === "progress_data" || n.kind === "smart_progress")) {
                     return renderProgressCard(n, { key: n.id, style: { width: "100%", maxWidth: "none" } });
                   }
                   const pct = n.progress && n.progress.total > 0
@@ -5694,6 +5808,7 @@ const styles = {
     cursor: "pointer",
     fontFamily: "inherit",
   },
+  smartActivitySpinner: { width: "20px", height: "20px", border: "3px solid #f8c5cf", borderTopColor: "#e94560", borderRadius: "50%", animation: "smartActivitySpin 0.8s linear infinite", flexShrink: 0 },
   // 红色进度条（紧贴卡片底边，满 = 到右侧）
   importProgressTrack: {
     height: "6px",

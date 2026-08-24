@@ -3,6 +3,7 @@ import { FaPlay, FaPause, FaArrowLeft, FaEdit, FaEllipsisH, FaHeart, FaPlus, FaS
 import PlayingAnimation from "../components/PlayingAnimation";
 import { songPlayable } from "../utils/formatCheck";
 import useCoverColor from "../components/CoverColor";
+import AlbumDescriptionModal from "../components/AlbumDescriptionModal";
 
 /* ================================================================
    📋 PlaylistDetail — 播放列表详情页
@@ -39,9 +40,12 @@ export default function PlaylistDetail({
   const [searchText, setSearchText] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
   const [playlistActionOpen, setPlaylistActionOpen] = useState(false);
+  const [descriptionOverflow, setDescriptionOverflow] = useState(false);
+  const [showDescriptionModal, setShowDescriptionModal] = useState(false);
   const [filterMode, setFilterMode] = useState(null); // null | "name" | "artist" | "year" | "added"
   const [filterDir, setFilterDir] = useState("asc"); // "asc" | "desc"
   const searchInputRef = useRef(null);
+  const descriptionRef = useRef(null);
 
   // ---------- 获取播放列表的歌曲 ----------
   const songs = playlist?.songs || [];
@@ -55,6 +59,16 @@ export default function PlaylistDetail({
   const themeSwatch = palette?.Vibrant || palette?.Muted || palette?.DarkVibrant || palette?.LightVibrant || null;
   const themeColor = themeSwatch ? themeSwatch.hex : null;
   const coverGlowStyle = themeColor ? { background: themeColor, filter: "blur(60px)" } : {};
+  const description = typeof playlist?.description === "string" ? playlist.description.trim() : "";
+
+  useEffect(() => {
+    const element = descriptionRef.current;
+    if (!element || !description) { setDescriptionOverflow(false); return undefined; }
+    const measure = () => setDescriptionOverflow(element.scrollHeight > element.clientHeight + 1);
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [description]);
 
   // 保留原始索引，避免搜索或排序后按展示索引播放到错误歌曲。
   // “我喜欢”默认按最新喜欢排序，其余播放列表默认保持添加顺序。
@@ -110,7 +124,7 @@ export default function PlaylistDetail({
       </button>
 
             {/* 上半部分：左=封面 | 右=信息 */}
-      <div style={styles.topSection}>
+      <div style={{ ...styles.topSection, ...(description ? styles.topSectionWithDescription : {}) }}>
         {/* 左：封面（独立） */}
         <div style={styles.coverColumn}>
           {themeColor && coverStyleEnabled && <div style={{ ...styles.coverGlowLayer, ...coverGlowStyle }} />}
@@ -140,10 +154,13 @@ export default function PlaylistDetail({
         </div>
 
         {/* 右：信息区（独立，可自由增删） */}
-        <div style={styles.infoColumn}>
+        <div style={{ ...styles.infoColumn, ...(description ? styles.infoColumnWithDescription : {}) }}>
           <h1 style={styles.playlistTitle}>{playlist.name}</h1>
-          {playlist.description && (
-            <p style={styles.playlistDesc}>{playlist.description}</p>
+          {description && (
+            <button type="button" style={styles.descriptionButton} onClick={() => setShowDescriptionModal(true)} title="查看播放列表详情">
+              <span ref={descriptionRef} style={styles.descriptionText}>{description}</span>
+              {descriptionOverflow && <span style={styles.descriptionHint}>更多</span>}
+            </button>
           )}
           <p style={styles.playlistMeta}>
             {songs.length > 0 ? `${songs.length} 首歌曲` : "暂无歌曲"}
@@ -192,6 +209,14 @@ export default function PlaylistDetail({
           </div>
         </div>
       </div>
+
+      {showDescriptionModal && <AlbumDescriptionModal
+        playlist={{ ...playlist, coverURL: coverSrc }}
+        isPlaying={isPlaying}
+        themeColor={themeColor}
+        onPlayPlaylist={() => onPlayAll?.(playlist.id === "liked")}
+        onClose={() => setShowDescriptionModal(false)}
+      />}
 
             {/* 下半部分：歌曲列表 */}
       <div style={{
@@ -481,6 +506,7 @@ const styles = {
       height: "100%",
       display: "flex",
       flexDirection: "column",
+      gap: "5px",
       background: "#ffffff",
       color: "#1f2937",
       fontFamily: "'Segoe UI', system-ui, -apple-system, sans-serif",
@@ -489,6 +515,7 @@ const styles = {
     },
 
   backBtn: {
+    // 与 AlbumDetail 保持相同的容器内定位，随详情页显示但不脱离页面边界。
     position: "absolute",
     top: "20px",
     left: "24px",
@@ -508,18 +535,19 @@ const styles = {
   },
 
                 topSection: {
-    flex: "0 0 40%",
+    flex: "0 0 auto",
     display: "flex",
     flexDirection: "row",
     alignItems: "center",
     gap: "65px",
-    padding: "80px 60px 20px 200px",
+    padding: "80px 60px 20px 210px",
     minHeight: 0,
   },
+  topSectionWithDescription: { alignItems: "center", gap: "56px" },
 
   // 左列：封面（固定宽高，不受右侧影响）
   coverColumn: {
-    flex: "0 0 260px",
+    flex: "0 0 300px",
     alignSelf: "flex-start",
     position: "relative",
   },
@@ -528,8 +556,8 @@ const styles = {
     top: "50%",
     left: "50%",
     transform: "translate(-50%, -50%)",
-    width: "230px",
-    height: "230px",
+    width: "260px",
+    height: "260px",
     borderRadius: "12px",
     opacity: 0.9,
     pointerEvents: "none",
@@ -537,8 +565,8 @@ const styles = {
     animation: "glowFadeIn 0.8s ease",
   },
   coverWrapper: {
-    width: "260px",
-    height: "260px",
+    width: "300px",
+    height: "300px",
     borderRadius: "12px",
     overflow: "hidden",
     boxShadow: "0 16px 48px rgba(0,0,0,0.5), 0 0 30px rgba(233,69,96,0.08)",
@@ -570,18 +598,21 @@ const styles = {
     infoColumn: {
     display: "flex",
     flexDirection: "column",
-    gap: "10px",
+    gap: "15px",
     minWidth: 0,
-    alignSelf: "center",
-    marginTop:"85px"
+    alignSelf: "flex-start",
+    position: "relative",
+    top: "90px",
+    left: "5px",
   },
+  infoColumnWithDescription: { top: 0, left: 0, width: "min(520px, 100%)", maxWidth: "100%" },
   playlistTitle: {
     fontSize: "32px", fontWeight: 700, color: "#1f2937",
     margin: 0, lineHeight: 1.2,
   },
-  playlistDesc: {
-    fontSize: "14px", color: "#6b7280", margin: 0, lineHeight: 1.5,
-  },
+  descriptionButton: { display: "block", width: "100%", maxWidth: "100%", boxSizing: "border-box", padding: 0, margin: "14px 0 4px", overflow: "hidden", border: "none", background: "transparent", color: "#6b7280", textAlign: "left", cursor: "pointer", font: "inherit" },
+  descriptionText: { display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 3, width: "100%", maxWidth: "100%", overflow: "hidden", overflowWrap: "anywhere", wordBreak: "break-word", lineHeight: 1.7, fontSize: "13px", whiteSpace: "pre-wrap" },
+  descriptionHint: { display: "inline-block", marginTop: "4px", color: "#e94560", fontSize: "12px" },
   playlistMeta: {
     fontSize: "14px", color: "#6b7280", margin: 0,
   },
@@ -619,7 +650,7 @@ const styles = {
   },
 
         bottomSection: {
-    flex: 1, padding: "130px 170px 120px",
+    flex: "0 0 auto", padding: "60px 170px 120px",
     display: "flex", flexDirection: "column", minHeight: 0, overflow: "visible",
   },
 
