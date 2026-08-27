@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
-import { FaSlidersH, FaLink, FaDatabase, FaInfoCircle, FaTimes, FaPen, FaFileImport, FaRobot, FaPlus, FaPencilAlt, FaTrashAlt } from "react-icons/fa";
+import { FaSlidersH, FaLink, FaDatabase, FaInfoCircle, FaTimes, FaPen, FaFileImport, FaRobot, FaPlus, FaPencilAlt, FaTrashAlt, FaChevronRight, FaChevronDown } from "react-icons/fa";
 import { SiDeepseek } from "react-icons/si";
+import { AiFillOpenAI } from "react-icons/ai";
 import { saveSettings, getMigrationStatus, matchAll, cancelMatchAll, startDataExport, startDataImport, inspectDataImport, getSmartProviders, testSmartProvider, saveSmartProvider, toggleSmartProvider, deleteSmartProvider } from "../services/api";
 
 /* ================================================================
@@ -342,14 +343,17 @@ const MATCH_SOURCES = [
 function SmartPanel({ onProvidersChanged }) {
   const [providers, setProviders] = useState([]);
   const [editor, setEditor] = useState(null);
+  const [isAdding, setIsAdding] = useState(false);
   const [apiKey, setApiKey] = useState("");
   const [models, setModels] = useState([]);
   const [model, setModel] = useState("");
+  const [webSearch, setWebSearch] = useState(false);
+  const [outputLength, setOutputLength] = useState("medium");
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [tested, setTested] = useState(false);
   const [testing, setTesting] = useState(false);
   const [message, setMessage] = useState("");
 
-  const defaults = { openai: "gpt-5.6-lunna", deepseek: "deepseek-v4-flash" };
   const names = { openai: "ChatGPT", deepseek: "DeepSeek" };
   const refresh = async () => {
     try {
@@ -363,26 +367,42 @@ function SmartPanel({ onProvidersChanged }) {
   useEffect(() => { const timer = setTimeout(refresh, 0); return () => clearTimeout(timer); }, []);
   const openEditor = (kind) => {
     const found = providers.find((item) => item.id === kind);
-    setEditor(kind); setApiKey(""); setModels([]); setModel(found?.model || defaults[kind]); setMessage(""); setTested(false);
+    setIsAdding(false); setEditor(kind); setApiKey(""); setModels([]); setModel(found?.model || ""); setWebSearch(Boolean(found?.web_search)); setOutputLength(found?.output_length || "medium"); setAdvancedOpen(false); setMessage(""); setTested(false);
   };
-  const testConnection = async () => {
-    if (!apiKey.trim()) { setMessage("请输入 API Key"); return; }
-    setTesting(true); setMessage("");
-    try {
-      const result = await testSmartProvider({ provider: editor, api_key: apiKey, model });
-      const nextModels = result.models || [];
-      setModels(nextModels);
-      setTested(!!result.model_available);
-      setMessage(result.model_available ? "连接测试成功" : "API Key 已连接，但当前模型不可用，请选择其他模型");
-    } catch { setMessage("连接测试失败，请检查 API Key 和网络"); }
-    finally { setTesting(false); }
+  const startAdding = () => {
+    setIsAdding(true); setEditor("openai"); setApiKey(""); setModels([]); setModel(""); setWebSearch(false); setOutputLength("medium"); setAdvancedOpen(false); setMessage(""); setTested(false);
   };
+  const selectAddingProvider = (kind) => {
+    setEditor(kind); setModels([]); setModel(""); setWebSearch(false); setTested(false); setMessage("");
+  };
+  useEffect(() => {
+    const key = apiKey.trim();
+    if (!editor || !key) return undefined;
+    let stale = false;
+    const timer = setTimeout(async () => {
+      setTesting(true); setMessage("正在拉取可用模型…");
+      try {
+        const result = await testSmartProvider({ provider: editor, api_key: key });
+        if (stale) return;
+        const nextModels = result.models || [];
+        setModels(nextModels);
+        setTested(false);
+        setMessage(nextModels.length ? "已拉取可用模型" : "该 API Key 未返回可用模型");
+      } catch {
+        if (!stale) { setModels([]); setTested(false); setMessage("模型拉取失败，请检查 API Key 和网络"); }
+      } finally { if (!stale) setTesting(false); }
+    }, 600);
+    return () => { stale = true; clearTimeout(timer); };
+  }, [apiKey, editor]);
   const save = async () => {
-    if (!apiKey.trim()) { setMessage("修改时请重新输入 API Key"); return; }
-    if (!tested) { setMessage("请先通过连接测试，并选择可用模型"); return; }
+    if (isAdding && !apiKey.trim()) { setMessage("请输入 API Key"); return; }
+    if (isAdding && (!tested || !model)) { setMessage("请先等待模型拉取完成并选择模型"); return; }
+    if (!isAdding && apiKey.trim() && (!tested || !model)) { setMessage("请等待模型拉取完成并选择模型"); return; }
+    if (!model) { setMessage("当前服务尚未选择模型"); return; }
     try {
-      await saveSmartProvider(editor, { api_key: apiKey, model, connected: true, enabled: true, make_default: true });
-      setEditor(null); await refresh();
+      const existing = providers.find((item) => item.id === editor);
+      await saveSmartProvider(editor, { api_key: apiKey, model, connected: true, enabled: isAdding || existing?.enabled, make_default: isAdding || !providers.some((item) => item.is_default), web_search: webSearch, output_length: outputLength });
+      setEditor(null); setIsAdding(false); await refresh();
     } catch { setMessage("保存失败"); }
   };
 
@@ -390,24 +410,32 @@ function SmartPanel({ onProvidersChanged }) {
     <h3 style={panelStyles.title}>智能</h3>
     <p style={panelStyles.desc}>连接 AI 服务以生成歌单、简介和元信息建议。</p>
     <p style={panelStyles.desc}>使用对应服务即你同意相应服务商条款。</p>
-    <button style={smartStyles.addBtn} onClick={() => setEditor("choose")}><FaPlus size={12} /> 添加</button>
+    <button style={smartStyles.addBtn} onClick={startAdding}><FaPlus size={12} /> 添加</button>
     <div style={smartStyles.providerList}>
       {providers.map((item) => <div key={item.id} style={smartStyles.providerRow}>
-        {item.id === "deepseek" ? <SiDeepseek size={19} color="#4d6bfe" /> : <FaRobot size={19} color="#e94560" />}
-        <span style={smartStyles.providerName}>{item.name}{item.is_default ? "（默认）" : ""}</span>
+        {item.id === "deepseek" ? <SiDeepseek size={19} color="#4d6bfe" /> : <AiFillOpenAI size={19} color="#10a37f" />}
+        <span style={smartStyles.providerName}>{item.name}</span>
+        <span style={smartStyles.modelName}>{item.model || "未选择模型"}</span>
         <button style={smartStyles.iconBtn} onClick={() => openEditor(item.id)} title="编辑"><FaPencilAlt size={12} /></button>
         <span style={{ ...smartStyles.status, color: item.connected ? "#16a34a" : "#dc2626" }}>● {item.connected ? "已连接" : "已断开"}</span>
-        <button style={{ ...panelStyles.toggleSwitch, ...(item.enabled ? panelStyles.toggleSwitchOn : {}) }} onClick={async () => { await toggleSmartProvider(item.id, !item.enabled); refresh(); }}><span style={{ ...panelStyles.toggleKnob, ...(item.enabled ? panelStyles.toggleKnobOn : {}) }} /></button>
+        <button aria-label={`切换 ${item.name}`} title={item.enabled ? "停用智能服务" : "启用智能服务"} style={{ ...panelStyles.toggleSwitch, ...(item.enabled ? panelStyles.toggleSwitchOn : {}) }} onClick={async () => { await toggleSmartProvider(item.id, !item.enabled); refresh(); }}><span style={{ ...panelStyles.toggleKnob, ...(item.enabled ? panelStyles.toggleKnobOn : {}) }} /></button>
       </div>)}
     </div>
-    {editor && <div style={resetDialogStyles.overlay} onClick={() => setEditor(null)}><div style={resetDialogStyles.box} onClick={(e) => e.stopPropagation()}>
-      <h3 style={resetDialogStyles.title}>{editor === "choose" ? "添加智能供应商" : `编辑 ${names[editor]}`}</h3><div style={resetDialogStyles.divider} />
-      {editor === "choose" ? <div style={smartStyles.choices}>{["openai", "deepseek"].map((kind) => <button key={kind} style={smartStyles.choiceBtn} onClick={() => openEditor(kind)}>{names[kind]}</button>)}</div> : <>
-        <label style={smartStyles.fieldLabel}>API Key</label><input type="password" style={dataStyles.confirmInput} value={apiKey} onChange={(e) => { setApiKey(e.target.value); setTested(false); }} placeholder="输入 API Key" />
-        <label style={smartStyles.fieldLabel}>模型</label>{models.length ? <select style={dataStyles.confirmInput} value={model} onChange={(e) => { setModel(e.target.value); setTested(true); }}>{models.map((item) => <option key={item}>{item}</option>)}</select> : <input style={dataStyles.confirmInput} value={model} onChange={(e) => { setModel(e.target.value); setTested(false); }} />}
+    {(editor || isAdding) && <div style={resetDialogStyles.overlay} onClick={() => { setEditor(null); setIsAdding(false); }}><div style={resetDialogStyles.box} onClick={(e) => e.stopPropagation()}>
+      <h3 style={resetDialogStyles.title}>{isAdding ? "添加智能服务" : `编辑 ${names[editor]}`}</h3><div style={resetDialogStyles.divider} />
+      <>
+      {isAdding && <><label style={smartStyles.fieldLabel}>选择供应商</label><div style={smartStyles.providerSelectWrap}>{editor === "deepseek" ? <SiDeepseek style={smartStyles.providerSelectIcon} size={19} color="#4d6bfe" /> : <AiFillOpenAI style={smartStyles.providerSelectIcon} size={19} color="#10a37f" />}<select style={smartStyles.providerSelect} value={editor} onChange={(e) => selectAddingProvider(e.target.value)}><option value="openai">ChatGPT</option><option value="deepseek">DeepSeek</option></select></div></>}
+      <label style={smartStyles.fieldLabel}>API Key</label><input type="password" style={dataStyles.confirmInput} value={apiKey} onChange={(e) => { setApiKey(e.target.value); setModels([]); setTested(false); }} placeholder="输入 API Key" />
+      <label style={smartStyles.fieldLabel}>模型{testing ? "（正在拉取…）" : ""}</label>
+      <select style={dataStyles.confirmInput} value={model} disabled={!models.length} onChange={(e) => { setModel(e.target.value); setTested(true); }}><option value="">{models.length ? "请选择模型" : "请先输入 API Key 并自动拉取模型"}</option>{model && !models.includes(model) && <option value={model}>{model}</option>}{models.map((item) => <option key={item} value={item}>{item}</option>)}</select>
+      <button type="button" style={smartStyles.advancedToggle} onClick={() => setAdvancedOpen((value) => !value)}>高级 {advancedOpen ? <FaChevronDown size={11} /> : <FaChevronRight size={11} />}</button>
+      {advancedOpen && <div style={smartStyles.advancedPanel}>
+        {editor === "deepseek" && model === "deepseek-v4-flash" && <div style={smartStyles.advancedRow}><div><div style={smartStyles.advancedTitle}>联网搜索</div><div style={smartStyles.advancedHint}>启用后模型将基于网络资料进行输出</div></div><button aria-label="切换联网搜索" style={{ ...panelStyles.toggleSwitch, ...(webSearch ? panelStyles.toggleSwitchOn : {}) }} onClick={() => setWebSearch((value) => !value)}><span style={{ ...panelStyles.toggleKnob, ...(webSearch ? panelStyles.toggleKnobOn : {}) }} /></button></div>}
+        <div style={smartStyles.lengthRow}><div><div style={smartStyles.advancedTitle}>输出内容长度</div><div style={smartStyles.advancedHint}>用于控制播放列表简介的文字输出量</div></div><div style={smartStyles.lengthButtons}>{[["short", "简洁"], ["medium", "适中"], ["long", "较长"]].map(([value, label]) => <button key={value} style={{ ...smartStyles.lengthBtn, ...(outputLength === value ? smartStyles.lengthBtnActive : {}) }} onClick={() => setOutputLength(value)}>{label}</button>)}</div></div>
+      </div>}
         {message && <p style={dataStyles.hint}>{message}</p>}
-        <div style={{ ...resetDialogStyles.actions, marginTop: "20px" }}><button style={resetDialogStyles.cancelBtn} onClick={testConnection} disabled={testing}>{testing ? "测试中…" : "测试连接"}</button><button style={resetDialogStyles.confirmBtn} onClick={save}>保存</button><button style={smartStyles.deleteBtn} onClick={async () => { await deleteSmartProvider(editor); setEditor(null); refresh(); }}><FaTrashAlt /> 删除</button></div>
-      </>}
+        <div style={{ ...resetDialogStyles.actions, marginTop: "20px" }}><button style={smartStyles.deleteBtn} onClick={async () => { if (!isAdding) await deleteSmartProvider(editor); setEditor(null); setIsAdding(false); refresh(); }}><FaTrashAlt /> 移除</button><span style={{ flex: 1 }} /><button style={resetDialogStyles.cancelBtn} onClick={() => { setEditor(null); setIsAdding(false); }}>取消</button><button style={resetDialogStyles.confirmBtn} onClick={save}>保存</button></div>
+      </>
     </div></div>}
   </div>;
 }
@@ -1594,13 +1622,26 @@ const smartStyles = {
   addBtn: { display: "inline-flex", alignItems: "center", gap: "7px", marginTop: "16px", padding: "8px 14px", border: "none", borderRadius: "18px", background: "#e94560", color: "#fff", cursor: "pointer", fontFamily: "inherit", fontWeight: 600 },
   providerList: { display: "flex", flexDirection: "column", gap: "10px", marginTop: "16px" },
   providerRow: { display: "flex", alignItems: "center", gap: "10px", padding: "12px", border: "1px solid #e5e7eb", borderRadius: "10px" },
-  providerName: { flex: 1, fontWeight: 600, color: "#1f2937" },
+  providerName: { fontWeight: 600, color: "#1f2937" },
+  modelName: { flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "13px", color: "#6b7280" },
   status: { fontSize: "13px", whiteSpace: "nowrap" },
   iconBtn: { border: "none", background: "transparent", color: "#6b7280", cursor: "pointer" },
-  choices: { display: "flex", gap: "12px", marginTop: "18px" },
-  choiceBtn: { flex: 1, padding: "18px", border: "1px solid #e5e7eb", borderRadius: "10px", background: "#fff", cursor: "pointer", fontSize: "15px", fontWeight: 600, color: "#374151" },
+  providerSelectWrap: { position: "relative", display: "flex", alignItems: "center" },
+  providerSelectIcon: { position: "absolute", left: "14px", zIndex: 1, pointerEvents: "none" },
+  providerSelect: { width: "100%", padding: "10px 36px 10px 44px", borderRadius: "8px", border: "1px solid #d1d5db", background: "#fff", color: "#374151", fontSize: "14px", fontFamily: "inherit", outline: "none", appearance: "auto" },
   fieldLabel: { display: "block", margin: "14px 0 6px", fontSize: "13px", fontWeight: 600, color: "#374151" },
-  deleteBtn: { display: "inline-flex", alignItems: "center", gap: "5px", border: "none", background: "transparent", color: "#dc2626", cursor: "pointer", fontFamily: "inherit" },
+  modelHeader: { display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "14px", marginBottom: "6px" },
+  fetchModelsBtn: { border: "none", background: "transparent", color: "#e94560", cursor: "pointer", fontFamily: "inherit", fontSize: "13px", fontWeight: 600, padding: "2px 0" },
+  advancedToggle: { display: "inline-flex", alignItems: "center", gap: "7px", marginTop: "18px", padding: 0, border: "none", background: "transparent", color: "#374151", cursor: "pointer", fontFamily: "inherit", fontSize: "14px", fontWeight: 600 },
+  advancedPanel: { marginTop: "10px", padding: "12px", borderRadius: "10px", background: "#f9fafb", display: "flex", flexDirection: "column", gap: "14px" },
+  advancedRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px" },
+  advancedTitle: { fontSize: "13px", fontWeight: 600, color: "#374151" },
+  advancedHint: { marginTop: "4px", fontSize: "12px", lineHeight: 1.45, color: "#6b7280" },
+  lengthRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" },
+  lengthButtons: { display: "flex", flexShrink: 0, overflow: "hidden", border: "1px solid #d1d5db", borderRadius: "8px" },
+  lengthBtn: { padding: "6px 9px", border: "none", borderLeft: "1px solid #d1d5db", background: "#fff", color: "#6b7280", cursor: "pointer", fontFamily: "inherit", fontSize: "12px" },
+  lengthBtnActive: { background: "#e94560", color: "#fff" },
+  deleteBtn: { display: "inline-flex", alignItems: "center", gap: "5px", padding: "8px 12px", border: "none", borderRadius: "8px", background: "#ef233c", color: "#fff", cursor: "pointer", fontFamily: "inherit", fontWeight: 600 },
 };
 
 const dialogStyles = {

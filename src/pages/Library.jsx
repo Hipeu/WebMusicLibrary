@@ -372,11 +372,15 @@ export default function MusicLibrary() {
   const [smartProviderName, setSmartProviderName] = useState("智能体");
   const [showSettings, setShowSettings] = useState(false);
   const [newPlaylistCover, setNewPlaylistCover] = useState(null);
+  const [newPlaylistCoverRemoved, setNewPlaylistCoverRemoved] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState("");
   const [newPlaylistDesc, setNewPlaylistDesc] = useState("");
   const [newPlaylistCoverStyle, setNewPlaylistCoverStyle] = useState(false);
+  const [showCoverMenu, setShowCoverMenu] = useState(false);
   const [editingPlaylistId, setEditingPlaylistId] = useState(null); // null=新建，有值=编辑该播放列表
+  const [playlistSuggestion, setPlaylistSuggestion] = useState(null); // { playlistId, description }
   const coverInputRef = useRef(null);
+  const smartJobActiveRef = useRef(false);
   const [panelTarget, setPanelTarget] = useState(null); // {type:"song",data} | {type:"album",data}
   const [panelSearch, setPanelSearch] = useState("");
 
@@ -433,10 +437,11 @@ export default function MusicLibrary() {
 
   // ---------- 播放列表操作 ----------
   function handleCreatePlaylistWithDetails() {
+    if (!newPlaylistName.trim()) { showToast("请输入播放列表名称", "warning"); return; }
     const newId = "pl_" + Date.now();
     const pl = {
       id: newId,
-      name: newPlaylistName.trim() || "新建播放列表",
+      name: newPlaylistName.trim(),
       songs: [],
       description: newPlaylistDesc.trim(),
       pinned: false,
@@ -447,18 +452,22 @@ export default function MusicLibrary() {
     setPlaylists((prev) => [...prev, pl]);
     setShowCreatePlaylist(false);
     setNewPlaylistCover(null);
+    setNewPlaylistCoverRemoved(false);
     setNewPlaylistName("");
     setNewPlaylistDesc("");
     setNewPlaylistCoverStyle(false);
+    setShowCoverMenu(false);
   }
 
   // ---------- 打开新建播放列表弹窗（复位为新建模式） ----------
   function handleOpenCreatePlaylist() {
     setEditingPlaylistId(null);
     setNewPlaylistCover(null);
+    setNewPlaylistCoverRemoved(false);
     setNewPlaylistName("");
     setNewPlaylistDesc("");
     setNewPlaylistCoverStyle(false);
+    setShowCoverMenu(false);
     setShowCreatePlaylist(true);
   }
 
@@ -468,7 +477,9 @@ export default function MusicLibrary() {
     setNewPlaylistName(playlist.name || "");
     setNewPlaylistDesc(playlist.description || "");
     setNewPlaylistCover(playlist.coverURL || null);
+    setNewPlaylistCoverRemoved(false);
     setNewPlaylistCoverStyle(!!playlist.coverStyle);
+    setShowCoverMenu(false);
     setEditingPlaylistId(playlist.id);
     setShowCreatePlaylist(true);
   }
@@ -478,23 +489,27 @@ export default function MusicLibrary() {
     setShowCreatePlaylist(false);
     setEditingPlaylistId(null);
     setNewPlaylistCover(null);
+    setNewPlaylistCoverRemoved(false);
     setNewPlaylistName("");
     setNewPlaylistDesc("");
     setNewPlaylistCoverStyle(false);
+    setShowCoverMenu(false);
   }
 
   // ---------- 弹窗提交：编辑则更新，新建则创建 ----------
   function handlePlaylistFormSubmit() {
+    if (!newPlaylistName.trim()) { showToast("请输入播放列表名称", "warning"); return; }
     if (editingPlaylistId) {
       const target = playlists.find((p) => p.id === editingPlaylistId);
       if (target) {
         const updated = {
           ...target,
-          name: newPlaylistName.trim() || target.name,
+          name: newPlaylistName.trim(),
           description: newPlaylistDesc.trim(),
           coverStyle: newPlaylistCoverStyle,
         };
-        if (newPlaylistCover) updated.coverURL = newPlaylistCover;
+        if (newPlaylistCoverRemoved) delete updated.coverURL;
+        else if (newPlaylistCover) updated.coverURL = newPlaylistCover;
         handleUpdatePlaylist(editingPlaylistId, updated);
       }
       handleCloseCreatePlaylist();
@@ -524,8 +539,10 @@ export default function MusicLibrary() {
   }
 
   function startSmartPlaylist() {
+    if (smartJobActiveRef.current) { showToast("上个智能生成尚未结束", "info"); return; }
     const catalog = albums.flatMap((album) => (album.songs || []).map((song) => ({ id: song.file_path || song.url, title: song.title, artist: song.artist, album: song.album, year: song.year, genre: song.genre }))).filter((song) => song.id).slice(0, 2000);
     if (!smartPlaylistPrompt.trim() || catalog.length === 0) { showToast("请输入描述词，且资料库至少需要一首歌曲", "warning"); return; }
+    smartJobActiveRef.current = true;
     setShowSmartPlaylist(false);
     const notifId = addNotification({ kind: "smart_progress", title: "正在生成智能歌单", content: `正在向 ${smartProviderName} 发送请求`, ongoing: true });
     startSmartJob("playlist", { name: smartPlaylistName.trim(), prompt: smartPlaylistPrompt.trim(), catalog }).then(({ job_id }) => {
@@ -543,15 +560,19 @@ export default function MusicLibrary() {
             setPlaylists((prev) => [...prev, { id: `pl_${Date.now()}`, name: smartPlaylistName.trim() || "智能歌单", description: job.result?.description || "", songs, pinned: false, createdAt: Date.now(), coverStyle: true, smart: true }]);
             updateNotification(notifId, { ongoing: false, action: null, kind: "success", title: "智能歌单生成完成", content: `已加入 ${songs.length} 首歌曲` });
           } else updateNotification(notifId, { ongoing: false, action: null, kind: "warning", title: job.status === "cancelled" ? "已取消智能生成" : "智能歌单生成失败", content: job.error || job.message });
+          smartJobActiveRef.current = false;
         } catch {
+          smartJobActiveRef.current = false;
           updateNotification(notifId, { ongoing: false, action: null, kind: "warning", title: "智能歌单生成失败", content: "无法读取生成结果" });
         }
       }; poll();
-    }).catch(() => updateNotification(notifId, { ongoing: false, kind: "warning", title: "智能歌单生成失败", content: "请检查智能供应商连接" }));
+    }).catch(() => { smartJobActiveRef.current = false; updateNotification(notifId, { ongoing: false, kind: "warning", title: "智能歌单生成失败", content: "请检查智能供应商连接" }); });
   }
 
   // 所有智能生成都走同一套活动通知与可取消任务；结果只回填编辑表单，仍需用户确认保存。
   function startSmartSuggestion(kind, payload, onDone) {
+    if (smartJobActiveRef.current) { showToast("上个智能生成尚未结束", "info"); return; }
+    smartJobActiveRef.current = true;
     const label = kind === "album_suggestion" ? "专辑信息" : "歌曲信息";
     const notifId = addNotification({ kind: "smart_progress", title: `正在生成${label}建议`, content: `正在向 ${smartProviderName} 发送请求`, ongoing: true });
     startSmartJob(kind, payload).then(({ job_id }) => {
@@ -564,17 +585,19 @@ export default function MusicLibrary() {
             return setTimeout(poll, 700);
           }
           if (job.status === "done") {
-            onDone?.(job.result || {});
-            updateNotification(notifId, { ongoing: false, action: null, kind: "success", title: `${label}建议已生成`, content: "请选择建议内容后再保存" });
+            const notification = onDone?.(job.result || {}) || {};
+            updateNotification(notifId, { ongoing: false, action: notification.action || null, kind: "success", title: notification.title || `${label}建议已生成`, content: notification.content || "请选择建议内容后再保存" });
           } else {
             updateNotification(notifId, { ongoing: false, action: null, kind: "warning", title: job.status === "cancelled" ? "已取消智能生成" : "智能生成失败", content: job.error || job.message });
           }
+          smartJobActiveRef.current = false;
         } catch {
+          smartJobActiveRef.current = false;
           updateNotification(notifId, { ongoing: false, action: null, kind: "warning", title: "智能生成失败", content: "无法读取生成结果" });
         }
       };
       poll();
-    }).catch(() => updateNotification(notifId, { ongoing: false, kind: "warning", title: "智能生成失败", content: "请检查智能供应商连接" }));
+    }).catch(() => { smartJobActiveRef.current = false; updateNotification(notifId, { ongoing: false, kind: "warning", title: "智能生成失败", content: "请检查智能供应商连接" }); });
   }
 
   function generatePlaylistDescription() {
@@ -582,7 +605,14 @@ export default function MusicLibrary() {
     if (!playlist?.songs?.length) { showToast("请先创建播放列表并添加歌曲", "warning"); return; }
     const songs = playlist.songs.slice(0, 2000).map((song) => ({ title: song.title, artist: song.artist, album: song.album, year: song.year, genre: song.genre }));
     startSmartSuggestion("playlist_description", { name: newPlaylistName.trim() || playlist.name, songs }, (result) => {
-      if (result.description) setNewPlaylistDesc(result.description);
+      if (!result.description) return {};
+      const suggestion = { playlistId: playlist.id, description: result.description };
+      setPlaylistSuggestion(suggestion);
+      return {
+        title: "播放列表智能建议已生成",
+        content: "",
+        action: { label: "查看结果", onClick: () => { handleOpenPlaylistEdit(playlists.find((item) => item.id === playlist.id)); setPlaylistSuggestion(suggestion); } },
+      };
     });
   }
 
@@ -3299,7 +3329,7 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                         const file = e.target.files?.[0];
                         if (!file) return;
                         const reader = new FileReader();
-                        reader.onload = (ev) => setNewPlaylistCover(ev.target.result);
+                        reader.onload = (ev) => { setNewPlaylistCover(ev.target.result); setNewPlaylistCoverRemoved(false); };
                         reader.readAsDataURL(file);
                       }}
                     />
@@ -4386,64 +4416,22 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
 
       {/* ===== 新建 / 编辑播放列表对话框 ===== */}
       {showCreatePlaylist && (
-        <div style={styles.overlay}>
-          <div style={{ ...styles.createDialog, ...styles.confirmDialog }} className="create-dialog" onClick={(e) => e.stopPropagation()}>
-            <h3 style={styles.createDialogTitle}>{editingPlaylistId ? "编辑播放列表" : "新建播放列表"}</h3>
-            <div style={styles.createCoverSection}>
-              {newPlaylistCover ? (
-                <img src={newPlaylistCover} alt="封面" style={styles.createCover} />
-              ) : (
-                <div style={styles.createCoverPlaceholder} onClick={() => coverInputRef.current?.click()}>
-                  <span style={{ fontSize: "32px", opacity: 0.3 }}>📋</span>
-                  <span style={styles.createCoverHint}>点击设置封面</span>
-                </div>
-              )}
-              {newPlaylistCover && (
-                <button style={styles.createCoverChangeBtn} onClick={() => coverInputRef.current?.click()}>
-                  更换封面
-                </button>
-              )}
+        <div style={styles.overlay} onClick={handleCloseCreatePlaylist}>
+          <div style={{ ...styles.confirmDialog, ...styles.playlistDialog }} className="create-dialog" onClick={(e) => { e.stopPropagation(); setShowCoverMenu(false); }}>
+            <div style={styles.playlistDialogHeader}><h3 style={styles.createDialogTitle}>{editingPlaylistId ? "编辑播放列表" : "新建播放列表"}</h3><button style={styles.playlistDialogClose} onClick={handleCloseCreatePlaylist} title="关闭"><FaTimes /></button></div>
+            <div style={styles.playlistDialogBody}>
+              <div style={styles.createCoverSection}>
+                {newPlaylistCover ? <div style={styles.coverMenuWrap}><img src={newPlaylistCover} alt="封面" style={styles.createCover} /><button type="button" style={styles.coverMenuButton} title="封面操作" onClick={(e) => { e.stopPropagation(); setShowCoverMenu((value) => !value); }}><FaEllipsisH /></button>{showCoverMenu && <div style={styles.coverMenu} onClick={(e) => e.stopPropagation()}><button type="button" style={styles.coverMenuItem} onClick={() => { setShowCoverMenu(false); coverInputRef.current?.click(); }}>更换封面</button><button type="button" style={{ ...styles.coverMenuItem, color: "#ef233c" }} onClick={() => { setNewPlaylistCover(null); setNewPlaylistCoverRemoved(true); setShowCoverMenu(false); }}>移除封面</button></div>}</div> : <button type="button" style={styles.createCoverPlaceholder} onClick={() => coverInputRef.current?.click()}><FiPlus size={54} /><span style={styles.createCoverHint}>添加</span></button>}
+              </div>
+              <div style={styles.playlistFields}>
+                <label style={styles.playlistFieldLabel}>播放列表名称</label><input style={{ ...styles.createInput, marginBottom: "22px" }} placeholder="请输入播放列表名称" value={newPlaylistName} onChange={(e) => setNewPlaylistName(e.target.value)} autoFocus />
+                <label style={styles.playlistFieldLabel}>播放列表简介</label>
+                <div style={styles.playlistDescriptionWrap}><textarea style={{ ...styles.createTextarea, minHeight: "360px", resize: "none" }} placeholder="简介（可选）" value={newPlaylistDesc} onChange={(e) => setNewPlaylistDesc(e.target.value)} />{smartAvailable && editingPlaylistId && <button type="button" style={styles.playlistAiButton} onClick={generatePlaylistDescription} title="AI 生成简介"><FaStar /></button>}</div>
+                {playlistSuggestion?.playlistId === editingPlaylistId && <div style={styles.playlistSuggestion}><p>AI 建议</p><div>{playlistSuggestion.description}</div><div style={styles.suggestionActions}><button type="button" style={styles.confirmCancelBtn} onClick={() => setPlaylistSuggestion(null)}>不采用</button><button type="button" style={styles.confirmDeleteBtn} onClick={() => { setNewPlaylistDesc(playlistSuggestion.description); setPlaylistSuggestion(null); }}>采用建议</button></div></div>}
+                <label style={styles.createToggleRow}><span style={styles.createToggleText}>封面样式</span><button type="button" aria-label="切换封面样式" style={{ ...styles.createToggleSwitch, ...(newPlaylistCoverStyle ? styles.createToggleSwitchOn : {}) }} onClick={() => setNewPlaylistCoverStyle((v) => !v)}><div style={{ ...styles.createToggleKnob, ...(newPlaylistCoverStyle ? styles.createToggleKnobOn : {}) }} /></button></label>
+              </div>
             </div>
-            <input
-              style={styles.createInput}
-              placeholder="播放列表名称"
-              value={newPlaylistName}
-              onChange={(e) => setNewPlaylistName(e.target.value)}
-              autoFocus
-            />
-            <textarea
-              style={styles.createTextarea}
-              placeholder="简介（可选）"
-              value={newPlaylistDesc}
-              onChange={(e) => setNewPlaylistDesc(e.target.value)}
-              rows={3}
-            />
-            <label style={styles.createToggleRow}>
-              <span style={styles.createToggleText}>启用封面样式</span>
-              <button
-                type="button"
-                style={{
-                  ...styles.createToggleSwitch,
-                  ...(newPlaylistCoverStyle ? styles.createToggleSwitchOn : {}),
-                }}
-                onClick={() => setNewPlaylistCoverStyle((v) => !v)}
-              >
-                <div style={{ ...styles.createToggleKnob, ...(newPlaylistCoverStyle ? styles.createToggleKnobOn : {}) }} />
-              </button>
-            </label>
-            {smartAvailable && editingPlaylistId && (
-              <button type="button" style={{ ...styles.confirmCancelBtn, width: "100%", marginTop: "4px" }} onClick={generatePlaylistDescription}>
-                生成简介
-              </button>
-            )}
-            <div style={styles.createActions}>
-              <button style={styles.confirmDeleteBtn} onClick={handlePlaylistFormSubmit}>
-                {editingPlaylistId ? "保存" : "创建"}
-              </button>
-              <button style={styles.confirmCancelBtn} onClick={handleCloseCreatePlaylist}>
-                取消
-              </button>
-            </div>
+            <div style={styles.playlistDialogActions}><button style={styles.confirmCancelBtn} onClick={handleCloseCreatePlaylist}>取消</button><button style={{ ...styles.confirmDeleteBtn, ...(!newPlaylistName.trim() ? styles.confirmBtnDisabled : {}) }} onClick={handlePlaylistFormSubmit} disabled={!newPlaylistName.trim()}>保存</button></div>
           </div>
         </div>
       )}
@@ -6044,6 +6032,12 @@ const styles = {
   createDialog: {
     gap: "16px", alignItems: "stretch", width: "400px",
   },
+  playlistDialog: { gap: "16px", alignItems: "stretch", width: "min(920px, calc(100vw - 32px))", padding: "0 0 18px", maxHeight: "calc(100vh - 32px)", overflowY: "auto" },
+  playlistDialogHeader: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 24px", borderBottom: "1px solid #e5e7eb" },
+  playlistDialogClose: { border: "none", background: "transparent", color: "#374151", cursor: "pointer", fontSize: "22px", padding: "2px" },
+  playlistDialogBody: { display: "grid", gridTemplateColumns: "260px minmax(0, 1fr)", gap: "36px", padding: "16px 32px 0" },
+  playlistFields: { display: "flex", flexDirection: "column", minWidth: 0 },
+  playlistFieldLabel: { margin: "0 0 7px", color: "#374151", fontSize: "14px", fontWeight: 600 },
   createDialogTitle: {
     fontSize: "20px", fontWeight: 700, color: "#1f2937",
     margin: 0, textAlign: "center",
@@ -6052,23 +6046,27 @@ const styles = {
     display: "flex", flexDirection: "column", alignItems: "center", gap: "8px",
   },
   createCover: {
-    width: "200px", height: "200px", borderRadius: "12px",
+    width: "260px", height: "260px", borderRadius: "14px",
     objectFit: "cover", display: "block",
   },
   createCoverPlaceholder: {
-    width: "200px", height: "200px", borderRadius: "12px",
+    width: "260px", height: "260px", borderRadius: "14px",
     background: "#f3f4f6", display: "flex", flexDirection: "column",
     alignItems: "center", justifyContent: "center", gap: "8px",
-    cursor: "pointer", border: "2px dashed #d1d5db",
+    cursor: "pointer", border: "2px dashed #e94560", color: "#e94560", fontFamily: "inherit",
   },
-  createCoverHint: {
-    fontSize: "12px", color: "#9ca3af",
-  },
+  createCoverHint: { fontSize: "14px", color: "#e94560", fontWeight: 600 },
+  coverActions: { display: "flex", gap: "10px", justifyContent: "center" },
+  coverMenuWrap: { position: "relative", width: "260px", height: "260px" },
+  coverMenuButton: { position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", width: "44px", height: "44px", borderRadius: "50%", border: "none", background: "#e94560", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 3px 12px rgba(233,69,96,0.35)" },
+  coverMenu: { position: "absolute", zIndex: 3, top: "calc(50% + 30px)", left: "50%", transform: "translateX(-50%)", minWidth: "120px", padding: "6px", borderRadius: "10px", background: "#fff", border: "1px solid #e5e7eb", boxShadow: "0 8px 24px rgba(0,0,0,0.16)" },
+  coverMenuItem: { width: "100%", padding: "8px 10px", border: "none", borderRadius: "6px", background: "transparent", color: "#374151", textAlign: "left", cursor: "pointer", fontFamily: "inherit", fontSize: "13px" },
   createCoverChangeBtn: {
     background: "none", border: "none", color: "#e94560",
     fontSize: "13px", fontWeight: 500, cursor: "pointer",
     fontFamily: "inherit",
   },
+  createCoverRemoveBtn: { background: "none", border: "none", color: "#ef233c", fontSize: "13px", fontWeight: 500, cursor: "pointer", fontFamily: "inherit" },
   createInput: {
     padding: "10px 14px", borderRadius: "10px",
     border: "1px solid #d1d5db", outline: "none",
@@ -6082,6 +6080,10 @@ const styles = {
     boxSizing: "border-box", resize: "vertical",
     lineHeight: 1.5,
   },
+  playlistDescriptionWrap: { position: "relative", marginBottom: "12px" },
+  playlistAiButton: { position: "absolute", right: "10px", bottom: "12px", width: "34px", height: "34px", borderRadius: "9px", border: "1px solid #d1d5db", background: "#fff", color: "#e94560", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" },
+  playlistSuggestion: { margin: "-3px 0 12px", padding: "12px", borderRadius: "10px", background: "#fff5f6", border: "1px solid #fecdd3", color: "#374151", fontSize: "13px", lineHeight: 1.6, whiteSpace: "pre-wrap" },
+  suggestionActions: { display: "flex", gap: "8px", justifyContent: "flex-end", marginTop: "10px" },
   createToggleRow: {
     display: "flex", alignItems: "center", justifyContent: "space-between",
     width: "100%", cursor: "pointer", marginTop: "4px",
@@ -6127,6 +6129,8 @@ const styles = {
     fontFamily: "inherit",
     transition: "all 0.2s",
   },
+  playlistDialogActions: { display: "flex", gap: "10px", justifyContent: "flex-end", margin: "2px 64px 0 0" },
+  confirmBtnDisabled: { opacity: 0.45, cursor: "not-allowed" },
   confirmCancelBtn: {
     padding: "10px 28px", borderRadius: "20px",
     border: "1px solid #d1d5db", background: "#ffffff",

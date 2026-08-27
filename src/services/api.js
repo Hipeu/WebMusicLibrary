@@ -216,6 +216,11 @@ export async function toggleSmartProvider(kind, enabled) {
   const res = await fetch(`${BASE_URL}/api/smart/providers/${kind}/toggle`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled }) });
   return res.json();
 }
+export async function setDefaultSmartProvider(kind) {
+  const res = await fetch(`${BASE_URL}/api/smart/providers/${kind}/default`, { method: "POST" });
+  if (!res.ok) throw new Error("设置默认智能服务失败");
+  return res.json();
+}
 export async function deleteSmartProvider(kind) {
   const res = await fetch(`${BASE_URL}/api/smart/providers/${kind}`, { method: "DELETE" });
   return res.json();
@@ -431,6 +436,7 @@ export default {
   testSmartProvider,
   saveSmartProvider,
   toggleSmartProvider,
+  setDefaultSmartProvider,
   deleteSmartProvider,
   startSmartJob,
   getSmartJob,

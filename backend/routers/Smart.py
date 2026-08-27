@@ -49,6 +49,7 @@ def _public_provider(kind, item, default):
     return {
         "id": kind, "name": PROVIDER_DEFAULTS[kind]["name"], "model": item.get("model"),
         "connected": bool(item.get("connected")), "enabled": bool(item.get("enabled")),
+        "web_search": bool(item.get("web_search")), "output_length": item.get("output_length") or "medium",
         "is_default": default == kind,
     }
 
@@ -92,11 +93,34 @@ def save_provider(kind: str, payload: dict = Body(...)):
     if not api_key:
         raise HTTPException(status_code=400, detail="请输入 API Key")
     model = str(payload.get("model") or PROVIDER_DEFAULTS[kind]["model"]).strip()
-    data["providers"][kind] = {"api_key": api_key, "model": model, "connected": bool(payload.get("connected")), "enabled": bool(payload.get("enabled", True))}
-    if payload.get("make_default") or not data.get("default"):
+    data["providers"][kind] = {
+        "api_key": api_key,
+        "model": model,
+        "connected": bool(payload.get("connected")),
+        "enabled": bool(payload.get("enabled", True)),
+        "web_search": bool(payload.get("web_search", old.get("web_search", False))),
+        "output_length": str(payload.get("output_length") or old.get("output_length") or "medium"),
+    }
+    if data["providers"][kind]["enabled"]:
+        for other_kind, other_item in data["providers"].items():
+            if other_kind != kind:
+                other_item["enabled"] = False
+        data["default"] = kind
+    elif payload.get("make_default") or not data.get("default"):
         data["default"] = kind
     _save_providers(data)
     return {"status": "ok", "provider": _public_provider(kind, data["providers"][kind], data.get("default"))}
+
+
+@router.post("/providers/{kind}/default")
+def set_default_provider(kind: str):
+    kind = _safe_provider(kind)
+    data = _load_providers()
+    if kind not in data.get("providers", {}):
+        raise HTTPException(status_code=404, detail="供应商未添加")
+    data["default"] = kind
+    _save_providers(data)
+    return {"status": "ok"}
 
 
 @router.post("/providers/{kind}/toggle")
@@ -106,7 +130,16 @@ def toggle_provider(kind: str, payload: dict = Body(...)):
     item = data.get("providers", {}).get(kind)
     if not item:
         raise HTTPException(status_code=404, detail="供应商未添加")
-    item["enabled"] = bool(payload.get("enabled"))
+    enabled = bool(payload.get("enabled"))
+    item["enabled"] = enabled
+    if enabled:
+        # 智能任务一次仅使用一个服务；启用新的服务时自动停用其余服务。
+        for other_kind, other_item in data.get("providers", {}).items():
+            if other_kind != kind:
+                other_item["enabled"] = False
+        data["default"] = kind
+    elif data.get("default") == kind:
+        data["default"] = next((other_kind for other_kind, other_item in data.get("providers", {}).items() if other_item.get("enabled")), None)
     _save_providers(data)
     return {"status": "ok"}
 
@@ -133,11 +166,16 @@ def _set_job(job_id, **changes):
             _jobs[job_id].update(changes)
 
 
-def _instructions(kind, payload):
+def _instructions(kind, payload, output_length="medium"):
     if kind == "playlist":
         return "根据用户描述和本地曲目目录推荐播放列表。只返回 JSON：{description:string,song_ids:string[]}。song_ids 必须来自目录，不能虚构歌曲。"
     if kind == "playlist_description":
-        return "根据歌单名称和曲目目录写一段简洁中文歌单简介。只返回 JSON：{description:string}。"
+        length_requirement = {
+            "short": "简介控制在 60 至 100 个中文字符，表达精炼。",
+            "medium": "简介控制在 120 至 180 个中文字符，信息完整但不冗长。",
+            "long": "简介控制在 220 至 320 个中文字符，提供更丰富的风格和听感描述。",
+        }.get(output_length, "简介控制在 120 至 180 个中文字符，信息完整但不冗长。")
+        return f"根据歌单名称和曲目目录写中文歌单简介。{length_requirement}只返回 JSON：{{description:string}}。"
     if kind == "song_suggestion":
         return "根据本地单曲资料补全可能缺失的文本元信息。只返回 JSON 对象，可用字段 title,artist,album,album_artist,year,genre,trackNo,discNo,composer,lyricist,publisher,comment。不要返回图片或 URL。"
     if kind == "album_suggestion":
@@ -145,9 +183,20 @@ def _instructions(kind, payload):
     raise ValueError("不支持的智能任务")
 
 
+def _max_output_tokens(kind, item):
+    if kind != "playlist_description":
+        return 500
+    return {"short": 320, "medium": 560, "long": 900}.get(item.get("output_length"), 560)
+
+
 def _parse_json(content):
     content = re.sub(r"^```(?:json)?\s*|\s*```$", "", (content or "").strip(), flags=re.I)
-    value = json.loads(content)
+    if not content:
+        raise ValueError("模型未返回最终内容，请重试")
+    try:
+        value = json.loads(content)
+    except json.JSONDecodeError as exc:
+        raise ValueError("模型返回的内容不是有效 JSON，请重试") from exc
     if not isinstance(value, dict):
         raise ValueError("模型未返回 JSON 对象")
     return value
@@ -161,23 +210,83 @@ async def _run_chat(job_id, provider, kind, payload):
     base = PROVIDER_DEFAULTS[provider]["base_url"].rstrip("/")
     provider_name = PROVIDER_DEFAULTS[provider]["name"]
     _set_job(job_id, message=f"正在向 {provider_name} 发送请求", provider_name=provider_name)
+    model = item.get("model") or PROVIDER_DEFAULTS[provider]["model"]
+    web_search = provider == "deepseek" and model == "deepseek-v4-flash" and bool(item.get("web_search"))
+    instructions = _instructions(kind, payload, item.get("output_length") or "medium")
     request = {
-        "model": item.get("model") or PROVIDER_DEFAULTS[provider]["model"],
+        "model": model,
         "temperature": 0.3,
         "response_format": {"type": "json_object"},
+        "max_tokens": _max_output_tokens(kind, item),
         "messages": [
-            {"role": "system", "content": _instructions(kind, payload)},
+            {"role": "system", "content": instructions},
             {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
         ],
     }
+    # DeepSeek 默认开启高强度思考；本应用需要短的结构化结果，关闭它可确保返回正文。
+    if provider == "deepseek":
+        request["thinking"] = {"type": "disabled"}
     timeout = aiohttp.ClientTimeout(total=120)
     headers = {"Authorization": f"Bearer {item['api_key']}", "Content-Type": "application/json"}
     async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.post(f"{base}/chat/completions", headers=headers, json=request) as resp:
-            body = await resp.json(content_type=None)
-            if resp.status >= 400:
-                raise ValueError(body.get("error", {}).get("message") or f"HTTP {resp.status}")
+        if web_search:
+            search_request = {
+                "model": model,
+                "instructions": instructions,
+                "input": json.dumps(payload, ensure_ascii=False),
+                "max_output_tokens": _max_output_tokens(kind, item),
+                # 输出额度包含思考 token；关闭思考可避免搜索完成后没有留下 JSON 正文。
+                "reasoning": {"effort": "none"},
+                "tools": [{"type": "web_search"}],
+                "tool_choice": {"type": "web_search"},
+                "text": {"format": {"type": "json_object"}},
+            }
+            # DeepSeek 的 Responses API 不在 OpenAI 兼容的 /v1 路径下。
+            endpoint = "https://api.deepseek.com/responses"
+            async with session.post(endpoint, headers=headers, json=search_request) as resp:
+                body = await resp.json(content_type=None)
+                if resp.status >= 400:
+                    raise ValueError(body.get("error", {}).get("message") or f"HTTP {resp.status}")
+
+            # Responses API 无状态：搜索阶段仅返回 web_search_call 时，必须原样回传，
+            # 服务端才会恢复检索结果并让模型生成最终内容。
+            first_content = body.get("output_text") or ""
+            if not first_content:
+                first_content = "".join(part.get("text", "") for output_item in body.get("output", []) if output_item.get("type") == "message" for part in output_item.get("content", []) if part.get("type") == "output_text")
+            if not first_content.strip():
+                _set_job(job_id, message=f"正在整理 {provider_name} 联网搜索结果")
+                continuation_request = {
+                    "model": model,
+                    "instructions": instructions,
+                    "input": [
+                        {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+                        *body.get("output", []),
+                        {"role": "user", "content": "请根据以上联网搜索结果生成最终答案。只返回符合要求的 JSON 对象。"},
+                    ],
+                    "max_output_tokens": _max_output_tokens(kind, item),
+                    "reasoning": {"effort": "none"},
+                    "tool_choice": "none",
+                    "text": {"format": {"type": "json_object"}},
+                }
+                async with session.post(endpoint, headers=headers, json=continuation_request) as resp:
+                    body = await resp.json(content_type=None)
+                    if resp.status >= 400:
+                        raise ValueError(body.get("error", {}).get("message") or f"HTTP {resp.status}")
+        else:
+            endpoint = f"{base}/chat/completions"
+            async with session.post(endpoint, headers=headers, json=request) as resp:
+                body = await resp.json(content_type=None)
+                if resp.status >= 400:
+                    raise ValueError(body.get("error", {}).get("message") or f"HTTP {resp.status}")
     _set_job(job_id, message=f"正在接收 {provider_name} 数据")
+    if web_search:
+        content = body.get("output_text") or ""
+        if not content:
+            content = "".join(part.get("text", "") for item in body.get("output", []) if item.get("type") == "message" for part in item.get("content", []) if part.get("type") == "output_text")
+        if not content.strip():
+            reason = ((body.get("incomplete_details") or {}).get("reason") or body.get("status") or "未知原因")
+            raise ValueError(f"联网搜索未生成最终内容（{reason}），请重试或选择更长的输出内容长度")
+        return _parse_json(content)
     return _parse_json(((body.get("choices") or [{}])[0].get("message") or {}).get("content"))
 
 
