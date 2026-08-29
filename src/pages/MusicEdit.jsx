@@ -1,5 +1,5 @@
 import { startTransition, useState, useEffect, useMemo, useRef } from "react";
-import { FaImage, FaMusic, FaPlus, FaClock, FaCodeBranch, FaCalendarAlt, FaLink, FaChevronDown, FaRobot } from "react-icons/fa";
+import { FaImage, FaMusic, FaPlus, FaClock, FaCodeBranch, FaCalendarAlt, FaLink, FaChevronDown, FaRobot, FaVideo, FaSearch, FaTimes } from "react-icons/fa";
 import { matchSong } from "../services/api";
 import LyricImport from "../components/LyricImport";
 import MatchResultPicker from "../components/MatchResultPicker";
@@ -11,7 +11,7 @@ import { splitArtists } from "../utils/artistSplit";
    ✏️ MusicEdit — 编辑音乐元信息弹窗
    右上角「匹配」：歌曲匹配填入表单 / 专辑匹配逐首写回
    ================================================================ */
-export default function MusicEdit({ target, onClose, onSave, onMatchError, onBackgroundAlbumMatch, onSmartSuggestion, smartAvailable, albums, artistRecords }) {
+export default function MusicEdit({ target, onClose, onSave, onMatchError, onBackgroundAlbumMatch, onSmartSuggestion, smartAvailable, albums, artistRecords, videos = [], onUpdateVideoLinks, onUploadVideoFile, onAddWebVideo }) {
   const [form, setForm] = useState({});
   const [editCover, setEditCover] = useState(null);
   const [editCoverFile, setEditCoverFile] = useState(null);
@@ -26,6 +26,9 @@ export default function MusicEdit({ target, onClose, onSave, onMatchError, onBac
   const [showSmartSuggestion, setShowSmartSuggestion] = useState(false);
   const [smartSuggestion, setSmartSuggestion] = useState(null);
   const [lyricImportOpen, setLyricImportOpen] = useState(false);
+  const [linkedVideoIds, setLinkedVideoIds] = useState([]);
+  const [videoPickerOpen, setVideoPickerOpen] = useState(false);
+  const videoInputRef = useRef(null);
   const coverInputRef = useRef(null);
   const artistInputRef = useRef(null);
   const albumArtistInputRef = useRef(null);
@@ -108,6 +111,13 @@ export default function MusicEdit({ target, onClose, onSave, onMatchError, onBac
     data?.trackNo,
     data?.year,
   ]);
+
+  useEffect(() => {
+    if (!target || isAlbum) return;
+    const key = data?.file_path || data?.hash;
+    const timer = setTimeout(() => setLinkedVideoIds((videos || []).filter((video) => (video.song_ids || []).includes(key)).map((video) => video.id)), 0);
+    return () => clearTimeout(timer);
+  }, [target, isAlbum, data?.file_path, data?.hash, videos]);
 
   if (!target) return null;
 
@@ -266,6 +276,7 @@ export default function MusicEdit({ target, onClose, onSave, onMatchError, onBac
   // 导入 LRC / 歌词文件，填入歌词表单
   async function handleSave() {
     await onSave?.(target, form, editCoverFile, didMatch, lastSource);
+    if (!isAlbum) await onUpdateVideoLinks?.(data, linkedVideoIds);
     onClose();
   }
 
@@ -273,7 +284,7 @@ export default function MusicEdit({ target, onClose, onSave, onMatchError, onBac
     { id: "details", label: "详细信息" },
     { id: "cover", label: "封面" },
     ...(isAlbum ? [{ id: "description", label: "简介" }] : []),
-    ...(isAlbum ? [] : [{ id: "lyrics", label: "歌词" }]),
+    ...(isAlbum ? [] : [{ id: "lyrics", label: "歌词" }, { id: "videos", label: "视频" }]),
     { id: "type", label: "类型" },
   ];
 
@@ -546,6 +557,17 @@ export default function MusicEdit({ target, onClose, onSave, onMatchError, onBac
               />
             </div>
           )}
+          {activeTab === "videos" && !isAlbum && (
+            <div style={styles.lyricsTab}>
+              <div style={styles.lyricsToolbar}>
+                <button style={styles.importLrcBtn} onClick={() => videoInputRef.current?.click()}><FaVideo size={13} /> 关联本地文件</button>
+                <button style={styles.importLrcBtn} onClick={() => onAddWebVideo?.()}><FaLink size={13} /> 关联视频网站视频</button>
+                <input ref={videoInputRef} type="file" accept="video/*,.mkv,.avi,.flv,.wmv" style={{ display: "none" }} onChange={async (e) => { const file = e.target.files?.[0]; e.target.value = ""; if (file) await onUploadVideoFile?.(file); }} />
+              </div>
+              <div className="music-linked-video-list">{videos.filter((video) => linkedVideoIds.includes(video.id)).map((video) => <div key={video.id}><span>{video.cover_url ? <img src={video.cover_url} alt="" /> : <FaVideo />}</span><section><strong>{video.title || "未命名视频"}</strong><small>{video.artist || video.source_label}</small></section><button onClick={() => setLinkedVideoIds((ids) => ids.filter((id) => id !== video.id))}>移除</button></div>)}</div>
+              <button className="video-associate-add" onClick={() => setVideoPickerOpen(true)}><FaPlus /><span>关联现有视频</span></button>
+            </div>
+          )}
         </div>
 
         {/* 底部按钮 */}
@@ -626,6 +648,7 @@ export default function MusicEdit({ target, onClose, onSave, onMatchError, onBac
             onClose={() => setOpenField(null)}
           />
         )}
+        {videoPickerOpen && <VideoPicker videos={videos} selected={new Set(linkedVideoIds)} onPick={(video) => { setLinkedVideoIds((ids) => [...ids, video.id]); setVideoPickerOpen(false); }} onClose={() => setVideoPickerOpen(false)} />}
       </div>
     </div>
   );
@@ -668,6 +691,18 @@ function formatTimestamp(ts) {
   const h = String(d.getHours()).padStart(2, "0");
   const min = String(d.getMinutes()).padStart(2, "0");
   return `${y}-${m}-${day} ${h}:${min}`;
+}
+
+function VideoPicker({ videos, selected, onPick, onClose }) {
+  const [query, setQuery] = useState("");
+  const list = [...(videos || [])]
+    .filter((video) => !selected.has(video.id))
+    .sort((a, b) => (b.import_time || 0) - (a.import_time || 0))
+    .filter((video) => [video.title, video.artist, video.source_label].join(" ").toLowerCase().includes(query.toLowerCase()));
+  return <div className="association-picker-overlay"><section className="association-picker">
+    <header><div><FaSearch /><input autoFocus value={query} placeholder="搜索视频" onChange={(e) => setQuery(e.target.value)} /></div><button onClick={onClose}><FaTimes /></button></header>
+    <main><h3>{query ? "搜索结果" : "最近导入"}</h3><div className="association-video-grid">{list.map((video) => <button key={video.id} onClick={() => onPick(video)}><span>{video.cover_url ? <img src={video.cover_url} alt="" /> : <FaVideo />}</span><strong>{video.title || "未命名视频"}</strong><small>{video.artist || video.source_label}</small></button>)}{!list.length && <p>没有可关联的视频</p>}</div></main>
+  </section></div>;
 }
 
 /* ================================================================

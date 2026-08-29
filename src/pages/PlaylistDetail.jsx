@@ -4,6 +4,7 @@ import PlayingAnimation from "../components/PlayingAnimation";
 import { songPlayable } from "../utils/formatCheck";
 import useCoverColor from "../components/CoverColor";
 import AlbumDescriptionModal from "../components/AlbumDescriptionModal";
+import RelatedVideos from "../components/RelatedVideos";
 
 /* ================================================================
    📋 PlaylistDetail — 播放列表详情页
@@ -32,6 +33,9 @@ export default function PlaylistDetail({
   onEditInfo,
   missingSongs,
   onMissingSongClick,
+  videos = [],
+  onOpenVideo,
+  onMoreVideos,
 }) {
   const [menuSongIdx, setMenuSongIdx] = useState(null);
   const [panelSong, setPanelSong] = useState(null);
@@ -165,6 +169,7 @@ export default function PlaylistDetail({
           <p style={styles.playlistMeta}>
             {songs.length > 0 ? `${songs.length} 首歌曲` : "暂无歌曲"}
           </p>
+          <RelatedVideos videos={videos} songIds={songs.map((song) => song.file_path || song.hash)} onOpen={onOpenVideo} onMore={onMoreVideos} />
           <div style={styles.actionRow}>
             <button
               style={{

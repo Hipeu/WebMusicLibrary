@@ -7,6 +7,7 @@ import { getAssetUrl } from "../services/api";
 import AlbumDescriptionModal from "../components/AlbumDescriptionModal";
 import AlbumArtistPicker from "../components/AlbumArtistPicker";
 import { splitArtists, joinArtists } from "../utils/artistSplit";
+import RelatedVideos from "../components/RelatedVideos";
 
 /* ================================================================
    📀 AlbumDetail — 专辑详情页
@@ -31,6 +32,9 @@ export default function AlbumDetail({
   missingSongs,
   onMissingSongClick,
   artistRecords,
+  videos = [],
+  onOpenVideo,
+  onMoreVideos,
 }) {
   const [menuSongIdx, setMenuSongIdx] = useState(null);
   const [panelSong, setPanelSong] = useState(null);
@@ -405,6 +409,7 @@ export default function AlbumDetail({
               {album.publisher && !isPlaceholderPublisher(album.publisher) && (
                 <span style={styles.songMetaText}>{album.publisher}</span>
               )}
+              <RelatedVideos videos={videos} songIds={(album.songs || []).map((song) => song.file_path || song.hash)} onOpen={onOpenVideo} onMore={onMoreVideos} />
               <span style={styles.songCount}>{album.songs.length} 首</span>
             </div>
           </div>

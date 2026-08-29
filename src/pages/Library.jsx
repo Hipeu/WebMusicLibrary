@@ -1,9 +1,9 @@
 import { startTransition, useState, useRef, useEffect, useCallback } from "react";
 import { FiPlus } from "react-icons/fi";
-import { FaEllipsisH, FaCompactDisc, FaUser, FaHeart, FaStepForward, FaClock, FaPlus, FaArrowUp, FaTrash, FaMusic, FaInfoCircle, FaCog, FaPlay, FaExclamationCircle, FaCheckCircle, FaTimes, FaBell, FaStar } from "react-icons/fa";
+import { FaEllipsisH, FaCompactDisc, FaUser, FaHeart, FaStepForward, FaClock, FaPlus, FaArrowUp, FaTrash, FaMusic, FaInfoCircle, FaCog, FaPlay, FaExclamationCircle, FaCheckCircle, FaTimes, FaBell, FaStar, FaVideo } from "react-icons/fa";
 import { readMetadata } from "../utils/MetadataReader";
 import { splitArtists, joinArtists, albumBelongsToArtist, collectAllArtists, isPrimaryAlbum } from "../utils/artistSplit";
-import { uploadMusic, getMusicList, getAssetUrl, deleteMusic, checkMusicFiles, updateMusicMetadata, updateAlbumDescription, matchSong, getLyrics, getPlaylists, savePlaylists, resetAll, getResetProgress, openMusicFile, getArtists, saveArtist, deleteArtist, getMatchAllProgress, cancelMatchAll, getSettings, saveAppSettings, getDataJob, getDataExportDownloadUrl, cancelDataJob, startSmartJob, getSmartJob, cancelSmartJob, getSmartProviders } from "../services/api";
+import { uploadMusic, getMusicList, getAssetUrl, deleteMusic, checkMusicFiles, updateMusicMetadata, updateAlbumDescription, matchSong, getLyrics, getPlaylists, savePlaylists, resetAll, getResetProgress, openMusicFile, getArtists, saveArtist, deleteArtist, getMatchAllProgress, cancelMatchAll, getSettings, saveAppSettings, getDataJob, getDataExportDownloadUrl, cancelDataJob, startSmartJob, getSmartJob, cancelSmartJob, getSmartProviders, getVideos, uploadVideo, addWebVideo, updateVideo, updateVideoCover, deleteVideo, openVideoFile } from "../services/api";
 import { saveSongToIndex, removeSongFromIndex, loadMusicIndex } from "../utils/musicIndex";
 import { normalizePlaylists, loadPlaylistCache, savePlaylistCache } from "../utils/playlistStore";
 import { isUnplayableCodec, songPlayable, isPlaceholderPublisher } from "../utils/formatCheck";
@@ -23,6 +23,8 @@ import Sidebar from "../components/LibrarySidebar";
 import Settings, { applyTheme } from "../components/Settings";
 import MatchDetail from "../components/MatchDetail";
 import MetadataBrowser from "../components/MetadataBrowser";
+import VideoLibrary from "../components/VideoLibrary";
+import VideoDetail from "../components/VideoDetail";
 import "../styles/music-library.css";
 
 
@@ -332,6 +334,7 @@ export default function MusicLibrary() {
   const [volume, setVolume] = useState(1);
   const audioRef = useRef(null);
   const fileInputRef = useRef(null);
+  const videoInputRef = useRef(null);
   const reimportInputRef = useRef(null);
   // ---------- 懒加载（无限滚动）：主内容区为滚动容器，初始 40 条 ----------
   const [visibleCount, setVisibleCount] = useState(40);
@@ -389,6 +392,8 @@ export default function MusicLibrary() {
 
         // ---------- 专辑详情页状态 ----------
   const [detailAlbumId, setDetailAlbumId] = useState(null);
+  const [detailVideoId, setDetailVideoId] = useState(null);
+  const [videos, setVideos] = useState([]);
   // 多层返回栈：记录每次进入详情页前的来源，返回时逐层恢复
   const [navStack, setNavStack] = useState([]);
 
@@ -2475,6 +2480,65 @@ export default function MusicLibrary() {
       }
     }
 
+    async function refreshVideos() {
+      try {
+        const result = await getVideos();
+        setVideos(Array.isArray(result) ? result.map((item) => ({ ...item, file_url: getAssetUrl(item.file_url), cover_url: getAssetUrl(item.cover_url) })) : []);
+      } catch (err) { console.warn("刷新视频资料库失败:", err); }
+    }
+
+    async function handleVideoFiles(event) {
+      const files = Array.from(event.target.files || []);
+      event.target.value = "";
+      for (const file of files) {
+        try { await uploadVideo(file); } catch (err) { showToast(err?.message || "视频导入失败", "warning"); }
+      }
+      await refreshVideos();
+      if (files.length) showToast(`已导入 ${files.length} 个视频`, "success");
+    }
+
+    async function handleAddWebVideo() {
+      const url = window.prompt("请输入哔哩哔哩或 YouTube 视频网址");
+      if (!url?.trim()) return;
+      try { await addWebVideo(url.trim()); await refreshVideos(); showToast("视频网站视频已添加", "success"); }
+      catch { showToast("无法添加该视频网站视频，请检查链接", "warning"); }
+    }
+
+    async function handleSaveVideo(id, payload, coverFile) {
+      await updateVideo(id, payload);
+      if (coverFile) await updateVideoCover(id, coverFile);
+      await refreshVideos();
+      showToast("视频信息已保存", "success");
+    }
+
+    async function handleUpdateSongVideoLinks(song, selectedIds) {
+      const songKey = song?.file_path || song?.hash;
+      if (!songKey) return;
+      await Promise.all((videos || []).map((video) => {
+        const current = video.song_ids || [];
+        const shouldLink = selectedIds.includes(video.id);
+        const hasLink = current.includes(songKey);
+        if (shouldLink === hasLink) return null;
+        return updateVideo(video.id, { song_ids: shouldLink ? [...current, songKey] : current.filter((id) => id !== songKey) });
+      }));
+      await refreshVideos();
+    }
+
+    async function handleUploadVideoFromEditor(file) {
+      await uploadVideo(file);
+      await refreshVideos();
+    }
+
+    async function handleDeleteVideo(id) {
+      if (!window.confirm("确定删除此视频吗？")) return;
+      await deleteVideo(id); setDetailVideoId(null); await refreshVideos(); showToast("视频已删除", "success");
+    }
+
+    useEffect(() => {
+      const timer = setTimeout(() => { refreshVideos(); }, 0);
+      return () => clearTimeout(timer);
+    }, []);
+
     function handleAlbumMatchError() {
       setEditTarget(null);
       showToast("专辑匹配失败，请稍后重试", "warning");
@@ -3346,12 +3410,15 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                         <div style={styles.menuOverlay} onClick={() => setShowImportMenu(false)} />
                         <div style={styles.importDropdown}>
                           <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => { setShowImportMenu(false); fileInputRef.current?.click(); }}><FaMusic size={14} style={{ marginRight: "10px" }} /><span>添加歌曲</span></div>
+                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => { setShowImportMenu(false); videoInputRef.current?.click(); }}><FaVideo size={14} style={{ marginRight: "10px" }} /><span>添加视频</span></div>
+                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => { setShowImportMenu(false); handleAddWebVideo(); }}><FaVideo size={14} style={{ marginRight: "10px" }} /><span>关联视频网站视频</span></div>
                           <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => { setShowImportMenu(false); handleOpenCreatePlaylist(); }}><FaPlus size={14} style={{ marginRight: "10px" }} /><span>新建播放列表</span></div>
                           {smartAvailable && <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => { setShowImportMenu(false); setSmartPlaylistName(""); setSmartPlaylistPrompt(""); setShowSmartPlaylist(true); }}><FaStar size={14} style={{ marginRight: "10px", color: "#e94560" }} /><span>智能歌单</span></div>}
                         </div>
                       </>
                     )}
                     <input ref={fileInputRef} type="file" accept="audio/*" multiple onChange={handleImportFiles} style={{ display: "none" }} />
+                    <input ref={videoInputRef} type="file" accept="video/*,.mkv,.avi,.flv,.wmv" multiple onChange={handleVideoFiles} style={{ display: "none" }} />
                     <input ref={coverInputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => { const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = (ev) => { setNewPlaylistCover(ev.target.result); setNewPlaylistCoverRemoved(false); }; reader.readAsDataURL(file); }} />
                   </div>
                   </div>
@@ -3361,7 +3428,17 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                                 {/* ============================================================ */}
                 {/* ② 中间内容区 — 按导航切换视图                            */}
                 {/* ============================================================ */}
-                                {detailAlbumId ? (
+                                {detailVideoId ? (
+                  <VideoDetail
+                    video={videos.find((item) => item.id === detailVideoId)}
+                    songs={albums.flatMap((album) => album.songs || [])}
+                    playlists={playlists}
+                    onBack={() => setDetailVideoId(null)}
+                    onSave={handleSaveVideo}
+                    onDelete={handleDeleteVideo}
+                    onOpenLocal={openVideoFile}
+                  />
+                ) : detailAlbumId ? (
                   /* ----- 专辑详情页（从专辑网格点进去） ----- */
                    <div style={styles.detailPageArea}>
                      <DetailErrorBoundary
@@ -3406,6 +3483,9 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                       onEditInfo={handleOpenMusicEdit}
                       onDeleteSong={handleDeleteSongFromDetail}
                       artistRecords={artistRecords}
+                      videos={videos}
+                      onOpenVideo={(id) => setDetailVideoId(id)}
+                      onMoreVideos={() => { setDetailAlbumId(null); setActiveNav("videos"); }}
                      />
                      </DetailErrorBoundary>
                    </div>
@@ -3448,6 +3528,9 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                       onRemoveFromPlaylist={handleRemoveFromPlaylist}
                       onDeleteSong={(song) => setDeleteSongConfirm({ ...song, albumId: song.albumId })}
                       onEditInfo={handleOpenMusicEdit}
+                      videos={videos}
+                      onOpenVideo={(id) => setDetailVideoId(id)}
+                      onMoreVideos={() => { setDetailPlaylistId(null); setActiveNav("videos"); }}
                     />
                   </div>
                 ) : activeNav === "search" ? (
@@ -3480,9 +3563,11 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                       togglePlay={togglePlay}
                     />
                   </main>
-                ) : ["composer", "lyricist", "genres", "videos"].includes(activeNav) ? (
+                ) : activeNav === "videos" ? (
+                  <VideoLibrary videos={videos} albums={albums} onOpen={(id) => setDetailVideoId(id)} />
+                ) : ["composer", "lyricist", "genres"].includes(activeNav) ? (
                   <MetadataBrowser
-                    type={activeNav === "genres" ? "genre" : activeNav === "videos" ? "video" : activeNav}
+                    type={activeNav === "genres" ? "genre" : activeNav}
                     albums={albums}
                     artistRecords={artistRecords}
                     selected={metadataRoute.type === activeNav ? metadataRoute.selected : null}
@@ -4572,6 +4657,10 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
         onBackgroundAlbumMatch={runBackgroundAlbumMatch}
         onSmartSuggestion={smartAvailable ? startSmartSuggestion : null}
         smartAvailable={smartAvailable}
+        videos={videos}
+        onUpdateVideoLinks={handleUpdateSongVideoLinks}
+        onUploadVideoFile={handleUploadVideoFromEditor}
+        onAddWebVideo={handleAddWebVideo}
       />
 
       {artistEditTarget && (

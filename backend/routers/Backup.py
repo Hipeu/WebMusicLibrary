@@ -74,7 +74,8 @@ def _selected_data_files(selected):
     paths = []
     mapping = {
         "artists": ("artists.json", "artists_img"),
-        "albums": ("picture", "metadata", "Lyrics"),
+        # videos.json / videos/covers 属于资料库元信息，与专辑资料一起备份恢复。
+        "albums": ("picture", "metadata", "Lyrics", "videos"),
         "playlists": ("playlists.json",),
     }
     for kind, entries in mapping.items():
@@ -438,7 +439,7 @@ def _import_worker(job_id, archive_path, mode, keep_backup, selected):
                     if source.is_dir(): shutil.copytree(source, target, dirs_exist_ok=True)
                     elif source.is_file(): target.parent.mkdir(parents=True, exist_ok=True); shutil.copy2(source, target)
             if "albums" in selected:
-                for entry in ("picture", "metadata", "Lyrics"):
+                for entry in ("picture", "metadata", "Lyrics", "videos"):
                     target = Path(DATA_DIR, entry)
                     shutil.rmtree(target, ignore_errors=True)
                     source = source_data / entry
@@ -478,6 +479,7 @@ def _import_worker(job_id, archive_path, mode, keep_backup, selected):
                 _copy_tree_merge(source_data / "picture", Path(DATA_DIR, "picture"))
                 _copy_tree_merge(source_data / "Lyrics", Path(DATA_DIR, "Lyrics"))
                 _copy_tree_merge(source_data / "metadata", Path(DATA_DIR, "metadata"))
+                _copy_tree_merge(source_data / "videos", Path(DATA_DIR, "videos"))
                 _restore_album_catalog(source_data, library, imported_wins=False)
             if "artists" in selected:
                 _copy_tree_merge(source_data / "artists_img", Path(DATA_DIR, "artists_img"))

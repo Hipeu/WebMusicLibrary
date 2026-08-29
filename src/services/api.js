@@ -64,6 +64,39 @@ export async function openMusicFile(filePath) {
   return res.json();
 }
 
+// ---------- 视频资料库 ----------
+export async function getVideos() {
+  const res = await fetch(`${BASE_URL}/api/videos`);
+  return res.json();
+}
+export async function uploadVideo(file) {
+  const form = new FormData(); form.append("file", file);
+  const res = await fetch(`${BASE_URL}/api/videos/upload`, { method: "POST", body: form });
+  return res.json();
+}
+export async function addWebVideo(url) {
+  const form = new FormData(); form.append("url", url);
+  const res = await fetch(`${BASE_URL}/api/videos/web`, { method: "POST", body: form });
+  return res.json();
+}
+export async function updateVideo(id, payload) {
+  const res = await fetch(`${BASE_URL}/api/videos/${encodeURIComponent(id)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  return res.json();
+}
+export async function updateVideoCover(id, file) {
+  const form = new FormData(); form.append("file", file);
+  const res = await fetch(`${BASE_URL}/api/videos/${encodeURIComponent(id)}/cover`, { method: "POST", body: form });
+  return res.json();
+}
+export async function deleteVideo(id) {
+  const res = await fetch(`${BASE_URL}/api/videos/${encodeURIComponent(id)}`, { method: "DELETE" });
+  return res.json();
+}
+export async function openVideoFile(id) {
+  const res = await fetch(`${BASE_URL}/api/videos/${encodeURIComponent(id)}/open`, { method: "POST" });
+  return res.json();
+}
+
 /** 编辑歌曲元信息（写入音乐文件内部标签 + data 备份 + manifest）
  *  payload: { file_path, title?, artist?, album?, genre?, year?, trackNo?,
  *             composer?, lyricist?, publisher?, comment?, lyrics?, cover?(File) }
@@ -416,6 +449,7 @@ export default {
   testConnection,
   checkMusicFiles,
   openMusicFile,
+  getVideos, uploadVideo, addWebVideo, updateVideo, updateVideoCover, deleteVideo, openVideoFile,
   updateMusicMetadata,
   updateAlbumDescription,
   getLyrics,
