@@ -7,22 +7,25 @@ import {
   FaHeart,
   FaHeadphones,
   FaFolder,
+  FaSearch,
+  FaPenFancy,
+  FaFeatherAlt,
+  FaTags,
+  FaVideo,
 } from "react-icons/fa";
 
 /* ================================================================
    🎯 Sidebar — 音乐资料库侧边栏
    功能：导航 + 播放列表管理
    ================================================================ */
-import Search from "./Search";
-
 export default function Sidebar({
   activeNav,
   onNavChange,
   playlists,
   onOpenPlaylistMenu,
   onRenamePlaylist,
-  filterText,
-  setFilterText,
+  showMoreCategories,
+  categoryVisibility = {},
 }) {
   const [editingPlaylist, setEditingPlaylist] = useState(null);
   const [editName, setEditName] = useState("");
@@ -37,10 +40,15 @@ export default function Sidebar({
 
   // ---------- 导航项 ----------
   const navItems = [
+    { id: "search", label: "搜索", icon: <FaSearch /> },
     { id: "library", label: "资料库", icon: <FaMusic /> },
     { id: "albums", label: "专辑", icon: <FaCompactDisc /> },
     { id: "artists", label: "艺人", icon: <FaUser /> },
     { id: "songs", label: "歌曲", icon: <FaListUl /> },
+    ...(showMoreCategories && categoryVisibility.composer ? [{ id: "composer", label: "作曲者", icon: <FaPenFancy /> }] : []),
+    ...(showMoreCategories && categoryVisibility.lyricist ? [{ id: "lyricist", label: "作词者", icon: <FaFeatherAlt /> }] : []),
+    ...(showMoreCategories && categoryVisibility.genre ? [{ id: "genres", label: "流派", icon: <FaTags /> }] : []),
+    ...(showMoreCategories && categoryVisibility.video ? [{ id: "videos", label: "视频", icon: <FaVideo /> }] : []),
   ];
 
   // 播放列表图标映射
@@ -52,11 +60,6 @@ export default function Sidebar({
 
   return (
     <div style={styles.sidebar} className="app-sidebar">
-      {/* ===== 搜索 ===== */}
-      <div style={styles.searchSection}>
-        <Search filterText={filterText} setFilterText={setFilterText} activeNav={activeNav} onNavChange={onNavChange} />
-      </div>
-
       {/* ===== 顶部导航 ===== */}
       <div style={styles.section}>
         {navItems.map((item) => (
@@ -68,8 +71,10 @@ export default function Sidebar({
               ...(activeNav === item.id ? styles.itemActive : {}),
             }}
             onClick={() => onNavChange(item.id)}
+            title={item.label}
           >
             <span
+              className="sidebar-label"
               style={{
                 ...styles.icon,
                 ...(activeNav === item.id ? styles.iconActive : {}),
@@ -91,7 +96,7 @@ export default function Sidebar({
 
       {/* ===== 播放列表 ===== */}
       <div style={styles.section}>
-        <div style={styles.sectionTitle}>播放列表</div>
+        <div className="sidebar-section-title" style={styles.sectionTitle}>播放列表</div>
 
         {/* 全部播放列表 */}
         <div
@@ -101,11 +106,12 @@ export default function Sidebar({
             ...(activeNav === "playlists" ? styles.itemActive : {}),
           }}
           onClick={() => onNavChange("playlists")}
+          title="全部播放列表"
         >
           <span style={{ ...styles.playlistThumb, ...(activeNav === "playlists" ? styles.playlistThumbActive : {}) }}>
             <FaFolder />
           </span>
-          <span style={{ ...styles.label, ...(activeNav === "playlists" ? styles.labelActive : {}) }}>
+          <span className="sidebar-label" style={{ ...styles.label, ...(activeNav === "playlists" ? styles.labelActive : {}) }}>
             全部播放列表
           </span>
         </div>
@@ -121,6 +127,7 @@ export default function Sidebar({
                 ...(activeNav === pl.id ? styles.itemActive : {}),
               }}
               onClick={() => onNavChange(pl.id)}
+              title={pl.name}
             >
             <span
               style={{
@@ -141,6 +148,7 @@ export default function Sidebar({
 
             {editingPlaylist === pl.id ? (
               <input
+                className="sidebar-edit-input"
                 style={styles.editInput}
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
@@ -154,6 +162,7 @@ export default function Sidebar({
               />
             ) : (
               <span
+                className="sidebar-label"
                 style={{
                   ...styles.label,
                   ...(activeNav === pl.id ? styles.labelActive : {}),
@@ -178,7 +187,7 @@ export default function Sidebar({
           </>
         ))}
 
-        <div style={styles.sectionDivider} />
+        <div className="sidebar-section-divider" style={styles.sectionDivider} />
 
         {playlists.filter((pl) => pl.id !== "liked" && pl.id !== "recent" && pl.pinned).map((pl) => (
           <div
@@ -186,15 +195,16 @@ export default function Sidebar({
             className="sidebar-item"
             style={{ ...styles.item, ...(activeNav === pl.id ? styles.itemActive : {}) }}
             onClick={() => onNavChange(pl.id)}
+            title={pl.name}
           >
             <span style={{ ...styles.playlistThumb, ...(activeNav === pl.id ? styles.playlistThumbActive : {}) }}>
               {playlistIcon(pl.id)}
               {pl.coverURL && <img src={pl.coverURL} alt="" onError={(e) => { e.currentTarget.style.display = "none"; }} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", display: "block" }} />}
             </span>
             {editingPlaylist === pl.id ? (
-              <input style={styles.editInput} value={editName} onChange={(e) => setEditName(e.target.value)} onBlur={() => handleRenameConfirm(pl.id)} onKeyDown={(e) => { if (e.key === "Enter") handleRenameConfirm(pl.id); if (e.key === "Escape") setEditingPlaylist(null); }} autoFocus onClick={(e) => e.stopPropagation()} />
+              <input className="sidebar-edit-input" style={styles.editInput} value={editName} onChange={(e) => setEditName(e.target.value)} onBlur={() => handleRenameConfirm(pl.id)} onKeyDown={(e) => { if (e.key === "Enter") handleRenameConfirm(pl.id); if (e.key === "Escape") setEditingPlaylist(null); }} autoFocus onClick={(e) => e.stopPropagation()} />
             ) : (
-              <span style={{ ...styles.label, ...(activeNav === pl.id ? styles.labelActive : {}), flex: 1 }}>{pl.name}</span>
+              <span className="sidebar-label" style={{ ...styles.label, ...(activeNav === pl.id ? styles.labelActive : {}), flex: 1 }}>{pl.name}</span>
             )}
             <span className="sidebar-more-btn" style={styles.moreBtn} onClick={(e) => onOpenPlaylistMenu?.(e, pl)} title="更多操作">···</span>
           </div>
@@ -222,10 +232,6 @@ const styles = {
     fontFamily: "'Segoe UI', sans-serif",
     overflowY: "auto",
     overflowX: "hidden",
-  },
-
-  searchSection: {
-    marginBottom: "-8px",
   },
 
   section: {

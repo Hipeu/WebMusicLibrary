@@ -3,6 +3,7 @@ import { FaMusic, FaCompactDisc, FaUser, FaListUl, FaArrowLeft, FaExclamationCir
 import { songPlayable } from "../utils/formatCheck";
 import { getAssetUrl } from "../services/api";
 import { splitArtists, collectAllArtists, albumBelongsToArtist } from "../utils/artistSplit";
+import useCoverColor from "./CoverColor";
 
 /* ================================================================
    🔍 Search — 侧边栏搜索输入框
@@ -38,6 +39,12 @@ export default function Search({ filterText, setFilterText, activeNav, onNavChan
 /* ================================================================
    搜索匹配度计算
    ================================================================ */
+function computeTextScore(value, q, exactScore, containsScore) {
+  const text = (value || "").toLowerCase();
+  if (!text || !q || !text.includes(q)) return 0;
+  return text === q ? exactScore : containsScore;
+}
+
 function computeSongScore(song, q) {
   let score = 0;
   const t = (song.title || "").toLowerCase();
@@ -49,6 +56,35 @@ function computeSongScore(song, q) {
   if (a.includes(q)) score += 5;
   if (al.includes(q)) score += 3;
   return score;
+}
+
+function getPlaylistCover(playlist) {
+  return playlist?.coverURL || playlist?.songs?.[0]?.coverURL || null;
+}
+
+function getArtistCover(artistName, albums, artistRecords) {
+  const recordCover = artistRecords?.[artistName]?.cover_url;
+  if (recordCover) return getAssetUrl(recordCover);
+  return (albums || []).find((album) => albumBelongsToArtist(album, artistName))?.coverURL || null;
+}
+
+function SearchPlaylistCard({ item, onClick }) {
+  const cover = getPlaylistCover(item);
+  const styled = item.id === "liked" || item.id === "recent" || !!item.coverStyle;
+  const palette = useCoverColor(styled && cover ? cover : null);
+  const swatch = palette?.Vibrant || palette?.Muted || palette?.DarkVibrant || palette?.LightVibrant;
+
+  return <div className="search-result-card" onClick={onClick}>
+    <div style={{ position: "relative", width: "fit-content" }}>
+      {cover ? <img src={cover} alt="" className="search-result-card-cover" /> : <div className="search-result-card-placeholder"><FaListUl /></div>}
+      {styled && cover && swatch && <div className="search-playlist-cover-overlay" style={{ background: swatch.hex }} />}
+      {styled && cover && <div className="search-playlist-cover-title"><span>{item.name}</span></div>}
+    </div>
+    <div className="search-pl-info">
+      <span className="search-pl-name">{item.name}</span>
+      <span className="search-pl-count">{item.songCount} 首歌曲</span>
+    </div>
+  </div>;
 }
 
 /* ================================================================
@@ -77,8 +113,8 @@ export function SearchResults({
   const allResults = useMemo(() => {
     if (!hasQuery) return { songs: [], albums: [], artists: [], playlists: [] };
 
-    const allSongs = albums.flatMap((album) =>
-      album.songs.map((song, idx) => ({
+    const allSongs = (albums || []).flatMap((album) =>
+      (album.songs || []).map((song, idx) => ({
         ...song,
         albumId: album.id,
         songIndex: idx,
@@ -113,43 +149,52 @@ export function SearchResults({
         artistScores[name].matchCount += 1;
       });
     });
+    // 艺人名本身也必须能命中。此前只从已命中的歌曲反推艺人，
+    // 导致只有艺人资料、或歌曲字段未包含查询词时，艺人栏目为空。
     const allArtistNames = autoOrganize
-      ? collectAllArtists(albums, {})
-      : [...new Set(albums.map((a) => a.artist))];
+      ? collectAllArtists(albums || [], artistRecords || {})
+      : [...new Set([
+        ...(albums || []).map((a) => a.artist),
+        ...Object.keys(artistRecords || {}),
+      ].filter(Boolean))];
     const scoredArtists = allArtistNames
-      .filter((name) => artistScores[name])
-      .map((name) => ({
-        name,
-        score: artistScores[name].score,
-        matchCount: artistScores[name].matchCount,
+      .map((name) => {
+        const directScore = computeTextScore(name, query, 20, 10);
+        const songScore = artistScores[name] || { score: 0, matchCount: 0 };
+        return { name, score: songScore.score + directScore, matchCount: songScore.matchCount };
+      })
+      .filter((artist) => artist.score > 0)
+      .map((artist) => ({
+        ...artist,
         albumCount: autoOrganize
-          ? albums.filter((a) => albumBelongsToArtist(a, name)).length
-          : albums.filter((a) => a.artist === name).length,
+          ? (albums || []).filter((a) => albumBelongsToArtist(a, artist.name)).length
+          : (albums || []).filter((a) => a.artist === artist.name).length,
       }))
       .sort((a, b) => b.score - a.score);
 
     const plScores = {};
-    playlists.forEach((pl) => {
+    (playlists || []).forEach((pl) => {
       let total = 0, count = 0;
       // 播放列表名称命中即参与结果
-      const plName = (pl.name || "").toLowerCase();
-      if (plName && plName.includes(query)) {
-        total += 20;
+      const playlistText = [pl.name, pl.description].filter(Boolean).join(" ");
+      const directScore = computeTextScore(playlistText, query, 20, 10);
+      if (directScore > 0) {
+        total += directScore;
         count += 1;
       }
-      pl.songs.forEach((song) => {
+      (pl.songs || []).forEach((song) => {
         const sc = computeSongScore(song, query);
         if (sc > 0) { total += sc; count += 1; }
       });
       if (count > 0) plScores[pl.id] = { score: total, matchCount: count };
     });
-    const scoredPlaylists = playlists
+    const scoredPlaylists = (playlists || [])
       .filter((pl) => plScores[pl.id])
-      .map((pl) => ({ ...pl, ...plScores[pl.id], songCount: pl.songs.length }))
+      .map((pl) => ({ ...pl, ...plScores[pl.id], songCount: (pl.songs || []).length }))
       .sort((a, b) => b.score - a.score);
 
     return { songs: scoredSongs, albums: scoredAlbums, artists: scoredArtists, playlists: scoredPlaylists };
-  }, [query, albums, playlists, hasQuery]);
+  }, [query, albums, playlists, artistRecords, hasQuery]);
 
   // ---------- 空状态 ----------
   if (!hasQuery) {
@@ -290,13 +335,9 @@ export function SearchResults({
                 className="search-result-card"
                 onClick={() => { onNavChange("artists"); onOpenArtist(item.name); }}
               >
-                {(() => {
-                  const cover = artistRecords?.[item.name]?.cover_url;
-                  if (cover) return <img src={getAssetUrl(cover)} alt="" className="search-artist-avatar" />;
-                  const albumCover = albums.find((a) => a.artist === item.name)?.coverURL;
-                  if (albumCover) return <img src={albumCover} alt="" className="search-artist-avatar" />;
-                  return <div className="search-artist-avatar"><FaUser /></div>;
-                })()}
+                {getArtistCover(item.name, albums, artistRecords) ? (
+                  <img src={getArtistCover(item.name, albums, artistRecords)} alt="" className="search-artist-avatar" />
+                ) : <div className="search-artist-avatar"><FaUser /></div>}
                 <span className="search-artist-name">{item.name}</span>
               </div>
             ))}
@@ -315,21 +356,11 @@ export function SearchResults({
           </div>
           <div className="search-grid search-grid-5">
             {allResults.playlists.slice(0, 5).map((item) => (
-              <div
+              <SearchPlaylistCard
                 key={`pl-${item.id}`}
-                className="search-result-card"
+                item={item}
                 onClick={() => { onNavChange("library"); onOpenPlaylist(item.id); }}
-              >
-                {item.coverURL ? (
-                  <img src={item.coverURL} alt="" className="search-result-card-cover" />
-                ) : (
-                  <div className="search-result-card-placeholder"><FaListUl /></div>
-                )}
-                <div className="search-pl-info">
-                  <span className="search-pl-name">{item.name}</span>
-                  <span className="search-pl-count">{item.songCount} 首歌曲</span>
-                </div>
-              </div>
+              />
             ))}
           </div>
         </div>
@@ -416,34 +447,20 @@ function SearchCategoryDetail({
           className="search-result-card"
           onClick={() => { onNavChange("artists"); onOpenArtist(item.name); }}
         >
-          {(() => {
-            const cover = artistRecords?.[item.name]?.cover_url;
-            if (cover) return <img src={getAssetUrl(cover)} alt="" className="search-artist-avatar" />;
-            const albumCover = albums.find((a) => a.artist === item.name)?.coverURL;
-            if (albumCover) return <img src={albumCover} alt="" className="search-artist-avatar" />;
-            return <div className="search-artist-avatar"><FaUser /></div>;
-          })()}
+          {getArtistCover(item.name, albums, artistRecords) ? (
+            <img src={getArtistCover(item.name, albums, artistRecords)} alt="" className="search-artist-avatar" />
+          ) : <div className="search-artist-avatar"><FaUser /></div>}
           <span className="search-artist-name">{item.name}</span>
         </div>
       );
     }
     if (category === "playlists") {
       return (
-        <div
+        <SearchPlaylistCard
           key={`pl-${item.id}`}
-          className="search-result-card"
+          item={item}
           onClick={() => { onNavChange("library"); onOpenPlaylist(item.id); }}
-        >
-          {item.coverURL ? (
-            <img src={item.coverURL} alt="" className="search-result-card-cover" />
-          ) : (
-            <div className="search-result-card-placeholder"><FaListUl /></div>
-          )}
-          <div className="search-pl-info">
-            <span className="search-pl-name">{item.name}</span>
-            <span className="search-pl-count">{item.songCount} 首歌曲</span>
-          </div>
-        </div>
+        />
       );
     }
     return null;

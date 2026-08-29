@@ -13,7 +13,7 @@ import AlbumDetail from "./AlbumDetail";
 import ArtistsDetail from "./ArtistsDetail";
 import PlaylistDetail from "./PlaylistDetail";
 import ArtistEdit from "./ArtistEdit";
-import { SearchResults } from "../components/Search";
+import Search, { SearchResults } from "../components/Search";
 import CoverPlayButton from "../components/CoverPlayButton";
 import PlayingAnimation from "../components/PlayingAnimation";
 import useCoverColor from "../components/CoverColor";
@@ -22,6 +22,7 @@ import DetailErrorBoundary from "../components/DetailErrorBoundary";
 import Sidebar from "../components/LibrarySidebar";
 import Settings, { applyTheme } from "../components/Settings";
 import MatchDetail from "../components/MatchDetail";
+import MetadataBrowser from "../components/MetadataBrowser";
 import "../styles/music-library.css";
 
 
@@ -288,6 +289,8 @@ const DEFAULT_PLAYLISTS = [
 const APP_SETTING_KEYS = [
   "artist-keep-empty", "artist-hide-empty", "edit-publisher-copyright",
   "delete-to-trash", "edit-auto-organize-collab", "import-skip-unplayable",
+  "library-display-name", "library-show-more-categories",
+  "library-category-composer", "library-category-lyricist", "library-category-genre", "library-category-video",
   "match-skip-matched", "match-lyric-fallback", "match-overwrite", "match-rate",
   ...["title", "artist", "album", "year", "track_disc", "genre", "album_artist", "description", "composer", "lyricist", "lyric", "publisher", "arranger", "producer"].map((key) => `match-field-${key}`),
   ...["qq", "netease", "itunes", "musicbrainz"].map((key) => `match-source-${key}`),
@@ -396,6 +399,15 @@ export default function MusicLibrary() {
         // ---------- 艺人详情页状态 ----------
         const [detailArtistName, setDetailArtistName] = useState(null);
   const [artistRecords, setArtistRecords] = useState({}); // { 艺人名: { cover_url, bio, genres } }
+  const [libraryTitle, setLibraryTitle] = useState(() => localStorage.getItem("library-display-name") || "音乐资料库");
+  const [showMoreCategories, setShowMoreCategories] = useState(() => localStorage.getItem("library-show-more-categories") === "true");
+  const [categoryVisibility, setCategoryVisibility] = useState(() => ({
+    composer: localStorage.getItem("library-category-composer") !== "false",
+    lyricist: localStorage.getItem("library-category-lyricist") !== "false",
+    genre: localStorage.getItem("library-category-genre") !== "false",
+    video: localStorage.getItem("library-category-video") === "true",
+  }));
+  const [metadataRoute, setMetadataRoute] = useState({ type: null, selected: null, view: "list" });
   const [hideEmptyArtists, setHideEmptyArtists] = useState(
     () => localStorage.getItem("artist-hide-empty") !== "false"
   );
@@ -412,6 +424,8 @@ export default function MusicLibrary() {
       const cached = loadPlaylistCache();
       return ensureDefaultPlaylists(cached && cached.length > 0 ? cached : DEFAULT_PLAYLISTS);
     });
+    // 仅在服务端播放列表已加载后才允许写回，避免新浏览器的空缓存覆盖云端数据。
+    const [playlistsHydrated, setPlaylistsHydrated] = useState(false);
 
                 // ---------- 播放队列（插播/稍后播放） ----------
         const [playQueue, setPlayQueue] = useState([]); // 额外播放队列，插播插入到下一首，稍后播放追加到末尾
@@ -535,7 +549,7 @@ export default function MusicLibrary() {
     setNavStack((prev) => prev.filter((frame) => !(frame.kind === "playlist" && frame.id === id)));
     // 立即持久化，避免渲染异常或刷新落在防抖写入之前时恢复已删除的歌单。
     savePlaylistCache(next);
-    savePlaylists(normalizePlaylists(next)).catch(() => {});
+    if (playlistsHydrated) savePlaylists(normalizePlaylists(next)).catch(() => {});
   }
 
   function startSmartPlaylist() {
@@ -793,7 +807,7 @@ export default function MusicLibrary() {
           <p style={styles.importProgressTitle}>{n.title}</p>
           <div style={styles.importProgressRow}>
             <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
-              <div style={styles.importProgressCover}>
+              <div style={styles.importProgressCover} className="notification-progress-cover">
                 <span style={styles.importProgressCoverPlaceholder}><FaMusic size={15} /></span>
                 {n.cover && (
                   <img src={n.cover} alt="" onError={(e) => { e.currentTarget.style.display = "none"; }} style={styles.importProgressCoverImg} />
@@ -1821,6 +1835,12 @@ export default function MusicLibrary() {
 
                     // ---------- 导航切换 ----------
   function handleNavChange(val) {
+    const metadataNavs = ["composer", "lyricist", "genres", "videos"];
+    if (metadataNavs.includes(val) && val !== activeNav) {
+      setMetadataRoute({ type: val, selected: null, view: "list" });
+    } else if (!metadataNavs.includes(val)) {
+      setMetadataRoute({ type: null, selected: null, view: "list" });
+    }
     // 离开搜索模式时清空搜索词，避免全局过滤干扰其他视图
     if (activeNav === "search" && val !== "search") {
       setFilterText("");
@@ -2956,6 +2976,14 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
         APP_SETTING_KEYS.forEach((key) => {
           if (remote[key] !== undefined && remote[key] !== null) localStorage.setItem(key, String(remote[key]));
         });
+        setLibraryTitle(localStorage.getItem("library-display-name") || "音乐资料库");
+        setShowMoreCategories(localStorage.getItem("library-show-more-categories") === "true");
+        setCategoryVisibility({
+          composer: localStorage.getItem("library-category-composer") !== "false",
+          lyricist: localStorage.getItem("library-category-lyricist") !== "false",
+          genre: localStorage.getItem("library-category-genre") !== "false",
+          video: localStorage.getItem("library-category-video") === "true",
+        });
         setHideEmptyArtists(localStorage.getItem("artist-hide-empty") !== "false");
       } else {
         const legacy = collectAppSettings();
@@ -2981,7 +3009,9 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
         const data = await getMusicList();
         if (Array.isArray(data)) {
           const serverAlbums = buildAlbumsFromServer(data);
-          setAlbums((prev) => mergeAlbumsByTitle(prev, serverAlbums));
+          // 服务端为权威数据源：成功连接后直接替换本地离线索引的临时内容，
+          // 防止不同浏览器留下已删除或过期的专辑/歌曲。
+          setAlbums(serverAlbums);
 
           // 从清单响应中收集缺失文件（file_exists=false）
           const missingFromServer = new Set();
@@ -3031,26 +3061,22 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
     return () => obs.disconnect();
   }, [activeNav]);
 
-  // ---------- 播放列表：后端合并（后端为准，空则用本地缓存做种子） ----------
+  // ---------- 播放列表：后端为唯一权威数据源；本地缓存只用于离线首屏回退 ----------
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const server = await getPlaylists();
         if (cancelled) return;
-        if (Array.isArray(server) && server.length > 0) {
-          // 后端有数据 → 以它为准，并同步本地缓存
-           startTransition(() => setPlaylists(ensureDefaultPlaylists(server)));
-          savePlaylistCache(server);
-        } else {
-          // 后端空 → 把本地缓存的播放列表推上去作为种子
-          setPlaylists((prev) => {
-            if (prev.length > 0) savePlaylists(normalizePlaylists(prev)).catch(() => {});
-            return prev;
-          });
-        }
+        if (!Array.isArray(server)) return;
+        // 即使服务端为空，也不能用当前浏览器的旧缓存反向覆盖它；
+        // 只补齐内置列表，随后由下方受 hydration 保护的保存逻辑统一初始化。
+        const canonical = ensureDefaultPlaylists(server);
+        startTransition(() => setPlaylists(canonical));
+        savePlaylistCache(canonical);
+        setPlaylistsHydrated(true);
       } catch {
-        // 后端不可用：保持本地缓存
+      // 后端不可用：保持本地缓存，但绝不把它自动写回，避免服务恢复时产生覆盖。
       }
     })();
     return () => { cancelled = true; };
@@ -3072,12 +3098,13 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
 
   // ---------- 播放列表：防抖双写（localStorage 缓存 + 后端文件） ----------
   useEffect(() => {
+    if (!playlistsHydrated) return undefined;
     const t = setTimeout(() => {
       savePlaylistCache(playlists);
       savePlaylists(normalizePlaylists(playlists)).catch(() => {});
     }, 500);
     return () => clearTimeout(t);
-  }, [playlists]);
+  }, [playlists, playlistsHydrated]);
 
   // ---------- 播放列表：专辑就绪后，用 file_path 把快照替换为最新歌曲对象 ----------
   useEffect(() => {
@@ -3268,8 +3295,8 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                               playlists={playlists}
                               onOpenPlaylistMenu={handleOpenPlaylistMenu}
                               onRenamePlaylist={handleRenamePlaylist}
-                              filterText={filterText}
-                              setFilterText={setFilterText}
+                              showMoreCategories={showMoreCategories}
+                              categoryVisibility={categoryVisibility}
                             />
 
               {/* 右侧主区域 */}
@@ -3279,67 +3306,17 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                   {/* 左侧：LOGO / 标题 */}
                   <div style={styles.logoArea}>
                     <span style={styles.logoIcon}>🎵</span>
-                    <h1 style={styles.logoTitle}>音乐资料库</h1>
+                    <h1 style={styles.logoTitle}>{libraryTitle}</h1>
                   </div>
 
-                  {/* 右侧：导入按钮 + 设置按钮 */}
+                  {/* 右侧：通知、设置、添加 */}
                   <div style={{ display: "flex", alignItems: "center", gap: "10px", marginLeft: "auto" }}>
-                    <div style={{ position: "relative" }}>
-                      <button
-                        className="upload-btn"
-                        style={styles.importBtn}
-                        onClick={() => setShowImportMenu(!showImportMenu)}
-                        title="添加"
-                      >
-                        <FiPlus size={18} />
-                      </button>
-                      {showImportMenu && (
-                        <>
-                          <div style={styles.menuOverlay} onClick={() => setShowImportMenu(false)} />
-                          <div style={styles.importDropdown}>
-                            <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => { setShowImportMenu(false); fileInputRef.current?.click(); }}>
-                              <FaMusic size={14} style={{ marginRight: "10px" }} />
-                              <span>添加歌曲</span>
-                            </div>
-                            <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => { setShowImportMenu(false); handleOpenCreatePlaylist(); }}>
-                              <FaPlus size={14} style={{ marginRight: "10px" }} />
-                              <span>新建播放列表</span>
-                            </div>
-                            {smartAvailable && <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => { setShowImportMenu(false); setSmartPlaylistName(""); setSmartPlaylistPrompt(""); setShowSmartPlaylist(true); }}>
-                              <FaStar size={14} style={{ marginRight: "10px", color: "#e94560" }} />
-                              <span>智能歌单</span>
-                            </div>}
-                          </div>
-                        </>
-                      )}
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="audio/*"
-                      multiple
-                      onChange={handleImportFiles}
-                      style={{ display: "none" }}
-                    />
-                    <input
-                      ref={coverInputRef}
-                      type="file"
-                      accept="image/*"
-                      style={{ display: "none" }}
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (!file) return;
-                        const reader = new FileReader();
-                        reader.onload = (ev) => { setNewPlaylistCover(ev.target.result); setNewPlaylistCoverRemoved(false); };
-                        reader.readAsDataURL(file);
-                      }}
-                    />
-                  </div>
-                  {/* 活动（铃铛）按钮 */}
+                  {/* 通知按钮 */}
                   <button
-                    className="upload-btn"
-                    style={{ ...styles.importBtn, position: "relative" }}
+                    className="topbar-secondary-btn"
+                    style={{ ...styles.secondaryTopBtn, position: "relative" }}
                     onClick={() => { setShowActivity(true); setUnreadCount(0); }}
-                    title="活动"
+                    title="通知"
                   >
                     <FaBell size={18} />
                     {unreadCount > 0 && (
@@ -3348,13 +3325,35 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                   </button>
                   {/* 设置按钮 */}
                   <button
-                    className="upload-btn"
-                    style={styles.importBtn}
+                    className="topbar-secondary-btn"
+                    style={styles.secondaryTopBtn}
                     onClick={() => setShowSettings(true)}
                     title="设置"
                   >
                     <FaCog size={18} />
                   </button>
+                  <div style={{ position: "relative" }}>
+                    <button
+                      className="upload-btn"
+                      style={styles.importBtn}
+                      onClick={() => setShowImportMenu(!showImportMenu)}
+                      title="添加"
+                    >
+                      <FiPlus size={18} />
+                    </button>
+                    {showImportMenu && (
+                      <>
+                        <div style={styles.menuOverlay} onClick={() => setShowImportMenu(false)} />
+                        <div style={styles.importDropdown}>
+                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => { setShowImportMenu(false); fileInputRef.current?.click(); }}><FaMusic size={14} style={{ marginRight: "10px" }} /><span>添加歌曲</span></div>
+                          <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => { setShowImportMenu(false); handleOpenCreatePlaylist(); }}><FaPlus size={14} style={{ marginRight: "10px" }} /><span>新建播放列表</span></div>
+                          {smartAvailable && <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => { setShowImportMenu(false); setSmartPlaylistName(""); setSmartPlaylistPrompt(""); setShowSmartPlaylist(true); }}><FaStar size={14} style={{ marginRight: "10px", color: "#e94560" }} /><span>智能歌单</span></div>}
+                        </div>
+                      </>
+                    )}
+                    <input ref={fileInputRef} type="file" accept="audio/*" multiple onChange={handleImportFiles} style={{ display: "none" }} />
+                    <input ref={coverInputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => { const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = (ev) => { setNewPlaylistCover(ev.target.result); setNewPlaylistCoverRemoved(false); }; reader.readAsDataURL(file); }} />
+                  </div>
                   </div>
 
                 </header>
@@ -3456,6 +3455,14 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                   /* 搜索结果页                                                        */
                   /* ================================================================ */
                   <main style={{ ...styles.mainArea, padding: "28px 32px", display: "flex", flexDirection: "column" }}>
+                    <div style={{ width: "min(520px, 100%)", alignSelf: "center", marginBottom: "24px" }}>
+                      <Search
+                        filterText={filterText}
+                        setFilterText={setFilterText}
+                        activeNav={activeNav}
+                        onNavChange={handleNavChange}
+                      />
+                    </div>
                     <SearchResults
                       filterText={filterText}
                       setFilterText={setFilterText}
@@ -3473,6 +3480,17 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                       togglePlay={togglePlay}
                     />
                   </main>
+                ) : ["composer", "lyricist", "genres", "videos"].includes(activeNav) ? (
+                  <MetadataBrowser
+                    type={activeNav === "genres" ? "genre" : activeNav === "videos" ? "video" : activeNav}
+                    albums={albums}
+                    artistRecords={artistRecords}
+                    selected={metadataRoute.type === activeNav ? metadataRoute.selected : null}
+                    view={metadataRoute.type === activeNav ? metadataRoute.view : "list"}
+                    onRouteChange={(selected, view = "list") => setMetadataRoute({ type: activeNav, selected, view })}
+                    onOpenAlbum={handleOpenAlbumDetail}
+                    onOpenArtist={handleOpenArtistDetail}
+                  />
                 ) : activeNav === "albums" ? (
                   /* ================================================================ */
                   /* 专辑视图                                                         */
@@ -4513,6 +4531,7 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
       {/* ============================================================ */}
                                                 <MusicPlayer
         albums={albums}
+        artistRecords={artistRecords}
         playlists={playlists}
         setPlaylists={setPlaylists}
         currentAlbumId={currentAlbumId}
@@ -4572,6 +4591,9 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
         onClose={() => setShowSettings(false)}
         onReset={handleResetData}
         onSettingsSaved={handleSettingsSaved}
+        onLibraryNameChange={setLibraryTitle}
+        onMoreCategoriesChange={setShowMoreCategories}
+        onCategoryVisibilityChange={setCategoryVisibility}
         matchState={matchState}
         onOpenMatchDetail={() => openMatchDetail("all")}
         onMatchStarted={startMatchPoll}
@@ -4627,7 +4649,7 @@ onArtistVisibilityChange={(value) => {
 
       {/* ===== 右上角通知堆叠（统一通知） ===== */}
       {notifications.some((n) => n.popup) && (
-        <div style={styles.notifyStack}>
+        <div style={styles.notifyStack} className="notification-stack">
           {notifications.filter((n) => n.popup).map((n) => {
             const leaving = n.id === leavingNotifId;
             const anim = leaving
@@ -4642,7 +4664,7 @@ onArtistVisibilityChange={(value) => {
             };
 
             if (n.kind === "progress_import" || n.kind === "progress_match" || n.kind === "progress_album_match" || n.kind === "progress_update" || n.kind === "progress_data" || n.kind === "smart_progress") {
-              return renderProgressCard(n, { key: n.id, style: anim, ...hoverProps });
+              return renderProgressCard(n, { key: n.id, className: "notification-card notification-progress-card", style: anim, ...hoverProps });
             }
 
             // toast 类通知
@@ -4651,6 +4673,7 @@ onArtistVisibilityChange={(value) => {
             return (
               <div
                 key={n.id}
+                className={`notification-card notification-toast${isSuccess ? " is-success" : ""}${isInfo ? " is-info" : ""}${n.transient ? " is-transient" : ""}`}
                 style={{
                   ...styles.toastNotify,
                   position: "static",
@@ -4689,6 +4712,7 @@ onArtistVisibilityChange={(value) => {
       {showActivity && (
         <>
           <div
+            className="activity-backdrop"
             style={{
               ...styles.activityBackdrop,
               ...(activityLeaving ? { animation: "fadeOutDim 0.28s ease forwards" } : { animation: "fadeInDim 0.28s ease" }),
@@ -4696,12 +4720,13 @@ onArtistVisibilityChange={(value) => {
             onClick={closeActivity}
           />
           <div
+            className="activity-panel"
             style={{
               ...styles.activityPanel,
               ...(activityLeaving ? { animation: "slideOutPanelRight 0.28s ease forwards" } : { animation: "slideInPanelRight 0.28s ease" }),
             }}
           >
-            <div style={styles.activityHeader}>
+            <div style={styles.activityHeader} className="activity-header">
               <h3 style={styles.activityTitle}>活动</h3>
               {/* 关闭按钮在上，「全部已读」在下（右对齐）；无可见消息时隐藏 */}
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "16px" }}>
@@ -4719,7 +4744,7 @@ onArtistVisibilityChange={(value) => {
                 )}
               </div>
             </div>
-            <div style={styles.activityList}>
+            <div style={styles.activityList} className="activity-list">
               {(() => {
                 // 瞬态通知（设置已保存等）不进入活动盒子
                 const visible = notifications.filter((n) => !n.transient);
@@ -4733,7 +4758,7 @@ onArtistVisibilityChange={(value) => {
                 return sorted.map((n) => {
                   // 进行中的进度卡片：复用弹出区卡片（含取消 / 查看详情 / 专辑进度 / 更新资料库）
                   if (n.ongoing && (n.kind === "progress_import" || n.kind === "progress_match" || n.kind === "progress_album_match" || n.kind === "progress_update" || n.kind === "progress_data" || n.kind === "smart_progress")) {
-                    return renderProgressCard(n, { key: n.id, style: { width: "100%", maxWidth: "none" } });
+                    return renderProgressCard(n, { key: n.id, className: "activity-progress-card", style: { width: "100%", maxWidth: "none" } });
                   }
                   const pct = n.progress && n.progress.total > 0
                     ? Math.round((n.progress.done / n.progress.total) * 100)
@@ -4751,7 +4776,7 @@ onArtistVisibilityChange={(value) => {
                           : n.kind.startsWith("progress") ? "▶"
                             : "•";
                   return (
-                    <div key={n.id} style={styles.activityItem}>
+                    <div key={n.id} style={styles.activityItem} className="activity-item">
                       <span style={{ ...styles.activityItemIcon, ...iconStyle }}>{iconText}</span>
                       <div style={styles.activityBody}>
                         <p style={styles.activityItemTitle}>{n.title}</p>
@@ -5044,7 +5069,7 @@ const styles = {
     fontSize: "14px", cursor: "pointer", opacity: 0.5,
     padding: "2px", transition: "opacity 0.2s",
   },
-    importBtn: {
+  importBtn: {
     display: "flex", alignItems: "center", justifyContent: "center",
     width: "40px", height: "40px", padding: 0,
     borderRadius: "50%", border: "none",
@@ -5052,6 +5077,14 @@ const styles = {
     color: "#fff", fontSize: "18px",
     cursor: "pointer", boxShadow: "0 4px 15px rgba(233,69,96,0.3)", flexShrink: 0,
     transition: "transform 0.2s, box-shadow 0.2s",
+  },
+  secondaryTopBtn: {
+    display: "flex", alignItems: "center", justifyContent: "center",
+    width: "40px", height: "40px", padding: 0,
+    borderRadius: "50%", border: "none",
+    background: "transparent", color: "#6b7280", fontSize: "18px",
+    cursor: "pointer", flexShrink: 0,
+    transition: "background 0.2s, color 0.2s, transform 0.2s",
   },
   importDropdown: {
     position: "absolute", right: 0, top: "calc(100% + 4px)",
@@ -5253,7 +5286,7 @@ const styles = {
   },
     songTableRow: {
     display: "flex", alignItems: "center", gap: "0",
-    padding: "6px 10px", borderRadius: "8px",
+    padding: "6px 10px", borderRadius: "10px", boxSizing: "border-box",
     cursor: "pointer", transition: "background 0.15s",
   },
     songTableRowActive: {
@@ -5290,7 +5323,7 @@ const styles = {
     fontSize: "14px", fontWeight: 500, color: "#1f2937",
     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
   },
-  songCellTitleActive: { color: "#e94560", fontWeight: 600 },
+  songCellTitleActive: { color: "#1f2937", fontWeight: 600 },
   songCellText: {
     fontSize: "13px", color: "#6b7280",
     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",

@@ -8,6 +8,10 @@
 .upload-btn:active {
   transform: scale(0.92);
 }
+.topbar-secondary-btn:hover {
+  background: #e5e7eb !important;
+  color: #374151 !important;
+}
 .album-card {
   transition: transform 0.25s ease, box-shadow 0.25s ease;
   cursor: pointer;
@@ -26,11 +30,11 @@
   box-shadow: none;
 }
 .ctrl-btn {
-  background: #f3f4f6;
+  background: transparent !important;
   transition: background 0.2s, transform 0.1s;
 }
 .ctrl-btn:hover {
-  background: #e5e7eb !important;
+  background: #f3f4f6 !important;
 }
 .ctrl-btn:active {
   transform: scale(0.92) !important;
@@ -39,19 +43,120 @@
   opacity: 0.3 !important;
   cursor: not-allowed !important;
 }
+.player-mode-btn:hover {
+  width: 34px !important;
+  height: 34px !important;
+  border-radius: 50% !important;
+  background: #f3f4f6 !important;
+}
+.player-mode-btn {
+  width: 34px !important;
+  height: 34px !important;
+  border-radius: 50% !important;
+}
+.player-mode-btn.is-active {
+  color: #e94560 !important;
+}
+.player-range {
+  -webkit-appearance: none;
+  appearance: none;
+}
+.player-volume-range {
+  height: 6px !important;
+  border-radius: 999px;
+  background-color: var(--player-range-track, #cbd5e1);
+}
+/* Firefox 将 range 的轨道和已选部分拆开绘制；在这里单独定义，
+   确保红色填充始终准确反映当前音量。 */
+.player-volume-range::-moz-range-track {
+  height: 6px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--player-range-track, #cbd5e1);
+}
+.player-volume-range::-moz-range-progress {
+  height: 6px;
+  border-radius: 999px;
+  background: #e94560;
+}
+.player-volume-range::-webkit-slider-runnable-track {
+  height: 6px;
+  border: 0;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    #e94560 0%,
+    #e94560 var(--volume-percent, 100%),
+    var(--player-range-track, #cbd5e1) var(--volume-percent, 100%),
+    var(--player-range-track, #cbd5e1) 100%
+  );
+}
+/* 音量通过红色填充长度反馈，不额外显示圆形滑块。 */
+.player-range.player-volume-range::-webkit-slider-thumb,
+.player-range.player-volume-range:active::-webkit-slider-thumb,
+.player-range.player-volume-range:focus-visible::-webkit-slider-thumb {
+  width: 0 !important;
+  height: 0 !important;
+  opacity: 0 !important;
+  border: 0 !important;
+}
+.player-range.player-volume-range::-moz-range-thumb,
+.player-range.player-volume-range:active::-moz-range-thumb,
+.player-range.player-volume-range:focus-visible::-moz-range-thumb {
+  width: 0 !important;
+  height: 0 !important;
+  opacity: 0 !important;
+  border: 0 !important;
+}
+.player-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  border: 0;
+  transition: width 0.15s, height 0.15s, opacity 0.15s;
+}
+.player-range:active::-webkit-slider-thumb,
+.player-range:focus-visible::-webkit-slider-thumb {
+  width: 11px;
+  height: 11px;
+  opacity: 1;
+  border-radius: 50%;
+  background: #6b7280;
+}
+.player-range::-moz-range-thumb {
+  width: 0;
+  height: 0;
+  opacity: 0;
+  border: 0;
+}
+.player-range:active::-moz-range-thumb,
+.player-range:focus-visible::-moz-range-thumb {
+  width: 11px;
+  height: 11px;
+  opacity: 1;
+  border-radius: 50%;
+  background: #6b7280;
+}
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
   background: #d1d5db;
   border-radius: 3px;
 }
-/* 歌词滚动条：默认隐藏，手动滚动时短暂显示 */
+/* 歌词滚动条：默认无轨道无滑块，交互时仅显示细圆角滑块。 */
 .lyrics-scroll { scrollbar-width: none; }
-.lyrics-scroll::-webkit-scrollbar { width: 6px; }
+.lyrics-scroll::-webkit-scrollbar { width: 0; height: 0; }
 .lyrics-scroll::-webkit-scrollbar-track { background: transparent; }
-.lyrics-scroll::-webkit-scrollbar-thumb { background: transparent; }
-.lyrics-scroll.lyrics-scrolling { scrollbar-width: thin; }
-.lyrics-scroll.lyrics-scrolling::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.28); border-radius: 3px; }
+.lyrics-scroll::-webkit-scrollbar-thumb { background: transparent; border-radius: 999px; }
+.lyrics-scroll.lyrics-scroll-visible { scrollbar-width: thin; scrollbar-color: rgba(71,85,105,0.48) transparent; }
+.lyrics-scroll.lyrics-scroll-visible::-webkit-scrollbar { width: 3px; }
+.lyrics-scroll.lyrics-scroll-visible::-webkit-scrollbar-thumb { background: rgba(71,85,105,0.48); border-radius: 999px; }
+.lyrics-scroll.lyrics-scroll-visible:hover::-webkit-scrollbar { width: 5px; }
+.lyrics-scroll.lyrics-scroll-visible:hover::-webkit-scrollbar-thumb { background: rgba(71,85,105,0.65); }
+html[data-theme="dark"] .lyrics-scroll.lyrics-scroll-visible { scrollbar-color: rgba(226,232,240,0.45) transparent; }
+html[data-theme="dark"] .lyrics-scroll.lyrics-scroll-visible::-webkit-scrollbar-thumb { background: rgba(226,232,240,0.45) !important; }
+html[data-theme="dark"] .lyrics-scroll.lyrics-scroll-visible:hover::-webkit-scrollbar-thumb { background: rgba(226,232,240,0.62) !important; }
 @keyframes fadeIn {
   from { opacity: 0; transform: scale(0.97); }
   to { opacity: 1; transform: scale(1); }
@@ -147,9 +252,10 @@
 .song-table-row:hover .song-checkbox {
   opacity: 1 !important;
 }
-/* 活动行（正在播放）不再显示红色背景，仅保留边框高亮 */
+/* 活动行（正在播放）与专辑/播放列表详情中的高亮方式保持一致。 */
 .song-table-row.song-row-active {
-  background: transparent !important;
+  background: rgba(233,69,96,0.12) !important;
+  border: 1px solid rgba(233,69,96,0.25) !important;
 }
 /* 选中行（已勾选）显示浅红色背景 — 即使也是正在播放行也要显示 */
 .song-table-row.is-checked {
@@ -212,6 +318,8 @@
 }
 
 .search-result-card {
+  width: 200px;
+  justify-self: start;
   border-radius: 8px;
   cursor: pointer;
   overflow: hidden;
@@ -222,15 +330,15 @@
 }
 
 .search-result-card-cover {
-  width: 100%;
-  aspect-ratio: 1 / 1;
+  width: 200px;
+  height: 200px;
   object-fit: cover;
   border-radius: 6px;
   display: block;
 }
 .search-result-card-placeholder {
-  width: 100%;
-  aspect-ratio: 1 / 1;
+  width: 200px;
+  height: 200px;
   border-radius: 6px;
   display: flex;
   align-items: center;
@@ -238,6 +346,24 @@
   background: #e5e7eb;
   color: #9ca3af;
   font-size: 28px;
+}
+.search-playlist-cover-overlay,
+.search-playlist-cover-title {
+  position: absolute;
+  inset: 0;
+  border-radius: 6px;
+  pointer-events: none;
+}
+.search-playlist-cover-overlay { opacity: 0.44; mix-blend-mode: multiply; }
+.search-playlist-cover-title {
+  display: flex;
+  align-items: flex-end;
+  padding: 12px;
+  color: #fff;
+  font-size: 18px;
+  font-weight: 700;
+  text-shadow: 0 1px 3px rgba(0,0,0,.45);
+  background: linear-gradient(transparent 48%, rgba(0,0,0,.45));
 }
 
 .search-section-header {
@@ -247,18 +373,18 @@
   margin-bottom: 10px;
 }
 .search-section-header h2 {
-  font-size: 15px;
+  font-size: 25px;
   font-weight: 700;
   color: #1f2937;
   margin: 0;
   letter-spacing: 0.5px;
 }
 .search-show-all {
-  font-size: 14px;
+  font-size: 25px;
   color: #9ca3af;
   cursor: pointer;
-  width: 24px;
-  height: 24px;
+  width: 36px;
+  height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -277,8 +403,8 @@
 .search-song-card {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 6px 8px;
+  gap: 14px;
+  padding: 10px 12px;
   border-radius: 8px;
   cursor: pointer;
   transition: background 0.15s;
@@ -290,15 +416,15 @@
   background: rgba(233,69,96,0.08);
 }
 .search-song-thumb {
-  width: 48px;
-  height: 48px;
+  width: 56px;
+  height: 56px;
   border-radius: 4px;
   object-fit: cover;
   flex-shrink: 0;
 }
 .search-song-thumb-placeholder {
-  width: 48px;
-  height: 48px;
+  width: 56px;
+  height: 56px;
   border-radius: 4px;
   display: flex;
   align-items: center;
@@ -316,7 +442,7 @@
   flex: 1;
 }
 .search-song-card-title {
-  font-size: 13px;
+  font-size: 18px;
   font-weight: 600;
   color: #1f2937;
   overflow: hidden;
@@ -325,7 +451,7 @@
   display: block;
 }
 .search-song-card-meta {
-  font-size: 12px;
+  font-size: 18px;
   color: #9ca3af;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -338,7 +464,7 @@
   padding: 6px 2px 0;
 }
 .search-album-title {
-  font-size: 12px;
+  font-size: 18px;
   font-weight: 600;
   color: #1f2937;
   overflow: hidden;
@@ -347,7 +473,7 @@
   display: block;
 }
 .search-album-artist {
-  font-size: 11px;
+  font-size: 18px;
   color: #9ca3af;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -370,7 +496,7 @@
   margin: 0 auto;
 }
 .search-artist-name {
-  font-size: 15px;
+  font-size: 18px;
   font-weight: 600;
   color: #1f2937;
   text-align: center;
@@ -386,7 +512,7 @@
   padding: 6px 2px 0;
 }
 .search-pl-name {
-  font-size: 12px;
+  font-size: 18px;
   font-weight: 600;
   color: #1f2937;
   overflow: hidden;
@@ -395,7 +521,7 @@
   display: block;
 }
 .search-pl-count {
-  font-size: 11px;
+  font-size: 18px;
   color: #9ca3af;
   display: block;
   margin-top: 1px;
@@ -893,4 +1019,289 @@ html[data-theme="dark"] .player-detail-overlay .detailBackBtn {
   .album-bottom {
     padding: 30px 40px 40px !important;
   }
+}
+
+/* 窄窗口下收起侧栏文字，宽度恢复后由原内联尺寸自动还原。 */
+.app-sidebar {
+  transition: width 0.2s ease, padding 0.2s ease;
+}
+@media (max-width: 1320px) {
+  .app-sidebar {
+    width: 64px !important;
+    padding: 20px 8px !important;
+  }
+  .app-sidebar .sidebar-label,
+  .app-sidebar .sidebar-section-title,
+  .app-sidebar .sidebar-edit-input,
+  .app-sidebar .sidebar-more-btn {
+    display: none !important;
+  }
+  .app-sidebar .sidebar-item {
+    justify-content: center !important;
+    gap: 0 !important;
+    padding: 8px 6px !important;
+  }
+  .app-sidebar .sidebar-section-divider {
+    margin: 6px 4px !important;
+  }
+}
+
+.metadata-name-row:hover,
+.metadata-name-row:focus-visible {
+  background: #f9fafb !important;
+  box-shadow: inset 0 -2px 0 #e5e7eb, 0 9px 15px -15px rgba(15, 23, 42, 0.8);
+  outline: none;
+}
+
+/* ================================================================
+   设置窗口 — 深色主题（独立语义类，避免内联浅色样式遗漏）
+   ================================================================ */
+html[data-theme="dark"] .settings-window {
+  background: #1d1d31 !important;
+  color: #e5e7eb !important;
+}
+html[data-theme="dark"] .settings-sidebar {
+  background: #252540 !important;
+  border-right-color: #3b3b5c !important;
+}
+html[data-theme="dark"] .settings-sidebar-title,
+html[data-theme="dark"] .settings-nav-item,
+html[data-theme="dark"] .settings-nav-icon,
+html[data-theme="dark"] .settings-nav-label {
+  color: #cbd5e1 !important;
+}
+html[data-theme="dark"] .settings-nav-item:hover {
+  background: rgba(255,255,255,0.07) !important;
+}
+html[data-theme="dark"] .settings-nav-item.is-active,
+html[data-theme="dark"] .settings-nav-item.is-active .settings-nav-icon,
+html[data-theme="dark"] .settings-nav-item.is-active .settings-nav-label {
+  color: #ff7188 !important;
+  background: rgba(233,69,96,0.18) !important;
+}
+html[data-theme="dark"] .settings-content {
+  scrollbar-color: #525274 transparent;
+}
+html[data-theme="dark"] .settings-panel h3,
+html[data-theme="dark"] .settings-panel [style] h3,
+html[data-theme="dark"] .settings-dialog h3 {
+  color: #f4f4f5 !important;
+}
+html[data-theme="dark"] .settings-panel p,
+html[data-theme="dark"] .settings-panel span,
+html[data-theme="dark"] .settings-panel label,
+html[data-theme="dark"] .settings-dialog p,
+html[data-theme="dark"] .settings-dialog span,
+html[data-theme="dark"] .settings-dialog label {
+  color: #cbd5e1 !important;
+}
+html[data-theme="dark"] .settings-panel .settings-card,
+html[data-theme="dark"] .settings-dialog {
+  background: #282844 !important;
+  border-color: #414163 !important;
+}
+html[data-theme="dark"] .settings-panel .settings-card {
+  box-shadow: inset 0 1px rgba(255,255,255,0.02);
+}
+html[data-theme="dark"] .settings-panel .settings-category-settings > div {
+  border-bottom-color: #3b3b5c !important;
+}
+html[data-theme="dark"] .settings-panel .settings-danger-card {
+  background: rgba(127,29,29,0.18) !important;
+  border-color: rgba(248,113,113,0.3) !important;
+}
+html[data-theme="dark"] .settings-window .settings-secondary-btn,
+html[data-theme="dark"] .settings-dialog button:not([style*="background"]),
+html[data-theme="dark"] .settings-dialog .settings-secondary-btn {
+  background: #343451 !important;
+  border-color: #535376 !important;
+  color: #e5e7eb !important;
+}
+html[data-theme="dark"] .settings-window .settings-secondary-btn:hover,
+html[data-theme="dark"] .settings-dialog button:hover {
+  background: #41415f !important;
+}
+html[data-theme="dark"] .settings-window input,
+html[data-theme="dark"] .settings-window select,
+html[data-theme="dark"] .settings-dialog input,
+html[data-theme="dark"] .settings-dialog select {
+  background: #202038 !important;
+  border-color: #4a4a6b !important;
+  color: #f3f4f6 !important;
+}
+html[data-theme="dark"] .settings-window input:focus,
+html[data-theme="dark"] .settings-window select:focus {
+  border-color: #e94560 !important;
+  box-shadow: 0 0 0 3px rgba(233,69,96,0.16) !important;
+}
+html[data-theme="dark"] .settings-window .settings-provider-row,
+html[data-theme="dark"] .settings-window .settings-match-card {
+  background: #282844 !important;
+  border-color: #414163 !important;
+}
+html[data-theme="dark"] .settings-window .settings-match-card button,
+html[data-theme="dark"] .settings-window .settings-provider-row button:not([aria-label]) {
+  color: #e5e7eb !important;
+}
+html[data-theme="dark"] .settings-provider-status.is-connected { color: #4ade80 !important; }
+html[data-theme="dark"] .settings-provider-status.is-disconnected { color: #f87171 !important; }
+html[data-theme="dark"] .settings-dialog button {
+  background: #343451 !important;
+  border-color: #535376 !important;
+  color: #e5e7eb !important;
+}
+html[data-theme="dark"] .settings-dialog .settings-primary-btn {
+  background: #e94560 !important;
+  border-color: #e94560 !important;
+  color: #fff !important;
+}
+html[data-theme="dark"] .settings-dialog [style*="background"] {
+  border-color: #414163 !important;
+}
+html[data-theme="dark"] .settings-window a {
+  color: #ff8195 !important;
+}
+html[data-theme="dark"] .settings-window button:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+/* 设置页：智能高级选项与匹配页的选择控件 */
+html[data-theme="dark"] .settings-advanced-panel {
+  background: #202038 !important;
+  border: 1px solid #414163;
+}
+html[data-theme="dark"] .settings-advanced-panel .settings-segmented-control {
+  border-color: #4b4b6c !important;
+  background: #30304d;
+}
+html[data-theme="dark"] .settings-advanced-panel .settings-segmented-control button {
+  background: #30304d !important;
+  border-color: #4b4b6c !important;
+  color: #cbd5e1 !important;
+}
+html[data-theme="dark"] .settings-advanced-panel .settings-segmented-control button.is-selected {
+  background: #e94560 !important;
+  color: #fff !important;
+}
+html[data-theme="dark"] .settings-window .settings-choice-chip,
+html[data-theme="dark"] .settings-window .settings-rate-segment {
+  background: #343451 !important;
+  border-color: #525274 !important;
+  color: #cbd5e1 !important;
+}
+html[data-theme="dark"] .settings-window .settings-choice-chip.is-selected,
+html[data-theme="dark"] .settings-window .settings-rate-segment.is-selected {
+  background: #e94560 !important;
+  border-color: #e94560 !important;
+  color: #fff !important;
+}
+html[data-theme="dark"] .settings-window .settings-rate-segments {
+  background: #353553 !important;
+  border: 1px solid #4b4b6c;
+}
+
+/* 底部播放条 */
+html[data-theme="dark"] .app-player-bar {
+  --player-range-track: #67678f;
+  background: rgba(29,29,49,0.96) !important;
+  border-top-color: #3b3b5c !important;
+  color: #e5e7eb !important;
+}
+html[data-theme="dark"] .app-player-bar p,
+html[data-theme="dark"] .app-player-bar span,
+html[data-theme="dark"] .app-player-bar button {
+  color: #cbd5e1 !important;
+}
+html[data-theme="dark"] .app-player-bar .ctrl-btn:hover,
+html[data-theme="dark"] .app-player-bar .player-mode-btn:hover {
+  background: rgba(255,255,255,0.08) !important;
+}
+html[data-theme="dark"] .app-player-bar .ctrl-btn,
+html[data-theme="dark"] .app-player-bar .ctrl-btn:hover,
+html[data-theme="dark"] .app-player-bar .ctrl-btn:focus-visible {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+html[data-theme="dark"] .app-player-bar .player-mode-btn.is-active {
+  color: #ff5b75 !important;
+}
+html[data-theme="dark"] .app-player-bar .player-volume-range {
+  width: 96px !important;
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.07);
+}
+html:not([data-theme="dark"]) .app-player-bar .player-volume-range {
+  width: 96px !important;
+  --player-range-track: #cbd5e1;
+  box-shadow: 0 0 0 1px rgba(15,23,42,0.08);
+}
+html[data-theme="dark"] .app-player-bar .miniCoverPlaceholder {
+  background: #343451 !important;
+  color: #9ca3af !important;
+}
+
+/* 活动中心 */
+html[data-theme="dark"] .activity-backdrop { background: rgba(0,0,0,0.58) !important; }
+html[data-theme="dark"] .activity-panel {
+  background: #202038 !important;
+  border-left: 1px solid #3b3b5c !important;
+  color: #e5e7eb !important;
+}
+html[data-theme="dark"] .activity-header { border-bottom-color: #3b3b5c !important; }
+html[data-theme="dark"] .activity-panel h3,
+html[data-theme="dark"] .activity-panel p,
+html[data-theme="dark"] .activity-panel span { color: #cbd5e1 !important; }
+html[data-theme="dark"] .activity-item {
+  background: #2a2a46 !important;
+  border-color: #414163 !important;
+}
+html[data-theme="dark"] .activity-item:hover { background: #30304d !important; }
+html[data-theme="dark"] .activity-panel button {
+  background: #343451 !important;
+  border-color: #535376 !important;
+  color: #e5e7eb !important;
+}
+html[data-theme="dark"] .activity-panel button:hover { background: #41415f !important; }
+
+/* 右上角通知：语义色通知保持原色；中性与进度通知改为深色卡片。 */
+html[data-theme="dark"] .notification-stack .notification-card.notification-toast,
+html[data-theme="dark"] .notification-stack .notification-progress-card,
+html[data-theme="dark"] .activity-panel .activity-progress-card {
+  background: #2a2a46 !important;
+  border-color: #454568 !important;
+  color: #e5e7eb !important;
+  box-shadow: 0 12px 28px rgba(0,0,0,0.28);
+}
+html[data-theme="dark"] .notification-progress-card p,
+html[data-theme="dark"] .notification-progress-card span,
+html[data-theme="dark"] .notification-toast p,
+html[data-theme="dark"] .activity-progress-card p,
+html[data-theme="dark"] .activity-progress-card span {
+  color: #cbd5e1 !important;
+}
+html[data-theme="dark"] .notification-progress-card button,
+html[data-theme="dark"] .notification-toast button,
+html[data-theme="dark"] .activity-progress-card button {
+  background: #363654 !important;
+  border-color: #555579 !important;
+  color: #f1f5f9 !important;
+}
+html[data-theme="dark"] .notification-progress-card > div:last-child,
+html[data-theme="dark"] .activity-progress-card > div:last-child {
+  background: #4a4a6a !important;
+}
+html[data-theme="dark"] .notification-progress-cover {
+  background: #383856 !important;
+  color: #a5b4c8 !important;
+}
+html[data-theme="dark"] .notification-toast.is-success { border-left: 3px solid #22c55e !important; }
+html[data-theme="dark"] .notification-toast.is-info { border-left: 3px solid #3b82f6 !important; }
+html[data-theme="dark"] .notification-stack .notification-card.notification-toast.is-transient {
+  background: #16a34a !important;
+  border-color: #16a34a !important;
+  border-left-color: #16a34a !important;
+}
+html[data-theme="dark"] .notification-stack .notification-toast.is-transient p,
+html[data-theme="dark"] .notification-stack .notification-toast.is-transient span {
+  color: #fff !important;
 }

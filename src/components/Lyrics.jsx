@@ -16,6 +16,27 @@ export default function Lyrics({ lyricsData, currentTime, onSeek, activeColor = 
   const lastUserScrollRef = useRef(0);
   // 滚动停止后回到当前时间轴位置的定时器
   const returnTimerRef = useRef(null);
+  // 滚动条仅在交互时可见，避免常驻轨道干扰歌词阅读。
+  const hideScrollbarTimerRef = useRef(null);
+  function showScrollbar() {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.classList.add("lyrics-scroll-visible");
+    if (hideScrollbarTimerRef.current) clearTimeout(hideScrollbarTimerRef.current);
+    hideScrollbarTimerRef.current = setTimeout(() => {
+      el.classList.remove("lyrics-scroll-visible");
+    }, 800);
+  }
+
+  function handlePointerEnter() {
+    showScrollbar();
+  }
+
+  function handlePointerLeave() {
+    if (hideScrollbarTimerRef.current) clearTimeout(hideScrollbarTimerRef.current);
+    const el = scrollRef.current;
+    hideScrollbarTimerRef.current = setTimeout(() => el?.classList.remove("lyrics-scroll-visible"), 800);
+  }
 
   // 当前行高亮色（跟随封面发光色；默认 #e94560），背景为同色 8% 透明度
   const activeBg = activeColor.length === 7 ? `${activeColor}14` : "rgba(233,69,96,0.08)";
@@ -41,14 +62,12 @@ export default function Lyrics({ lyricsData, currentTime, onSeek, activeColor = 
     }
   }
 
-  // 用户手动滚动：记录时间、短暂显示滚动条、3s 无滚动后自动回位
+  // 用户手动滚动：记录时间、短暂显示滚动条、6s 无滚动后自动回位
   function handleScroll() {
     lastUserScrollRef.current = Date.now();
-    const el = scrollRef.current;
-    if (el) el.classList.add("lyrics-scrolling");
+    showScrollbar();
     if (returnTimerRef.current) clearTimeout(returnTimerRef.current);
     returnTimerRef.current = setTimeout(() => {
-      if (el) el.classList.remove("lyrics-scrolling");
       // 播放中：即使歌词行未变化也回到当前时间轴位置
       if (lyricsData?.type === "timed" && currentIndex >= 0) {
         lastUserScrollRef.current = 0;
@@ -69,13 +88,14 @@ export default function Lyrics({ lyricsData, currentTime, onSeek, activeColor = 
   useEffect(() => {
     return () => {
       if (returnTimerRef.current) clearTimeout(returnTimerRef.current);
+      if (hideScrollbarTimerRef.current) clearTimeout(hideScrollbarTimerRef.current);
     };
   }, []);
 
     // ========== 有时间轴渲染 ==========
   if (lyricsData?.type === "timed") {
     return (
-      <div ref={scrollRef} className="lyrics-scroll" style={styles.container} onScroll={handleScroll}>
+      <div ref={scrollRef} className="lyrics-scroll" style={styles.container} onScroll={handleScroll} onPointerEnter={handlePointerEnter} onPointerLeave={handlePointerLeave}>
         {lyricsData.lines.map((line, i) => (
                     <p
             key={i}
@@ -100,7 +120,7 @@ export default function Lyrics({ lyricsData, currentTime, onSeek, activeColor = 
   // ========== 无时间轴（纯文本）渲染 ==========
   if (lyricsData?.type === "plain") {
     return (
-      <div ref={scrollRef} className="lyrics-scroll" style={styles.container} onScroll={handleScroll}>
+      <div ref={scrollRef} className="lyrics-scroll" style={styles.container} onScroll={handleScroll} onPointerEnter={handlePointerEnter} onPointerLeave={handlePointerLeave}>
         {lyricsData.lines.length > 0 ? (
           lyricsData.lines.map((line, i) => (
             <p key={i} style={styles.plainLine}>

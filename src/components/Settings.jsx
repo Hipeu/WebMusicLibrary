@@ -2,13 +2,13 @@ import { useState, useEffect, useRef } from "react";
 import { FaSlidersH, FaLink, FaDatabase, FaInfoCircle, FaTimes, FaPen, FaFileImport, FaRobot, FaPlus, FaPencilAlt, FaTrashAlt, FaChevronRight, FaChevronDown } from "react-icons/fa";
 import { SiDeepseek } from "react-icons/si";
 import { AiFillOpenAI } from "react-icons/ai";
-import { saveSettings, getMigrationStatus, matchAll, cancelMatchAll, startDataExport, startDataImport, inspectDataImport, getSmartProviders, testSmartProvider, saveSmartProvider, toggleSmartProvider, deleteSmartProvider } from "../services/api";
+import { saveSettings, saveAppSettings, getMigrationStatus, matchAll, cancelMatchAll, startDataExport, startDataImport, inspectDataImport, getSmartProviders, testSmartProvider, saveSmartProvider, toggleSmartProvider, deleteSmartProvider } from "../services/api";
 
 /* ================================================================
    ⚙️ Settings — 设置悬浮窗口
    左侧功能栏 + 右侧内容区
    ================================================================ */
-export default function Settings({ show, onClose, onReset, onSettingsSaved, matchState, onOpenMatchDetail, onMatchStarted, onRefreshLibrary, onArtistVisibilityChange, onMatchNothing, onDataJobStarted, onSmartProvidersChanged }) {
+export default function Settings({ show, onClose, onReset, onSettingsSaved, onLibraryNameChange, onMoreCategoriesChange, onCategoryVisibilityChange, matchState, onOpenMatchDetail, onMatchStarted, onRefreshLibrary, onArtistVisibilityChange, onMatchNothing, onDataJobStarted, onSmartProvidersChanged }) {
   const [active, setActive] = useState("appearance");
 
   if (!show) return null;
@@ -29,21 +29,22 @@ export default function Settings({ show, onClose, onReset, onSettingsSaved, matc
           <FaTimes size={16} />
         </button>
         {/* 左侧功能栏 */}
-        <div style={styles.sidebar}>
-          <h2 style={styles.sidebarTitle}>设置</h2>
+        <div style={styles.sidebar} className="settings-sidebar">
+          <h2 style={styles.sidebarTitle} className="settings-sidebar-title">设置</h2>
           {menuItems.map((item) => (
             <div
               key={item.id}
+              className={`settings-nav-item${active === item.id ? " is-active" : ""}`}
               style={{
                 ...styles.sidebarItem,
                 ...(active === item.id ? styles.sidebarItemActive : {}),
               }}
               onClick={() => setActive(item.id)}
             >
-              <span style={{ ...styles.sidebarIcon, ...(active === item.id ? styles.sidebarIconActive : {}) }}>
+              <span className="settings-nav-icon" style={{ ...styles.sidebarIcon, ...(active === item.id ? styles.sidebarIconActive : {}) }}>
                 {item.icon}
               </span>
-              <span style={{ ...styles.sidebarLabel, ...(active === item.id ? styles.sidebarLabelActive : {}) }}>
+              <span className="settings-nav-label" style={{ ...styles.sidebarLabel, ...(active === item.id ? styles.sidebarLabelActive : {}) }}>
                 {item.label}
               </span>
             </div>
@@ -51,9 +52,9 @@ export default function Settings({ show, onClose, onReset, onSettingsSaved, matc
         </div>
 
         {/* 右侧内容区（外层留白内缩滚动区，避开右上角 X 与窗口下边） */}
-        <div style={styles.contentWrap}>
-          <div style={styles.content}>
-            {active === "appearance" && <AppearancePanel onSettingsSaved={onSettingsSaved} onRefreshLibrary={onRefreshLibrary} />}
+        <div style={styles.contentWrap} className="settings-content-wrap">
+          <div style={styles.content} className="settings-content">
+            {active === "appearance" && <AppearancePanel onSettingsSaved={onSettingsSaved} onLibraryNameChange={onLibraryNameChange} onMoreCategoriesChange={onMoreCategoriesChange} onCategoryVisibilityChange={onCategoryVisibilityChange} onRefreshLibrary={onRefreshLibrary} />}
             {active === "edit" && <EditPanel onSettingsSaved={onSettingsSaved} onArtistVisibilityChange={onArtistVisibilityChange} />}
             {active === "match" && <MatchPanel matchState={matchState} onOpenMatchDetail={onOpenMatchDetail} onMatchStarted={onMatchStarted} onSettingsSaved={onSettingsSaved} onMatchNothing={onMatchNothing} />}
             {active === "smart" && <SmartPanel onProvidersChanged={onSmartProvidersChanged} />}
@@ -69,7 +70,7 @@ export default function Settings({ show, onClose, onReset, onSettingsSaved, matc
 /* ================================================================
    📦 外观设置面板
    ================================================================ */
-function AppearancePanel({ onSettingsSaved, onRefreshLibrary }) {
+function AppearancePanel({ onSettingsSaved, onLibraryNameChange, onMoreCategoriesChange, onCategoryVisibilityChange, onRefreshLibrary }) {
   const [theme, setTheme] = useState(
     localStorage.getItem("app-theme") || "light"
   );
@@ -88,7 +89,7 @@ function AppearancePanel({ onSettingsSaved, onRefreshLibrary }) {
   ];
 
   return (
-    <div style={panelStyles.container}>
+    <div style={panelStyles.container} className="settings-panel">
       <h3 style={panelStyles.title}>通用设置</h3>
       <p style={panelStyles.desc}>选择应用的主题模式</p>
       <div style={panelStyles.options}>
@@ -109,7 +110,9 @@ function AppearancePanel({ onSettingsSaved, onRefreshLibrary }) {
         ))}
       </div>
 
-      <RefreshLibrary onRefreshLibrary={onRefreshLibrary} />
+      <LibraryNameSettings onSettingsSaved={onSettingsSaved} onLibraryNameChange={onLibraryNameChange} />
+      <MoreCategoriesSettings onSettingsSaved={onSettingsSaved} onMoreCategoriesChange={onMoreCategoriesChange} onCategoryVisibilityChange={onCategoryVisibilityChange} />
+      <RefreshLibrary onRefreshLibrary={onRefreshLibrary} compact />
     </div>
   );
 }
@@ -117,18 +120,81 @@ function AppearancePanel({ onSettingsSaved, onRefreshLibrary }) {
 /* ================================================================
    🔄 更新资料库 — 扫描资料库内所有项目并更新状态
    ================================================================ */
-function RefreshLibrary({ onRefreshLibrary }) {
+function LibraryNameSettings({ onSettingsSaved, onLibraryNameChange }) {
+  const [showDialog, setShowDialog] = useState(false);
+  const [name, setName] = useState(() => localStorage.getItem("library-display-name") || "音乐资料库");
+  const [draft, setDraft] = useState(name);
+  const [error, setError] = useState("");
+
+  async function save() {
+    const next = draft.trim();
+    if (!next) { setError("资料库名称不能为空"); return; }
+    await saveAppSettings({ "library-display-name": next });
+    localStorage.setItem("library-display-name", next);
+    setName(next);
+    onLibraryNameChange?.(next);
+    onSettingsSaved?.();
+    setShowDialog(false);
+  }
+
+  return <div style={{ marginTop: "28px" }}>
+    <h3 style={panelStyles.title}>资料库设置</h3>
+    <div style={panelStyles.locationRow} className="settings-card">
+      <p style={panelStyles.locationDesc}>修改资料库名称</p>
+      <button className="settings-secondary-btn" style={panelStyles.modifyBtn} onClick={() => { setDraft(name); setError(""); setShowDialog(true); }}>修改</button>
+    </div>
+    {showDialog && <div style={dialogStyles.overlay} className="settings-dialog-overlay" onClick={() => setShowDialog(false)}><div style={dialogStyles.box} className="settings-dialog" onClick={(e) => e.stopPropagation()}>
+      <h3 style={dialogStyles.title}>修改资料库名称</h3><div style={dialogStyles.divider} />
+      <input style={dialogStyles.input} value={draft} maxLength={40} onChange={(e) => { setDraft(e.target.value); setError(""); }} autoFocus />
+      {error && <p style={dialogStyles.error}>{error}</p>}
+      <div style={dialogStyles.actions}><button className="settings-primary-btn" style={dialogStyles.confirmBtn} onClick={save}>确认</button><button style={dialogStyles.cancelBtn} onClick={() => setShowDialog(false)}>取消</button></div>
+    </div></div>}
+  </div>;
+}
+
+function RefreshLibrary({ onRefreshLibrary, compact = false }) {
   return (
-    <div style={{ marginTop: "28px" }}>
-      <h3 style={panelStyles.title}>更新资料库</h3>
-      <div style={panelStyles.locationRow}>
+    <div style={{ marginTop: compact ? "18px" : "28px" }}>
+      {!compact && <h3 style={panelStyles.title}>扫描资料库</h3>}
+      <div style={panelStyles.locationRow} className="settings-card">
         <p style={panelStyles.locationDesc}>扫描资料库内所有项目并更新状态</p>
-        <button style={panelStyles.modifyBtn} onClick={() => onRefreshLibrary?.()}>
+        <button className="settings-secondary-btn" style={panelStyles.modifyBtn} onClick={() => onRefreshLibrary?.()}>
           更新资料库
         </button>
       </div>
     </div>
   );
+}
+
+function MoreCategoriesSettings({ onSettingsSaved, onMoreCategoriesChange, onCategoryVisibilityChange }) {
+  const [enabled, setEnabled] = useState(() => localStorage.getItem("library-show-more-categories") === "true");
+  const [categories, setCategories] = useState(() => ({
+    composer: localStorage.getItem("library-category-composer") !== "false",
+    lyricist: localStorage.getItem("library-category-lyricist") !== "false",
+    genre: localStorage.getItem("library-category-genre") !== "false",
+    video: localStorage.getItem("library-category-video") === "true",
+  }));
+  async function toggle() {
+    const next = !enabled;
+    setEnabled(next);
+    localStorage.setItem("library-show-more-categories", String(next));
+    await saveAppSettings({ "library-show-more-categories": String(next) });
+    onMoreCategoriesChange?.(next);
+    onSettingsSaved?.();
+  }
+  async function toggleCategory(key) {
+    const next = { ...categories, [key]: !categories[key] };
+    setCategories(next);
+    localStorage.setItem(`library-category-${key}`, String(next[key]));
+    await saveAppSettings({ [`library-category-${key}`]: String(next[key]) });
+    onCategoryVisibilityChange?.(next);
+    onSettingsSaved?.();
+  }
+  const labels = { composer: "作曲者", lyricist: "作词者", genre: "流派", video: "视频" };
+  return <div style={{ marginTop: "18px" }}>
+    <div style={panelStyles.locationRow} className="settings-card"><p style={panelStyles.locationDesc}>显示更多类别</p><button style={{ ...panelStyles.toggleSwitch, ...(enabled ? panelStyles.toggleSwitchOn : {}) }} onClick={toggle} title={enabled ? "关闭" : "打开"}><div style={{ ...panelStyles.toggleKnob, ...(enabled ? panelStyles.toggleKnobOn : {}) }} /></button></div>
+    {enabled && <div style={panelStyles.categorySettings} className="settings-card settings-category-settings">{Object.keys(labels).map((key) => <div key={key} style={panelStyles.categorySettingRow}><span>{labels[key]}</span><button style={{ ...panelStyles.toggleSwitch, ...(categories[key] ? panelStyles.toggleSwitchOn : {}) }} onClick={() => toggleCategory(key)}><div style={{ ...panelStyles.toggleKnob, ...(categories[key] ? panelStyles.toggleKnobOn : {}) }} /></button></div>)}</div>}
+  </div>;
 }
 
 /* ================================================================
@@ -170,7 +236,7 @@ function ArtistSettings({ onSettingsSaved, onArtistVisibilityChange }) {
   return (
     <div style={{ marginTop: "28px" }}>
       <h3 style={panelStyles.title}>艺人设置</h3>
-      <div style={panelStyles.toggleRow}>
+      <div style={panelStyles.toggleRow} className="settings-card">
         <div style={panelStyles.toggleText}>
           <p style={panelStyles.toggleTitle}>删除音乐时保留无音乐的艺人</p>
           <p style={panelStyles.toggleDesc}>开启后，即使某位艺人的音乐被全部删除，该艺人仍会保留在艺人列表中；关闭则自动删除空艺人</p>
@@ -191,7 +257,7 @@ function ArtistSettings({ onSettingsSaved, onArtistVisibilityChange }) {
           />
         </button>
       </div>
-      <div style={panelStyles.toggleRow}>
+      <div style={panelStyles.toggleRow} className="settings-card">
         <div style={panelStyles.toggleText}>
           <p style={panelStyles.toggleTitle}>不显示空艺人</p>
           <p style={panelStyles.toggleDesc}>启用后，艺人列表默认隐藏没有歌曲的艺人，不会删除艺人资料</p>
@@ -204,7 +270,7 @@ function ArtistSettings({ onSettingsSaved, onArtistVisibilityChange }) {
           <div style={{ ...panelStyles.toggleKnob, ...(hideEmpty ? panelStyles.toggleKnobOn : {}) }} />
         </button>
       </div>
-      <div style={panelStyles.toggleRow}>
+      <div style={panelStyles.toggleRow} className="settings-card">
         <div style={panelStyles.toggleText}>
           <p style={panelStyles.toggleTitle}>自动整理合作艺人</p>
           <p style={panelStyles.toggleDesc}>开启后，导入、编辑和匹配写入时把多位艺人统一为「A & B & C」格式</p>
@@ -257,12 +323,12 @@ function EditPanel({ onSettingsSaved, onArtistVisibilityChange }) {
   }
 
   return (
-    <div style={panelStyles.container}>
+    <div style={panelStyles.container} className="settings-panel">
       <h3 style={panelStyles.title}>编辑</h3>
       <p style={panelStyles.desc}>编辑音乐信息时的默认行为</p>
       <div style={{ marginTop: "28px" }}>
         <h3 style={panelStyles.title}>音乐设置</h3>
-      <div style={panelStyles.toggleRow}>
+      <div style={panelStyles.toggleRow} className="settings-card">
         <div style={panelStyles.toggleText}>
           <p style={panelStyles.toggleTitle}>编辑发布者默认携带发布符号和日期</p>
           <p style={panelStyles.toggleDesc}>开启后，编辑歌曲或专辑时若发布者为空，会自动填入「℗ 年份 」前缀</p>
@@ -283,7 +349,7 @@ function EditPanel({ onSettingsSaved, onArtistVisibilityChange }) {
           />
         </button>
       </div>
-      <div style={panelStyles.toggleRow}>
+      <div style={panelStyles.toggleRow} className="settings-card">
         <div style={panelStyles.toggleText}>
           <p style={panelStyles.toggleTitle}>删除时移动至项目 trash 文件夹</p>
           <p style={panelStyles.toggleDesc}>开启后，删除的文件将发送到项目下的trash文件夹；关闭则直接删除</p>
@@ -304,7 +370,7 @@ function EditPanel({ onSettingsSaved, onArtistVisibilityChange }) {
           />
         </button>
       </div>
-      <div style={panelStyles.toggleRow}>
+      <div style={panelStyles.toggleRow} className="settings-card">
         <div style={panelStyles.toggleText}>
           <p style={panelStyles.toggleTitle}>导入不支持播放的格式时跳过导入</p>
           <p style={panelStyles.toggleDesc}>开启后，导入时会自动跳过浏览器无法播放的格式（如 ALAC / APE 等）</p>
@@ -406,22 +472,22 @@ function SmartPanel({ onProvidersChanged }) {
     } catch { setMessage("保存失败"); }
   };
 
-  return <div style={panelStyles.container}>
+  return <div style={panelStyles.container} className="settings-panel">
     <h3 style={panelStyles.title}>智能</h3>
     <p style={panelStyles.desc}>连接 AI 服务以生成歌单、简介和元信息建议。</p>
     <p style={panelStyles.desc}>使用对应服务即你同意相应服务商条款。</p>
     <button style={smartStyles.addBtn} onClick={startAdding}><FaPlus size={12} /> 添加</button>
     <div style={smartStyles.providerList}>
-      {providers.map((item) => <div key={item.id} style={smartStyles.providerRow}>
+      {providers.map((item) => <div key={item.id} style={smartStyles.providerRow} className="settings-card settings-provider-row">
         {item.id === "deepseek" ? <SiDeepseek size={19} color="#4d6bfe" /> : <AiFillOpenAI size={19} color="#10a37f" />}
         <span style={smartStyles.providerName}>{item.name}</span>
         <span style={smartStyles.modelName}>{item.model || "未选择模型"}</span>
         <button style={smartStyles.iconBtn} onClick={() => openEditor(item.id)} title="编辑"><FaPencilAlt size={12} /></button>
-        <span style={{ ...smartStyles.status, color: item.connected ? "#16a34a" : "#dc2626" }}>● {item.connected ? "已连接" : "已断开"}</span>
+        <span className={`settings-provider-status ${item.connected ? "is-connected" : "is-disconnected"}`} style={{ ...smartStyles.status, color: item.connected ? "#16a34a" : "#dc2626" }}>● {item.connected ? "已连接" : "已断开"}</span>
         <button aria-label={`切换 ${item.name}`} title={item.enabled ? "停用智能服务" : "启用智能服务"} style={{ ...panelStyles.toggleSwitch, ...(item.enabled ? panelStyles.toggleSwitchOn : {}) }} onClick={async () => { await toggleSmartProvider(item.id, !item.enabled); refresh(); }}><span style={{ ...panelStyles.toggleKnob, ...(item.enabled ? panelStyles.toggleKnobOn : {}) }} /></button>
       </div>)}
     </div>
-    {(editor || isAdding) && <div style={resetDialogStyles.overlay} onClick={() => { setEditor(null); setIsAdding(false); }}><div style={resetDialogStyles.box} onClick={(e) => e.stopPropagation()}>
+    {(editor || isAdding) && <div style={resetDialogStyles.overlay} className="settings-dialog-overlay" onClick={() => { setEditor(null); setIsAdding(false); }}><div style={resetDialogStyles.box} className="settings-dialog" onClick={(e) => e.stopPropagation()}>
       <h3 style={resetDialogStyles.title}>{isAdding ? "添加智能服务" : `编辑 ${names[editor]}`}</h3><div style={resetDialogStyles.divider} />
       <>
       {isAdding && <><label style={smartStyles.fieldLabel}>选择供应商</label><div style={smartStyles.providerSelectWrap}>{editor === "deepseek" ? <SiDeepseek style={smartStyles.providerSelectIcon} size={19} color="#4d6bfe" /> : <AiFillOpenAI style={smartStyles.providerSelectIcon} size={19} color="#10a37f" />}<select style={smartStyles.providerSelect} value={editor} onChange={(e) => selectAddingProvider(e.target.value)}><option value="openai">ChatGPT</option><option value="deepseek">DeepSeek</option></select></div></>}
@@ -429,9 +495,9 @@ function SmartPanel({ onProvidersChanged }) {
       <label style={smartStyles.fieldLabel}>模型{testing ? "（正在拉取…）" : ""}</label>
       <select style={dataStyles.confirmInput} value={model} disabled={!models.length} onChange={(e) => { setModel(e.target.value); setTested(true); }}><option value="">{models.length ? "请选择模型" : "请先输入 API Key 并自动拉取模型"}</option>{model && !models.includes(model) && <option value={model}>{model}</option>}{models.map((item) => <option key={item} value={item}>{item}</option>)}</select>
       <button type="button" style={smartStyles.advancedToggle} onClick={() => setAdvancedOpen((value) => !value)}>高级 {advancedOpen ? <FaChevronDown size={11} /> : <FaChevronRight size={11} />}</button>
-      {advancedOpen && <div style={smartStyles.advancedPanel}>
+      {advancedOpen && <div style={smartStyles.advancedPanel} className="settings-advanced-panel">
         {editor === "deepseek" && model === "deepseek-v4-flash" && <div style={smartStyles.advancedRow}><div><div style={smartStyles.advancedTitle}>联网搜索</div><div style={smartStyles.advancedHint}>启用后模型将基于网络资料进行输出</div></div><button aria-label="切换联网搜索" style={{ ...panelStyles.toggleSwitch, ...(webSearch ? panelStyles.toggleSwitchOn : {}) }} onClick={() => setWebSearch((value) => !value)}><span style={{ ...panelStyles.toggleKnob, ...(webSearch ? panelStyles.toggleKnobOn : {}) }} /></button></div>}
-        <div style={smartStyles.lengthRow}><div><div style={smartStyles.advancedTitle}>输出内容长度</div><div style={smartStyles.advancedHint}>用于控制播放列表简介的文字输出量</div></div><div style={smartStyles.lengthButtons}>{[["short", "简洁"], ["medium", "适中"], ["long", "较长"]].map(([value, label]) => <button key={value} style={{ ...smartStyles.lengthBtn, ...(outputLength === value ? smartStyles.lengthBtnActive : {}) }} onClick={() => setOutputLength(value)}>{label}</button>)}</div></div>
+        <div style={smartStyles.lengthRow}><div><div style={smartStyles.advancedTitle}>输出内容长度</div><div style={smartStyles.advancedHint}>用于控制播放列表简介的文字输出量</div></div><div style={smartStyles.lengthButtons} className="settings-segmented-control">{[["short", "简洁"], ["medium", "适中"], ["long", "较长"]].map(([value, label]) => <button key={value} className={outputLength === value ? "is-selected" : ""} style={{ ...smartStyles.lengthBtn, ...(outputLength === value ? smartStyles.lengthBtnActive : {}) }} onClick={() => setOutputLength(value)}>{label}</button>)}</div></div>
       </div>}
         {message && <p style={dataStyles.hint}>{message}</p>}
         <div style={{ ...resetDialogStyles.actions, marginTop: "20px" }}><button style={smartStyles.deleteBtn} onClick={async () => { if (!isAdding) await deleteSmartProvider(editor); setEditor(null); setIsAdding(false); refresh(); }}><FaTrashAlt /> 移除</button><span style={{ flex: 1 }} /><button style={resetDialogStyles.cancelBtn} onClick={() => { setEditor(null); setIsAdding(false); }}>取消</button><button style={resetDialogStyles.confirmBtn} onClick={save}>保存</button></div>
@@ -585,12 +651,12 @@ function MatchPanel({ matchState, onOpenMatchDetail, onMatchStarted, onSettingsS
   const hasLog = (matchState?.log && matchState.log.length > 0) || progress.total > 0;
 
   return (
-    <div style={matchStyles.container}>
+    <div style={matchStyles.container} className="settings-panel settings-match-panel">
       <h3 style={panelStyles.title}>匹配</h3>
       <p style={panelStyles.desc}>通过在线源拉取歌曲与艺人信息，并自动写回音乐文件</p>
 
       {/* 全部匹配（置顶） */}
-      <div style={matchStyles.matchBox}>
+      <div style={matchStyles.matchBox} className="settings-card settings-match-card">
         <p style={matchStyles.configTitle}>全部匹配</p>
         <p style={matchStyles.matchDesc}>
           为资料库中缺少信息的歌曲补全所选字段，并为艺人补写真。件内已存在的信息不会被覆盖
@@ -640,7 +706,7 @@ function MatchPanel({ matchState, onOpenMatchDetail, onMatchStarted, onSettingsS
       </div>
 
       {/* 匹配字段 + 匹配源 */}
-      <div style={matchStyles.configBox}>
+      <div style={matchStyles.configBox} className="settings-card settings-match-card">
         <p style={matchStyles.configTitle}>匹配字段</p>
         <p style={matchStyles.fieldHint}>勾选“艺术家”同时匹配歌曲艺人、艺人写真与艺人简介</p>
         <div style={matchStyles.fieldGrid}>
@@ -676,6 +742,7 @@ function MatchPanel({ matchState, onOpenMatchDetail, onMatchStarted, onSettingsS
           {MATCH_SOURCES.map(([k, label]) => (
             <button
               key={k}
+              className={sources[k] ? "settings-choice-chip is-selected" : "settings-choice-chip"}
               style={{
                 ...matchStyles.sourceChip,
                 ...(sources[k] ? matchStyles.sourceChipOn : {}),
@@ -695,7 +762,7 @@ function MatchPanel({ matchState, onOpenMatchDetail, onMatchStarted, onSettingsS
       </div>
 
       {/* 功能设置 */}
-      <div style={matchStyles.configBox}>
+      <div style={matchStyles.configBox} className="settings-card settings-match-card">
         <p style={matchStyles.configTitle}>功能设置</p>
 
         <div style={matchStyles.toggleRow}>
@@ -770,10 +837,11 @@ function MatchPanel({ matchState, onOpenMatchDetail, onMatchStarted, onSettingsS
             <p style={matchStyles.toggleTitle}>匹配速率</p>
             <p style={matchStyles.toggleDesc}>调整匹配速度，较快的速率可能导致被风控</p>
           </div>
-          <div style={matchStyles.rateSegments}>
+          <div style={matchStyles.rateSegments} className="settings-rate-segments">
             {[["fast", "快速"], ["normal", "标准"], ["slow", "低速"]].map(([k, label]) => (
               <button
                 key={k}
+                className={matchRate === k ? "settings-rate-segment is-selected" : "settings-rate-segment"}
                 style={{ ...matchStyles.rateSegment, ...(matchRate === k ? matchStyles.rateSegmentOn : {}) }}
                 onClick={() => setRate(k)}
               >
@@ -853,19 +921,19 @@ function ImportSettings({ onSettingsSaved }) {
 
   return (
     <>
-      <div style={{ marginTop: "28px" }}>
+      <div style={{ marginTop: "28px" }} className="settings-section">
             <h3 style={panelStyles.title}>资料库位置</h3>
-        <div style={panelStyles.locationRow}>
+        <div style={panelStyles.locationRow} className="settings-card">
           <p style={panelStyles.locationDesc}>修改音乐资料库的存放位置</p>
-          <button style={panelStyles.modifyBtn} onClick={() => setShowDialog(true)}>
+          <button className="settings-secondary-btn" style={panelStyles.modifyBtn} onClick={() => setShowDialog(true)}>
             修改
           </button>
         </div>
       </div>
 
       {showDialog && (
-        <div style={dialogStyles.overlay} onClick={() => setShowDialog(false)}>
-          <div style={dialogStyles.box} onClick={(e) => e.stopPropagation()}>
+        <div style={dialogStyles.overlay} className="settings-dialog-overlay" onClick={() => setShowDialog(false)}>
+          <div style={dialogStyles.box} className="settings-dialog" onClick={(e) => e.stopPropagation()}>
             <h3 style={dialogStyles.title}>修改资料库位置</h3>
             <div style={dialogStyles.divider} />
             <p style={dialogStyles.hint}>请输入资料库的完整绝对路径（如 D:\Music\Music_Library）</p>
@@ -879,7 +947,7 @@ function ImportSettings({ onSettingsSaved }) {
             />
             {error && <p style={dialogStyles.error}>{error}</p>}
             <div style={dialogStyles.actions}>
-              <button style={dialogStyles.confirmBtn} onClick={handleConfirm}>确认</button>
+              <button className="settings-primary-btn" style={dialogStyles.confirmBtn} onClick={handleConfirm}>确认</button>
               <button style={dialogStyles.cancelBtn} onClick={() => setShowDialog(false)}>取消</button>
             </div>
           </div>
@@ -888,8 +956,8 @@ function ImportSettings({ onSettingsSaved }) {
 
       {/* 迁移进度对话框（不允许取消） */}
       {migrating && (
-        <div style={migrateDialogStyles.overlay}>
-          <div style={migrateDialogStyles.box} onClick={(e) => e.stopPropagation()}>
+        <div style={migrateDialogStyles.overlay} className="settings-dialog-overlay">
+          <div style={migrateDialogStyles.box} className="settings-dialog" onClick={(e) => e.stopPropagation()}>
             <div style={migrateDialogStyles.body}>
               <h3 style={migrateDialogStyles.title}>正在迁移资料库</h3>
               <div style={migrateDialogStyles.divider} />
@@ -916,9 +984,9 @@ function ImportSettings({ onSettingsSaved }) {
    ================================================================ */
 function AboutPanel() {
   return (
-    <div style={panelStyles.container}>
+    <div style={panelStyles.container} className="settings-panel">
       <h3 style={panelStyles.title}>关于</h3>
-      <div style={panelStyles.aboutList}>
+      <div style={panelStyles.aboutList} className="settings-card settings-about-list">
         <InfoRow label="应用名称" value="WebMusicPlayer" />
         <InfoRow label="版本号" value="1.0.0" />
         <InfoRow label="作者" value="Hipeu" />
@@ -1028,23 +1096,23 @@ function DataPanel({ onReset, onDataJobStarted, onSettingsSaved }) {
 
   return (
     <>
-      <div style={panelStyles.container}>
+      <div style={panelStyles.container} className="settings-panel">
         <h3 style={panelStyles.title}>数据</h3>
         <p style={panelStyles.desc}>管理资料库的备份、恢复与存放位置</p>
         <div style={{ marginTop: "28px" }}>
           <h3 style={panelStyles.title}>备份和恢复</h3>
-        <div style={panelStyles.locationRow}>
+        <div style={panelStyles.locationRow} className="settings-card">
           <p style={panelStyles.locationDesc}>导出音乐、封面、歌词、艺人、简介、播放列表及应用设置为 ZIP 备份包</p>
-          <button style={panelStyles.modifyBtn} onClick={() => { setError(""); setExportOpen(true); }}>导出数据</button>
+          <button className="settings-secondary-btn" style={panelStyles.modifyBtn} onClick={() => { setError(""); setExportOpen(true); }}>导出数据</button>
         </div>
-        <div style={{ ...panelStyles.locationRow, marginTop: "14px" }}>
+        <div style={{ ...panelStyles.locationRow, marginTop: "14px" }} className="settings-card">
           <p style={panelStyles.locationDesc}>从 WebMusicPlayer ZIP 备份包恢复数据</p>
-          <button style={panelStyles.modifyBtn} onClick={() => {
+          <button className="settings-secondary-btn" style={panelStyles.modifyBtn} onClick={() => {
             setError(""); setImportFile(null); setImportToken(null);
             setAvailableTypes([]); setImportTypes([]); setImportOpen(true);
           }}>导入数据</button>
         </div>
-        <div style={{ ...panelStyles.resetBox, marginTop: "14px" }}>
+        <div style={{ ...panelStyles.resetBox, marginTop: "14px" }} className="settings-card settings-danger-card">
           <p style={panelStyles.resetDesc}>重置会删除资料库中的音乐、封面、歌词、艺人、简介和播放列表数据</p>
           <div style={panelStyles.resetBtnWrap}>
             <button style={panelStyles.resetBtn} onClick={() => setConfirming(true)}>
@@ -1057,14 +1125,15 @@ function DataPanel({ onReset, onDataJobStarted, onSettingsSaved }) {
       </div>
 
       {confirming && (
-        <div style={resetDialogStyles.overlay} onClick={() => setConfirming(false)}>
-          <div style={resetDialogStyles.box} onClick={(e) => e.stopPropagation()}>
+        <div style={resetDialogStyles.overlay} className="settings-dialog-overlay" onClick={() => setConfirming(false)}>
+          <div style={resetDialogStyles.box} className="settings-dialog" onClick={(e) => e.stopPropagation()}>
             <h3 style={resetDialogStyles.title}>确认重置数据</h3>
             <div style={resetDialogStyles.divider} />
             <p style={resetDialogStyles.text}>这会删除所有资料库数据，且无法恢复。请输入「是，我确认」继续。</p>
             <input value={confirmText} onChange={(e) => setConfirmText(e.target.value)} placeholder="是，我确认" style={dataStyles.confirmInput} />
             <div style={{ ...resetDialogStyles.actions, marginTop: "18px" }}>
               <button
+                className="settings-primary-btn"
                 style={resetDialogStyles.confirmBtn}
                 disabled={confirmText.trim() !== "是，我确认"}
                 onClick={() => {
@@ -1083,8 +1152,8 @@ function DataPanel({ onReset, onDataJobStarted, onSettingsSaved }) {
         </div>
       )}
       {exportOpen && (
-        <div style={resetDialogStyles.overlay} onClick={() => setExportOpen(false)}>
-          <div style={resetDialogStyles.box} onClick={(e) => e.stopPropagation()}>
+        <div style={resetDialogStyles.overlay} className="settings-dialog-overlay" onClick={() => setExportOpen(false)}>
+          <div style={resetDialogStyles.box} className="settings-dialog" onClick={(e) => e.stopPropagation()}>
             <h3 style={resetDialogStyles.title}>选择导出数据</h3>
             <div style={resetDialogStyles.divider} />
             <div style={dataStyles.typeList}>{typeOptions.map(([value, label]) => {
@@ -1097,15 +1166,15 @@ function DataPanel({ onReset, onDataJobStarted, onSettingsSaved }) {
             })}</div>
             {error && <p style={dataStyles.error}>{error}</p>}
             <div style={{ ...resetDialogStyles.actions, marginTop: "24px" }}>
-              <button style={resetDialogStyles.confirmBtn} disabled={exportTypes.length === 0} onClick={handleExport}>开始导出</button>
+              <button className="settings-primary-btn" style={resetDialogStyles.confirmBtn} disabled={exportTypes.length === 0} onClick={handleExport}>开始导出</button>
               <button style={resetDialogStyles.cancelBtn} onClick={() => setExportOpen(false)}>取消</button>
             </div>
           </div>
         </div>
       )}
       {importOpen && (
-        <div style={resetDialogStyles.overlay} onClick={() => setImportOpen(false)}>
-          <div style={resetDialogStyles.box} onClick={(e) => e.stopPropagation()}>
+        <div style={resetDialogStyles.overlay} className="settings-dialog-overlay" onClick={() => setImportOpen(false)}>
+          <div style={resetDialogStyles.box} className="settings-dialog" onClick={(e) => e.stopPropagation()}>
             <h3 style={resetDialogStyles.title}>导入数据</h3>
             <div style={resetDialogStyles.divider} />
             <div style={dataStyles.fileRow}>
@@ -1157,7 +1226,7 @@ function DataPanel({ onReset, onDataJobStarted, onSettingsSaved }) {
             </div>}
             {error && <p style={dataStyles.error}>{error}</p>}
             <div style={{ ...resetDialogStyles.actions, marginTop: mode === "replace" ? "24px" : undefined }}>
-              <button style={resetDialogStyles.confirmBtn} disabled={!importToken || importTypes.length === 0 || inspecting} onClick={handleImport}>开始导入</button>
+              <button className="settings-primary-btn" style={resetDialogStyles.confirmBtn} disabled={!importToken || importTypes.length === 0 || inspecting} onClick={handleImport}>开始导入</button>
               <button style={resetDialogStyles.cancelBtn} onClick={() => setImportOpen(false)}>取消</button>
             </div>
           </div>
@@ -1303,6 +1372,22 @@ const styles = {
 };
 
 const panelStyles = {
+  categorySettings: {
+    marginTop: "12px",
+    padding: "6px 20px 12px",
+    borderRadius: "10px",
+    border: "1px solid #f3f4f6",
+    background: "#fafafa",
+  },
+  categorySettingRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    minHeight: "42px",
+    borderBottom: "1px solid #eeeeef",
+    color: "#374151",
+    fontSize: "14px",
+  },
   container: {
     maxWidth: "560px",
   },

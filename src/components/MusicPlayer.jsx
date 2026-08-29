@@ -2,7 +2,7 @@ import { startTransition, useState, useRef, useEffect } from "react";
 import { FaChevronDown, FaList, FaMusic, FaHeart, FaRegHeart, FaEllipsisH, FaInfoCircle, FaPlus, FaCompactDisc, FaUser, FaRedo, FaRandom, FaExclamationCircle } from "react-icons/fa";
 import Lyrics from "./Lyrics";
 import { parseLRC } from "../utils/LyricsParser";
-import { getLyrics as fetchLyrics, fetchCoverProxy } from "../services/api";
+import { getLyrics as fetchLyrics, fetchCoverProxy, getAssetUrl } from "../services/api";
 import { songPlayable, isPlaceholderPublisher } from "../utils/formatCheck";
 import { incrementPlayCount } from "../utils/playCount";
 import PlayerControls from "./PlayerControls";
@@ -38,6 +38,7 @@ function getCachedLyrics(filePath) {
    ================================================================ */
 export default function MusicPlayer({
   albums,
+  artistRecords,
   playlists,
   setPlaylists,
   currentAlbumId,
@@ -112,6 +113,9 @@ export default function MusicPlayer({
       };
     })() : null;
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const currentArtistAvatar = displayAlbum?.artist && artistRecords?.[displayAlbum.artist]?.cover_url
+    ? getAssetUrl(artistRecords[displayAlbum.artist].cover_url)
+    : null;
 
   // 随机模式下的展示顺序
   const isFavorited = !!currentSong && !!playlists?.find((p) => p.id === "liked")?.songs?.some((s) => s.url === currentSong.url);
@@ -730,18 +734,21 @@ export default function MusicPlayer({
                                     {/* 歌曲信息 */}
                                     <div style={styles.songInfoAside}>
                                       <p style={styles.detailNowPlayingName}>{currentSong.title}</p>
-                                      <p
-                                        style={styles.clickableLink}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          if (onNavigateToArtist && displayAlbum?.artist) {
-                                            setShowDetail(false);
-                                            onNavigateToArtist(displayAlbum.artist);
-                                          }
-                                        }}
-                                      >
-                                        {displayAlbum.artist}
-                                      </p>
+                                      <div style={styles.artistLinkRow}>
+                                        {currentArtistAvatar && <img src={currentArtistAvatar} alt="" style={styles.artistAvatar} onError={(e) => { e.currentTarget.style.display = "none"; }} />}
+                                        <p
+                                          style={styles.clickableLink}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (onNavigateToArtist && displayAlbum?.artist) {
+                                              setShowDetail(false);
+                                              onNavigateToArtist(displayAlbum.artist);
+                                            }
+                                          }}
+                                        >
+                                          {displayAlbum.artist}
+                                        </p>
+                                      </div>
                                       <p
                                         style={styles.albumNameLink}
                                         onClick={(e) => {
@@ -1344,6 +1351,8 @@ const styles = {
     display: "flex", alignItems: "center", justifyContent: "center",
     lineHeight: 1,
   },
+  artistLinkRow: { display: "flex", alignItems: "center", gap: "9px" },
+  artistAvatar: { width: "28px", height: "28px", borderRadius: "50%", objectFit: "cover", flexShrink: 0 },
 
     // ===== 右侧 - 歌曲列表 =====
         detailSongList: {

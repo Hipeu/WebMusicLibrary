@@ -3,7 +3,7 @@
    功能：进度条 + 歌曲信息 + 播放/暂停/切歌 + 音量控制
    从 MusicPlayer 中独立出来的模块
    ================================================================ */
-import { FaHeart, FaRegHeart, FaRedo, FaRandom } from "react-icons/fa";
+import { FaRedo, FaRandom, FaStepBackward, FaStepForward, FaPlay, FaPause, FaVolumeMute, FaVolumeDown, FaVolumeUp } from "react-icons/fa";
 
 export default function PlayerControls({
   currentSong,
@@ -35,9 +35,10 @@ export default function PlayerControls({
           step="0.1"
           value={progress}
           onChange={onSeek}
+          className="player-range player-progress-range"
           style={{
             ...styles.progressBar,
-            background: `linear-gradient(to right, #e94560 ${progress}%, #d1d5db ${progress}%)`,
+            background: `linear-gradient(to right, #e94560 ${progress}%, var(--player-range-track, #d1d5db) ${progress}%)`,
           }}
         />
       </div>
@@ -79,17 +80,18 @@ export default function PlayerControls({
         {/* 中间：控制按钮 */}
         <div style={styles.controls}>
           <span style={styles.time}>{formatTime(currentTime)}</span>
-          <button onClick={onPrevTrack} className="ctrl-btn" style={styles.controlBtn} disabled={!currentAlbum}>⏮</button>
+          <button onClick={onPrevTrack} className="ctrl-btn" style={styles.controlBtn} title="上一首" disabled={!currentAlbum}><FaStepBackward size={14} /></button>
           <button onClick={onTogglePlay} className="ctrl-btn" style={{ ...styles.controlBtn, ...styles.playBtn }} disabled={!currentSong}>
-            {isPlaying ? "⏸" : "▶"}
+            {isPlaying ? <FaPause size={16} /> : <FaPlay size={16} style={{ marginLeft: "2px" }} />}
           </button>
-          <button onClick={onNextTrack} className="ctrl-btn" style={styles.controlBtn} disabled={!currentAlbum}>⏭</button>
+          <button onClick={onNextTrack} className="ctrl-btn" style={styles.controlBtn} title="下一首" disabled={!currentAlbum}><FaStepForward size={14} /></button>
           <span style={styles.time}>{formatTime(duration)}</span>
         </div>
 
         {/* 右侧：播放模式 + 音量 */}
         <div style={styles.volumeArea}>
           <button
+            className={`player-mode-btn${playMode === "loop" || playMode === "loop-one" ? " is-active" : ""}`}
             style={{
               ...styles.modeBtn,
               ...((playMode === "loop" || playMode === "loop-one") ? styles.modeBtnActive : {}),
@@ -106,6 +108,7 @@ export default function PlayerControls({
             {playMode === "loop-one" && <span style={styles.loopOneBadge}>1</span>}
           </button>
           <button
+            className={`player-mode-btn${playMode === "shuffle" ? " is-active" : ""}`}
             style={{
               ...styles.modeBtn,
               ...(playMode === "shuffle" ? styles.modeBtnActive : {}),
@@ -115,10 +118,10 @@ export default function PlayerControls({
           >
             <FaRandom size={13} />
           </button>
-          <span style={{ fontSize: "16px" }}>
-            {volume === 0 ? "🔇" : volume < 0.5 ? "🔉" : "🔊"}
+          <span style={styles.volumeIcon} title="音量">
+            {volume === 0 ? <FaVolumeMute /> : volume < 0.5 ? <FaVolumeDown /> : <FaVolumeUp />}
           </span>
-          <input type="range" min="0" max="1" step="0.01" value={volume} onChange={onVolumeChange} style={styles.volumeSlider} />
+          <input className="player-range player-volume-range" type="range" min="0" max="1" step="0.01" value={volume} onChange={onVolumeChange} style={{ ...styles.volumeSlider, "--volume-percent": `${volume * 100}%` }} />
         </div>
       </div>
     </footer>
@@ -183,17 +186,17 @@ const styles = {
   miniCoverIcon: { fontSize: "18px", opacity: 0.4 },
   controls: { display: "flex", alignItems: "center", gap: "12px" },
     controlBtn: {
-    width: "34px", height: "34px", borderRadius: "50%",
-    border: "1px solid #d1d5db",
-    background: "#ffffff",
+    width: "34px", height: "34px", borderRadius: "6px",
+    border: "none",
+    background: "transparent",
     color: "#374151", fontSize: "14px", cursor: "pointer",
     display: "flex", alignItems: "center", justifyContent: "center",
   },
   playBtn: {
     width: "42px", height: "42px", fontSize: "18px",
-    background: "linear-gradient(135deg, #e94560, #c73e52)",
-    boxShadow: "0 4px 15px rgba(233,69,96,0.3)",
-    border: "none", color: "#fff",
+    background: "transparent",
+    boxShadow: "none",
+    border: "none", color: "#374151",
   },
   time: {
     fontSize: "11px", color: "#6b7280",
@@ -204,6 +207,7 @@ const styles = {
     display: "flex", alignItems: "center", gap: "6px",
     flex: "0 0 150px", justifyContent: "flex-end",
   },
+  volumeIcon: { width: "20px", color: "#6b7280", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "16px" },
   modeBtn: {
     background: "none", border: "none", cursor: "pointer",
     width: "30px", height: "30px", borderRadius: "6px",
@@ -212,11 +216,11 @@ const styles = {
     transition: "all 0.2s", position: "relative",
   },
   modeBtnActive: {
-    background: "#e94560", color: "#ffffff",
+    background: "transparent", color: "#4b5563",
   },
   loopOneBadge: {
     position: "absolute", top: "-3px", right: "-3px",
-    background: "#e94560", color: "#fff",
+    background: "#6b7280", color: "#fff",
     fontSize: "9px", fontWeight: 700,
     width: "14px", height: "14px",
     borderRadius: "50%",
