@@ -243,6 +243,10 @@ export default function MusicPlayer({
     }
   }
 
+  useEffect(() => {
+    if (audioRef.current) audioRef.current.volume = volume;
+  }, [volume, currentSong?.url, audioRef]);
+
   // ---------- 音频事件 ----------
   function handleLoadedMetadata() {
     if (audioRef.current) {

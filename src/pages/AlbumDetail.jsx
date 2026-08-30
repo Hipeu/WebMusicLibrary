@@ -409,9 +409,9 @@ export default function AlbumDetail({
               {album.publisher && !isPlaceholderPublisher(album.publisher) && (
                 <span style={styles.songMetaText}>{album.publisher}</span>
               )}
-              <RelatedVideos videos={videos} songIds={(album.songs || []).map((song) => song.file_path || song.hash)} onOpen={onOpenVideo} onMore={onMoreVideos} />
               <span style={styles.songCount}>{album.songs.length} 首</span>
             </div>
+            <RelatedVideos videos={videos} songs={album.songs || []} onOpen={onOpenVideo} onMore={onMoreVideos} />
           </div>
         </div>
     </div>

@@ -7,6 +7,13 @@ export function getAssetUrl(path) {
   return `${BASE_URL}${path}`;
 }
 
+async function requireJson(res, fallbackMessage) {
+  let data = null;
+  try { data = await res.json(); } catch { /* 使用统一错误信息 */ }
+  if (!res.ok) throw new Error(data?.detail || fallbackMessage);
+  return data;
+}
+
 /** 上传音乐文件到后端音乐库（signal 用于取消导入） */
 export async function uploadMusic(file, signal) {
   const form = new FormData();
@@ -67,34 +74,34 @@ export async function openMusicFile(filePath) {
 // ---------- 视频资料库 ----------
 export async function getVideos() {
   const res = await fetch(`${BASE_URL}/api/videos`);
-  return res.json();
+  return requireJson(res, "读取视频资料库失败");
 }
 export async function uploadVideo(file) {
   const form = new FormData(); form.append("file", file);
   const res = await fetch(`${BASE_URL}/api/videos/upload`, { method: "POST", body: form });
-  return res.json();
+  return requireJson(res, "视频导入失败");
 }
 export async function addWebVideo(url) {
   const form = new FormData(); form.append("url", url);
   const res = await fetch(`${BASE_URL}/api/videos/web`, { method: "POST", body: form });
-  return res.json();
+  return requireJson(res, "视频网站视频添加失败");
 }
 export async function updateVideo(id, payload) {
   const res = await fetch(`${BASE_URL}/api/videos/${encodeURIComponent(id)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-  return res.json();
+  return requireJson(res, "视频信息保存失败");
 }
 export async function updateVideoCover(id, file) {
   const form = new FormData(); form.append("file", file);
   const res = await fetch(`${BASE_URL}/api/videos/${encodeURIComponent(id)}/cover`, { method: "POST", body: form });
-  return res.json();
+  return requireJson(res, "视频封面保存失败");
 }
 export async function deleteVideo(id) {
   const res = await fetch(`${BASE_URL}/api/videos/${encodeURIComponent(id)}`, { method: "DELETE" });
-  return res.json();
+  return requireJson(res, "视频删除失败");
 }
 export async function openVideoFile(id) {
   const res = await fetch(`${BASE_URL}/api/videos/${encodeURIComponent(id)}/open`, { method: "POST" });
-  return res.json();
+  return requireJson(res, "无法打开本地视频");
 }
 
 /** 编辑歌曲元信息（写入音乐文件内部标签 + data 备份 + manifest）

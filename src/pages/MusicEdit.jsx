@@ -6,6 +6,7 @@ import MatchResultPicker from "../components/MatchResultPicker";
 import AlbumMatchPicker from "../components/AlbumMatchPicker";
 import SuggestionDropdown from "../components/SuggestionDropdown";
 import { splitArtists } from "../utils/artistSplit";
+import { videoMatchesSong } from "../utils/videoAssociations";
 
 /* ================================================================
    ✏️ MusicEdit — 编辑音乐元信息弹窗
@@ -114,8 +115,7 @@ export default function MusicEdit({ target, onClose, onSave, onMatchError, onBac
 
   useEffect(() => {
     if (!target || isAlbum) return;
-    const key = data?.file_path || data?.hash;
-    const timer = setTimeout(() => setLinkedVideoIds((videos || []).filter((video) => (video.song_ids || []).includes(key)).map((video) => video.id)), 0);
+    const timer = setTimeout(() => setLinkedVideoIds((videos || []).filter((video) => videoMatchesSong(video, data)).map((video) => video.id)), 0);
     return () => clearTimeout(timer);
   }, [target, isAlbum, data?.file_path, data?.hash, videos]);
 
@@ -291,18 +291,8 @@ export default function MusicEdit({ target, onClose, onSave, onMatchError, onBac
   return (
     <div style={styles.overlay}>
       <div style={styles.dialog} className="music-edit-dialog" onClick={(e) => e.stopPropagation()}>
-        {/* 右上角：单项匹配 */}
-        <button style={styles.matchBtn} onClick={() => (isAlbum ? setShowAlbumPicker(true) : setShowSongPicker(true))} disabled={matching} title="按设置中的字段与源进行匹配">
-          <FaLink size={13} style={{ marginRight: 6 }} />
-          {matching ? "匹配中…" : (didMatch || albumDidMatch) ? "✔已匹配" : (isAlbum ? "匹配专辑" : "匹配")}
-        </button>
-        {smartAvailable && <button style={styles.smartBtn} onClick={handleSmartSuggestion} title="由默认智能供应商补充文字信息">
-          <FaRobot size={13} style={{ marginRight: 6 }} />智能建议
-        </button>}
-        {matchMsg && <p style={styles.matchMsg}>{matchMsg}</p>}
-
         {/* 上半部分：封面 + 标题 + 艺人 */}
-        <div style={styles.topSection}>
+        <div style={styles.topSection} className="music-edit-top-section">
           <div style={styles.topCover}>
             {editCover ? (
               <img src={editCover} alt="" style={styles.topCoverImg} />
@@ -319,7 +309,17 @@ export default function MusicEdit({ target, onClose, onSave, onMatchError, onBac
               {isAlbum && form.year ? ` · ${form.year}` : ""}
             </p>
           </div>
+          <div style={styles.headerActions} className="music-edit-header-actions">
+            {smartAvailable && <button style={styles.smartBtn} onClick={handleSmartSuggestion} title="由默认智能供应商补充文字信息">
+              <FaRobot size={13} style={{ marginRight: 6 }} />智能建议
+            </button>}
+            <button style={styles.matchBtn} onClick={() => (isAlbum ? setShowAlbumPicker(true) : setShowSongPicker(true))} disabled={matching} title="按设置中的字段与源进行匹配">
+              <FaLink size={13} style={{ marginRight: 6 }} />
+              {matching ? "匹配中…" : (didMatch || albumDidMatch) ? "✔已匹配" : (isAlbum ? "匹配专辑" : "匹配")}
+            </button>
+          </div>
         </div>
+        {matchMsg && <p style={styles.matchMsg}>{matchMsg}</p>}
 
         {/* 标签栏 */}
         <div style={styles.tabBar}>
@@ -573,7 +573,7 @@ export default function MusicEdit({ target, onClose, onSave, onMatchError, onBac
         {/* 底部按钮 */}
         <div style={styles.footer}>
           <button style={styles.cancelBtn} onClick={onClose}>取消</button>
-          <button style={styles.saveBtn} onClick={handleSave}>保存</button>
+          <button style={styles.saveBtn} onClick={() => handleSave().catch((err) => setMatchMsg(err?.message || "保存失败，请重试"))}>保存</button>
         </div>
 
         {/* 歌词获取界面 */}
@@ -722,10 +722,6 @@ const styles = {
     boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
   },
   matchBtn: {
-    position: "absolute",
-    top: "14px",
-    right: "14px",
-    zIndex: 10,
     display: "inline-flex",
     alignItems: "center",
     padding: "7px 16px",
@@ -739,18 +735,13 @@ const styles = {
     fontFamily: "inherit",
   },
   smartBtn: {
-    position: "absolute", top: "14px", right: "122px", zIndex: 10,
     display: "inline-flex", alignItems: "center", padding: "7px 14px", borderRadius: "16px",
     border: "1px solid #e94560", background: "#fff5f6", color: "#d93651", fontSize: "13px", fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
   },
   matchMsg: {
-    position: "absolute",
-    top: "58px",
-    right: "14px",
-    zIndex: 10,
     fontSize: "12px",
     color: "#6b7280",
-    margin: 0,
+    margin: "-8px 24px 8px auto",
     background: "#ffffff",
     padding: "4px 10px",
     borderRadius: "8px",
@@ -775,6 +766,7 @@ const styles = {
     justifyContent: "center", background: "#e5e7eb", color: "#9ca3af",
   },
   topInfo: { minWidth: 0, flex: 1 },
+  headerActions: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "8px", flexWrap: "wrap", flexShrink: 0 },
   topTitle: { fontSize: "18px", fontWeight: 700, color: "#1f2937", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   topArtist: { fontSize: "14px", color: "#6b7280", margin: "4px 0 0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
 

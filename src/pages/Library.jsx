@@ -8,6 +8,7 @@ import { saveSongToIndex, removeSongFromIndex, loadMusicIndex } from "../utils/m
 import { normalizePlaylists, loadPlaylistCache, savePlaylistCache } from "../utils/playlistStore";
 import { isUnplayableCodec, songPlayable, isPlaceholderPublisher } from "../utils/formatCheck";
 import { clearPlayCounts } from "../utils/playCount";
+import { normalizeSongRef, primarySongRef, refMatchesSong, videoMatchesSong } from "../utils/videoAssociations";
 import MusicPlayer from "../components/MusicPlayer";
 import AlbumDetail from "./AlbumDetail";
 import ArtistsDetail from "./ArtistsDetail";
@@ -293,6 +294,7 @@ const APP_SETTING_KEYS = [
   "delete-to-trash", "edit-auto-organize-collab", "import-skip-unplayable",
   "library-display-name", "library-show-more-categories",
   "library-category-composer", "library-category-lyricist", "library-category-genre", "library-category-video",
+  "player-volume",
   "match-skip-matched", "match-lyric-fallback", "match-overwrite", "match-rate",
   ...["title", "artist", "album", "year", "track_disc", "genre", "album_artist", "description", "composer", "lyricist", "lyric", "publisher", "arranger", "producer"].map((key) => `match-field-${key}`),
   ...["qq", "netease", "itunes", "musicbrainz"].map((key) => `match-source-${key}`),
@@ -302,6 +304,11 @@ function collectAppSettings() {
   return Object.fromEntries(APP_SETTING_KEYS
     .map((key) => [key, localStorage.getItem(key)])
     .filter(([, value]) => value !== null));
+}
+
+function normalizeStoredVolume(value, fallback = 0.3) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1 ? parsed : fallback;
 }
 
 /** 保证 liked / recent 始终存在 */
@@ -331,7 +338,8 @@ export default function MusicLibrary() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [volume, setVolume] = useState(1);
+  const [volume, setVolume] = useState(() => normalizeStoredVolume(localStorage.getItem("player-volume")));
+  const volumeSettingsHydratedRef = useRef(false);
   const audioRef = useRef(null);
   const fileInputRef = useRef(null);
   const videoInputRef = useRef(null);
@@ -340,6 +348,11 @@ export default function MusicLibrary() {
   const [visibleCount, setVisibleCount] = useState(40);
   const mainAreaRef = useRef(null);
   const sentinelRef = useRef(null);
+  // 歌曲列表使用独立批次，避免与专辑/资料库的分页状态互相影响。
+  const [songVisibleCount, setSongVisibleCount] = useState(30);
+  const [isLoadingMoreSongs, setIsLoadingMoreSongs] = useState(false);
+  const songSentinelRef = useRef(null);
+  const songLoadPendingRef = useRef(false);
   // 编辑当前播放歌曲被移动时的无缝续播恢复点 { newUrl, time, playing }
   const editRestoreRef = useRef(null);
   // ---------- 统一通知（活动） ----------
@@ -393,7 +406,13 @@ export default function MusicLibrary() {
         // ---------- 专辑详情页状态 ----------
   const [detailAlbumId, setDetailAlbumId] = useState(null);
   const [detailVideoId, setDetailVideoId] = useState(null);
+  const [editVideoOnOpenId, setEditVideoOnOpenId] = useState(null);
+  const [deleteVideoConfirm, setDeleteVideoConfirm] = useState(null);
   const [videos, setVideos] = useState([]);
+  const [relatedVideoScope, setRelatedVideoScope] = useState(null);
+  const [showWebVideoDialog, setShowWebVideoDialog] = useState(false);
+  const [webVideoUrl, setWebVideoUrl] = useState("");
+  const [webVideoSubmitting, setWebVideoSubmitting] = useState(false);
   // 多层返回栈：记录每次进入详情页前的来源，返回时逐层恢复
   const [navStack, setNavStack] = useState([]);
 
@@ -1558,8 +1577,8 @@ export default function MusicLibrary() {
   function pushNavOrigin() {
     setNavStack((prev) => {
       const frame = {
-        kind: detailAlbumId ? "album" : detailPlaylistId ? "playlist" : detailArtistName ? "artist" : "nav",
-        id: detailAlbumId || detailPlaylistId || null,
+        kind: detailVideoId ? "video" : detailAlbumId ? "album" : detailPlaylistId ? "playlist" : detailArtistName ? "artist" : "nav",
+        id: detailVideoId || detailAlbumId || detailPlaylistId || null,
         name: detailArtistName || null,
         activeNav,
         filterText,
@@ -1572,7 +1591,14 @@ export default function MusicLibrary() {
     if (navStack.length === 0) return false;
     const frame = navStack[navStack.length - 1];
     setNavStack((prev) => prev.slice(0, -1));
-    if (frame.kind === "album") {
+    setDetailVideoId(null);
+    if (frame.kind === "video") {
+      setDetailVideoId(frame.id);
+      setDetailAlbumId(null);
+      setDetailPlaylistId(null);
+      setDetailArtistName(null);
+      setActiveNav(frame.activeNav || "videos");
+    } else if (frame.kind === "album") {
       setDetailAlbumId(frame.id);
       setDetailPlaylistId(null);
       setDetailArtistName(null);
@@ -1613,6 +1639,24 @@ export default function MusicLibrary() {
     if (pl) runFileCheck((pl.songs || []).map((s) => s.file_path));
   }
 
+  function handleOpenVideoDetail(videoId) {
+    setEditVideoOnOpenId(null);
+    pushNavOrigin();
+    setDetailVideoId(videoId);
+  }
+
+  function handleOpenVideoEditor(videoId) {
+    pushNavOrigin();
+    setEditVideoOnOpenId(videoId);
+    setDetailVideoId(videoId);
+  }
+
+  function handleCloseVideoDetail() {
+    setEditVideoOnOpenId(null);
+    setDetailVideoId(null);
+    popNavBack();
+  }
+
   function handleDataJobStarted({ kind, jobId }) {
     const notificationId = addNotification({ kind: "progress_data", title: kind === "export" ? "正在导出数据" : "正在导入数据", ongoing: true, progress: { done: 0, total: 0 }, content: "正在准备…", action: { jobId, kind } });
     const poll = async () => {
@@ -1640,6 +1684,7 @@ export default function MusicLibrary() {
                 if (importedSettings[key] !== undefined && importedSettings[key] !== null) localStorage.setItem(key, String(importedSettings[key]));
               });
               setHideEmptyArtists(localStorage.getItem("artist-hide-empty") !== "false");
+              setVolume(normalizeStoredVolume(importedSettings["player-volume"]));
             }
           }
           return;
@@ -1841,6 +1886,8 @@ export default function MusicLibrary() {
                     // ---------- 导航切换 ----------
   function handleNavChange(val) {
     const metadataNavs = ["composer", "lyricist", "genres", "videos"];
+    setDetailVideoId(null);
+    setRelatedVideoScope(null);
     if (metadataNavs.includes(val) && val !== activeNav) {
       setMetadataRoute({ type: val, selected: null, view: "list" });
     } else if (!metadataNavs.includes(val)) {
@@ -1865,6 +1912,7 @@ export default function MusicLibrary() {
     setActiveNav(val);
     // 切换导航时重置懒加载计数（避免旧视图的可见条数影响新视图）
     setVisibleCount(40);
+    if (val === "songs") setSongVisibleCount(30);
     // 进入主视图（资料库/专辑/歌曲/播放列表）时按需全量检测缺失文件
     if (["library", "albums", "songs", "playlists"].includes(val)) {
       runFileCheck(allLibraryPaths());
@@ -2497,31 +2545,62 @@ export default function MusicLibrary() {
       if (files.length) showToast(`已导入 ${files.length} 个视频`, "success");
     }
 
-    async function handleAddWebVideo() {
-      const url = window.prompt("请输入哔哩哔哩或 YouTube 视频网址");
-      if (!url?.trim()) return;
-      try { await addWebVideo(url.trim()); await refreshVideos(); showToast("视频网站视频已添加", "success"); }
+    function handleAddWebVideo() {
+      setWebVideoUrl("");
+      setShowWebVideoDialog(true);
+    }
+
+    async function handleSubmitWebVideo() {
+      const url = webVideoUrl.trim();
+      if (!url) return;
+      setWebVideoSubmitting(true);
+      try {
+        const video = await addWebVideo(url);
+        await refreshVideos();
+        setShowWebVideoDialog(false);
+        showToast(video.metadata_complete === false ? "视频已添加，但未能获取完整视频信息，可在编辑页补全" : "视频网站视频已添加", video.metadata_complete === false ? "warning" : "success");
+      }
       catch { showToast("无法添加该视频网站视频，请检查链接", "warning"); }
+      finally { setWebVideoSubmitting(false); }
     }
 
     async function handleSaveVideo(id, payload, coverFile) {
-      await updateVideo(id, payload);
-      if (coverFile) await updateVideoCover(id, coverFile);
-      await refreshVideos();
-      showToast("视频信息已保存", "success");
+      try {
+        let saved = await updateVideo(id, payload);
+        if (coverFile) saved = await updateVideoCover(id, coverFile);
+        setVideos((prev) => prev.map((video) => video.id === id ? { ...saved, file_url: getAssetUrl(saved.file_url), cover_url: getAssetUrl(saved.cover_url) } : video));
+        await refreshVideos();
+        showToast("视频信息已保存", "success");
+      } catch (err) {
+        showToast(err?.message || "视频信息保存失败", "warning");
+        throw err;
+      }
     }
 
     async function handleUpdateSongVideoLinks(song, selectedIds) {
-      const songKey = song?.file_path || song?.hash;
+      const songKey = primarySongRef(song);
       if (!songKey) return;
-      await Promise.all((videos || []).map((video) => {
-        const current = video.song_ids || [];
-        const shouldLink = selectedIds.includes(video.id);
-        const hasLink = current.includes(songKey);
-        if (shouldLink === hasLink) return null;
-        return updateVideo(video.id, { song_ids: shouldLink ? [...current, songKey] : current.filter((id) => id !== songKey) });
-      }));
-      await refreshVideos();
+      try {
+        await Promise.all((videos || []).map((video) => {
+          const current = video.song_ids || [];
+          const shouldLink = selectedIds.includes(video.id);
+          const hasLink = videoMatchesSong(video, song);
+          if (shouldLink === hasLink) return null;
+          if (shouldLink) {
+            const payload = { song_ids: [...current, songKey] };
+            if (current.length === 0) {
+              if (song?.title) payload.title = song.title;
+              if (song?.artist) payload.artist = song.artist;
+            }
+            return updateVideo(video.id, payload);
+          }
+          return updateVideo(video.id, { song_ids: current.filter((ref) => !refMatchesSong(ref, song)) });
+        }));
+        await refreshVideos();
+      } catch (err) {
+        showToast(err?.message || "视频关联保存失败", "warning");
+        throw err;
+      }
     }
 
     async function handleUploadVideoFromEditor(file) {
@@ -2529,9 +2608,23 @@ export default function MusicLibrary() {
       await refreshVideos();
     }
 
-    async function handleDeleteVideo(id) {
-      if (!window.confirm("确定删除此视频吗？")) return;
-      await deleteVideo(id); setDetailVideoId(null); await refreshVideos(); showToast("视频已删除", "success");
+    function handleDeleteVideo(id) {
+      setDeleteVideoConfirm(videos.find((video) => video.id === id) || { id, title: "该视频" });
+    }
+
+    async function handleConfirmDeleteVideo() {
+      const target = deleteVideoConfirm;
+      if (!target?.id) return;
+      try {
+        await deleteVideo(target.id);
+        if (detailVideoId === target.id) setDetailVideoId(null);
+        setEditVideoOnOpenId(null);
+        setDeleteVideoConfirm(null);
+        await refreshVideos();
+        showToast("视频已删除", "success");
+      } catch (err) {
+        showToast(err?.message || "视频删除失败", "warning");
+      }
     }
 
     useEffect(() => {
@@ -2877,6 +2970,26 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                 return changed ? { ...pl, songs } : pl;
               })
             );
+
+            const replacements = new Map(Array.from(movedByPath.entries()).map(([oldPath, newSong]) => [normalizeSongRef(oldPath), primarySongRef(newSong)]));
+            const videoUpdates = (videos || []).map((video) => {
+              let changed = false;
+              const nextIds = (video.song_ids || []).map((ref) => {
+                const replacement = replacements.get(normalizeSongRef(ref));
+                if (!replacement) return ref;
+                changed = true;
+                return replacement;
+              });
+              return changed ? updateVideo(video.id, { song_ids: Array.from(new Set(nextIds)) }) : null;
+            }).filter(Boolean);
+            if (videoUpdates.length > 0) {
+              try {
+                await Promise.all(videoUpdates);
+                await refreshVideos();
+              } catch (err) {
+                showToast(err?.message || "音乐路径已更新，但视频关联同步失败", "warning");
+              }
+            }
           }
 
           // ---- 导航策略 ----
@@ -3049,13 +3162,25 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
           video: localStorage.getItem("library-category-video") === "true",
         });
         setHideEmptyArtists(localStorage.getItem("artist-hide-empty") !== "false");
+        setVolume(normalizeStoredVolume(remote["player-volume"], normalizeStoredVolume(localStorage.getItem("player-volume"))));
       } else {
         const legacy = collectAppSettings();
         if (Object.keys(legacy).length > 0) saveAppSettings(legacy).catch(() => {});
       }
-    }).catch(() => {});
+      volumeSettingsHydratedRef.current = true;
+    }).catch(() => { volumeSettingsHydratedRef.current = true; });
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    if (!volumeSettingsHydratedRef.current) return undefined;
+    const normalized = normalizeStoredVolume(volume);
+    localStorage.setItem("player-volume", String(normalized));
+    const timer = window.setTimeout(() => {
+      saveAppSettings({ "player-volume": String(normalized) }).catch(() => {});
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [volume]);
 
   // ---------- 启动时加载已导入的音乐（本地索引优先，后端用于校验缺失） ----------
   useEffect(() => {
@@ -3286,6 +3411,31 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
     const [albumFilters, setAlbumFilters] = useState(new Set(["recent_add"]));
     const [albumTimeDir, setAlbumTimeDir] = useState("desc");
 
+    // 哨兵会随异步数据和批次重新挂载，因此依赖当前数据与可见数量重新绑定。
+    useEffect(() => {
+      if (activeNav !== "songs") return undefined;
+      const container = mainAreaRef.current;
+      const sentinel = songSentinelRef.current;
+      if (!container || !sentinel) return undefined;
+
+      const observer = new IntersectionObserver((entries) => {
+        if (!entries.some((entry) => entry.isIntersecting) || songLoadPendingRef.current) return;
+        songLoadPendingRef.current = true;
+        setIsLoadingMoreSongs(true);
+        startTransition(() => setSongVisibleCount((count) => count + 30));
+        window.setTimeout(() => {
+          songLoadPendingRef.current = false;
+          setIsLoadingMoreSongs(false);
+        }, 120);
+      }, {
+        root: container,
+        rootMargin: "0px 0px 500px 0px",
+      });
+
+      observer.observe(sentinel);
+      return () => observer.disconnect();
+    }, [activeNav, albums, songVisibleCount, songFilters, songTimeDir]);
+
         // ---------- 歌曲多选状态 ----------
         const [selectedSongs, setSelectedSongs] = useState(new Set()); // 存储选中的歌曲key（"albumId-index"）
         const [isSelecting, setIsSelecting] = useState(false); // 是否处于多选模式
@@ -3431,12 +3581,34 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                                 {detailVideoId ? (
                   <VideoDetail
                     video={videos.find((item) => item.id === detailVideoId)}
+                    initialEditing={editVideoOnOpenId === detailVideoId}
                     songs={albums.flatMap((album) => album.songs || [])}
+                    albums={albums}
                     playlists={playlists}
-                    onBack={() => setDetailVideoId(null)}
+                    onBack={relatedVideoScope ? () => setDetailVideoId(null) : handleCloseVideoDetail}
                     onSave={handleSaveVideo}
                     onDelete={handleDeleteVideo}
                     onOpenLocal={openVideoFile}
+                    onOpenAlbum={(albumId) => {
+                      setDetailVideoId(null);
+                      setRelatedVideoScope(null);
+                      handleOpenAlbumDetail(albumId);
+                    }}
+                    onOpenPlaylist={(playlistId) => {
+                      setDetailVideoId(null);
+                      setRelatedVideoScope(null);
+                      handleOpenPlaylistDetail(playlistId);
+                    }}
+                  />
+                ) : relatedVideoScope ? (
+                  <VideoLibrary
+                    videos={videos.filter((video) => relatedVideoScope.videoIds.includes(video.id))}
+                    albums={albums}
+                    title={relatedVideoScope.title}
+                    onOpen={(id) => { setEditVideoOnOpenId(null); setDetailVideoId(id); }}
+                    onEdit={(id) => { setEditVideoOnOpenId(id); setDetailVideoId(id); }}
+                    onDelete={handleDeleteVideo}
+                    onBack={() => setRelatedVideoScope(null)}
                   />
                 ) : detailAlbumId ? (
                   /* ----- 专辑详情页（从专辑网格点进去） ----- */
@@ -3484,8 +3656,8 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                       onDeleteSong={handleDeleteSongFromDetail}
                       artistRecords={artistRecords}
                       videos={videos}
-                      onOpenVideo={(id) => setDetailVideoId(id)}
-                      onMoreVideos={() => { setDetailAlbumId(null); setActiveNav("videos"); }}
+                      onOpenVideo={handleOpenVideoDetail}
+                      onMoreVideos={(videoIds) => setRelatedVideoScope({ title: `${albums.find((item) => item.id === detailAlbumId)?.title || "专辑"} · 关联视频`, videoIds })}
                      />
                      </DetailErrorBoundary>
                    </div>
@@ -3529,8 +3701,9 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                       onDeleteSong={(song) => setDeleteSongConfirm({ ...song, albumId: song.albumId })}
                       onEditInfo={handleOpenMusicEdit}
                       videos={videos}
-                      onOpenVideo={(id) => setDetailVideoId(id)}
-                      onMoreVideos={() => { setDetailPlaylistId(null); setActiveNav("videos"); }}
+                      librarySongs={albums.flatMap((album) => album.songs || [])}
+                      onOpenVideo={handleOpenVideoDetail}
+                      onMoreVideos={(videoIds) => setRelatedVideoScope({ title: `${playlists.find((item) => item.id === detailPlaylistId)?.name || "播放列表"} · 关联视频`, videoIds })}
                     />
                   </div>
                 ) : activeNav === "search" ? (
@@ -3564,7 +3737,7 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                     />
                   </main>
                 ) : activeNav === "videos" ? (
-                  <VideoLibrary videos={videos} albums={albums} onOpen={(id) => setDetailVideoId(id)} />
+                  <VideoLibrary videos={videos} albums={albums} onOpen={handleOpenVideoDetail} onEdit={handleOpenVideoEditor} onDelete={handleDeleteVideo} />
                 ) : ["composer", "lyricist", "genres"].includes(activeNav) ? (
                   <MetadataBrowser
                     type={activeNav === "genres" ? "genre" : activeNav}
@@ -3925,6 +4098,9 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                                                 ...(isActive ? styles.sortBtnActive : {}),
                                               }}
                                               onClick={() => {
+                                                setSongVisibleCount(30);
+                                                setIsLoadingMoreSongs(false);
+                                                songLoadPendingRef.current = false;
                                                 if (isTime) {
                                                   if (isActive) {
                                                     setSongTimeDir((d) => (d === "desc" ? "asc" : "desc"));
@@ -3954,7 +4130,12 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                                         {songFilters.size > 1 && (
                                           <button
                                             style={styles.cancelFilterBtn}
-                                            onClick={() => setSongFilters(new Set(["recent_add"]))}
+                                            onClick={() => {
+                                              setSongVisibleCount(30);
+                                              setIsLoadingMoreSongs(false);
+                                              songLoadPendingRef.current = false;
+                                              setSongFilters(new Set(["recent_add"]));
+                                            }}
                                           >
                                             取消
                                           </button>
@@ -4012,7 +4193,7 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                             <div style={styles.songColMenu}></div>
                           </div>
                                                     {/* 歌曲行 */}
-                           {sortedSongs.slice(0, visibleCount).map((song, idx) => {
+                           {sortedSongs.slice(0, songVisibleCount).map((song, idx) => {
                             const isActive = !!currentSong && (
                               (song.file_path && currentSong.file_path === song.file_path)
                               || (!song.file_path && song.url && currentSong.url === song.url)
@@ -4135,7 +4316,11 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                             );
                           })}
                         </div>
-                        <div ref={sentinelRef} style={{ height: 1 }} />
+                        {sortedSongs.length > songVisibleCount && (
+                          <div ref={songSentinelRef} className="song-lazy-sentinel" aria-live="polite">
+                            {isLoadingMoreSongs ? "正在加载…" : ""}
+                          </div>
+                        )}
                         </>);
                     })()}
 
@@ -5061,6 +5246,32 @@ onArtistVisibilityChange={(value) => {
             <div style={styles.confirmActions}>
               <button style={styles.confirmDeleteBtn} onClick={() => reimportInputRef.current?.click()}>查找</button>
               <button style={styles.confirmCancelBtn} onClick={() => setMissingDialogSong(null)}>确定</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showWebVideoDialog && (
+        <div style={styles.overlay} onClick={() => !webVideoSubmitting && setShowWebVideoDialog(false)}>
+          <div className="web-video-dialog" onClick={(e) => e.stopPropagation()}>
+            <button className="web-video-dialog-close" type="button" onClick={() => setShowWebVideoDialog(false)} disabled={webVideoSubmitting}><FaTimes /></button>
+            <h3>关联视频网站视频</h3>
+            <p>支持哔哩哔哩和 YouTube 视频链接</p>
+            <label>视频网址<input autoFocus type="url" value={webVideoUrl} placeholder="粘贴视频链接" onChange={(e) => setWebVideoUrl(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") handleSubmitWebVideo(); }} /></label>
+            <div className="web-video-dialog-actions"><button type="button" onClick={() => setShowWebVideoDialog(false)} disabled={webVideoSubmitting}>取消</button><button type="button" className="save" onClick={handleSubmitWebVideo} disabled={!webVideoUrl.trim() || webVideoSubmitting}>{webVideoSubmitting ? "正在添加…" : "添加"}</button></div>
+          </div>
+        </div>
+      )}
+
+      {deleteVideoConfirm && (
+        <div style={styles.overlay} onClick={() => setDeleteVideoConfirm(null)}>
+          <div style={styles.confirmDialog} onClick={(event) => event.stopPropagation()}>
+            <h3 style={styles.confirmTitle}>确认删除</h3>
+            <div style={styles.confirmDivider} />
+            <p style={styles.confirmText}>确定要删除视频「{deleteVideoConfirm.title || "未命名视频"}」吗？此操作不可撤销。</p>
+            <div style={styles.confirmActions}>
+              <button style={styles.confirmDeleteBtn} onClick={handleConfirmDeleteVideo}>确认删除</button>
+              <button style={styles.confirmCancelBtn} onClick={() => setDeleteVideoConfirm(null)}>取消</button>
             </div>
           </div>
         </div>

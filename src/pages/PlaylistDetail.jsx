@@ -34,6 +34,7 @@ export default function PlaylistDetail({
   missingSongs,
   onMissingSongClick,
   videos = [],
+  librarySongs = [],
   onOpenVideo,
   onMoreVideos,
 }) {
@@ -169,7 +170,6 @@ export default function PlaylistDetail({
           <p style={styles.playlistMeta}>
             {songs.length > 0 ? `${songs.length} 首歌曲` : "暂无歌曲"}
           </p>
-          <RelatedVideos videos={videos} songIds={songs.map((song) => song.file_path || song.hash)} onOpen={onOpenVideo} onMore={onMoreVideos} />
           <div style={styles.actionRow}>
             <button
               style={{
@@ -432,6 +432,7 @@ export default function PlaylistDetail({
           <div style={styles.songListFooter}>
             <div style={styles.dividerLine} />
             <span style={styles.songCount}>{songs.length} 首</span>
+            {playlist.id !== "liked" && playlist.id !== "recent" && <RelatedVideos videos={videos} songs={songs} librarySongs={librarySongs} onOpen={onOpenVideo} onMore={onMoreVideos} />}
           </div>
           </div>
         )}

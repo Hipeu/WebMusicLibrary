@@ -1,5 +1,6 @@
 """视频资料库：本地文件与哔哩哔哩 / YouTube 链接的持久化管理。"""
 import json
+import html as html_module
 import os
 import re
 import shutil
@@ -67,6 +68,12 @@ def _public(item):
     return result
 
 
+def _read_remote_json(url):
+    request = Request(url, headers={"User-Agent": "Mozilla/5.0 WebMusicPlayer/1.0", "Referer": "https://www.bilibili.com/"})
+    with urlopen(request, timeout=8) as response:
+        return json.loads(response.read(1_500_000).decode("utf-8", errors="ignore"))
+
+
 def _extract_meta(url):
     host = (urlparse(url).hostname or "").lower()
     if "bilibili.com" in host or "b23.tv" in host:
@@ -76,20 +83,39 @@ def _extract_meta(url):
     else:
         raise HTTPException(status_code=400, detail="当前仅支持哔哩哔哩和 YouTube 视频链接")
     title, author, cover = "", "", ""
+    # 哔哩哔哩的公开视频接口比页面 HTML 稳定，并直接提供标题、UP 主及封面。
+    if source == "bilibili":
+        matched = re.search(r"(?:BV|bv)([0-9A-Za-z]+)", url)
+        if matched:
+            try:
+                payload = _read_remote_json(f"https://api.bilibili.com/x/web-interface/view?bvid=BV{matched.group(1)}")
+                data = payload.get("data") or {}
+                if payload.get("code") == 0:
+                    title = str(data.get("title") or "").strip()
+                    author = str((data.get("owner") or {}).get("name") or "").strip()
+                    cover = str(data.get("pic") or "").strip()
+            except Exception:
+                pass
+    if title and author and cover:
+        return source, title, author, cover, True
     try:
         request = Request(url, headers={"User-Agent": "Mozilla/5.0 WebMusicPlayer/1.0"})
         with urlopen(request, timeout=8) as response:
             html = response.read(1_500_000).decode("utf-8", errors="ignore")
         def meta(name):
-            pattern = rf'<meta[^>]+(?:property|name)=["\']{re.escape(name)}["\'][^>]+content=["\']([^"\']+)'
-            found = re.search(pattern, html, re.I)
-            return found.group(1).strip() if found else ""
-        title = meta("og:title") or meta("twitter:title")
-        author = meta("author") or meta("og:site_name")
-        cover = meta("og:image") or meta("twitter:image")
+            name_pattern = rf'(?:property|name)=["\']{re.escape(name)}["\']'
+            content_pattern = r'content=["\']([^"\']+)'
+            found = re.search(rf'<meta(?=[^>]*{name_pattern})(?=[^>]*{content_pattern})[^>]*>', html, re.I)
+            if not found:
+                return ""
+            content = re.search(content_pattern, found.group(0), re.I)
+            return html_module.unescape(content.group(1).strip()) if content else ""
+        title = title or meta("og:title") or meta("twitter:title")
+        author = author or meta("author") or meta("og:site_name")
+        cover = cover or meta("og:image") or meta("twitter:image")
     except Exception:
         pass
-    return source, title, author, cover
+    return source, title, author, cover, bool(title and author and cover)
 
 
 def _cache_remote_cover(url, video_id):
@@ -138,7 +164,7 @@ async def upload_video(file: UploadFile = File(...)):
 
 @router.post("/web")
 async def add_web_video(url: str = Form(...)):
-    source, title, artist, cover = _extract_meta(url.strip())
+    source, title, artist, cover, metadata_complete = _extract_meta(url.strip())
     video_id = uuid.uuid4().hex
     _ensure_dirs()
     cached_cover = _cache_remote_cover(cover, video_id)
@@ -149,7 +175,9 @@ async def add_web_video(url: str = Form(...)):
         "song_ids": [], "import_time": int(time.time() * 1000),
     }
     items = _load(); items.append(item); _save(items)
-    return _public(item)
+    result = _public(item)
+    result["metadata_complete"] = metadata_complete
+    return result
 
 
 @router.put("/{video_id}")
