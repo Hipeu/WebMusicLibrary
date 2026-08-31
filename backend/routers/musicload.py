@@ -7,7 +7,7 @@ import subprocess
 import sys
 import logging
 import time
-from fastapi import APIRouter, UploadFile, File, Form, Body
+from fastapi import APIRouter, UploadFile, File, Form, Body, HTTPException
 from pydantic import BaseModel
 from services.metadata_service import parse_metadata
 from services.library_config import get_library_path
@@ -64,6 +64,7 @@ DATA_DIR = os.path.join(PROJECT_ROOT, "data")
 PICTURE_DIR = os.path.join(DATA_DIR, "picture")
 LYRICS_DIR = os.path.join(DATA_DIR, "Lyrics")
 METADATA_DIR = os.path.join(DATA_DIR, "metadata")
+VIDEO_MANIFEST_PATH = os.path.join(DATA_DIR, "videos", "videos.json")
 
 
 def ensure_data_dirs():
@@ -119,7 +120,7 @@ def backup_song_artifacts(artist, album, filename_base, source_dir):
         pass
 
 
-def remove_backup_artifacts(artist, album, filename_base):
+def remove_backup_artifacts(artist, album, filename_base, remove_cover=True):
     """从 data 备份目录删除对应文件，并清理空目录"""
     for base_dir in (PICTURE_DIR, LYRICS_DIR, METADATA_DIR):
         dest = os.path.join(base_dir, artist, album)
@@ -132,15 +133,16 @@ def remove_backup_artifacts(artist, album, filename_base):
                     os.remove(f)
                 except Exception:
                     pass
-        # 删除该目录下的封面
-        for f in os.listdir(dest):
-            if f.startswith("cover"):
-                try:
-                    os.remove(os.path.join(dest, f))
-                except Exception:
-                    pass
+        # 封面属于专辑；同专辑仍有歌曲时保留，避免删除一首影响其他歌曲。
+        if remove_cover:
+            for f in os.listdir(dest):
+                if f.startswith("cover"):
+                    try:
+                        os.remove(os.path.join(dest, f))
+                    except Exception:
+                        pass
         song_jsons = [f for f in os.listdir(dest) if f.endswith(".json") and f != "album.json"]
-        if not song_jsons:
+        if remove_cover and not song_jsons:
             album_meta = os.path.join(dest, "album.json")
             if os.path.exists(album_meta):
                 try:
@@ -159,6 +161,158 @@ def remove_backup_artifacts(artist, album, filename_base):
                 os.rmdir(artist_dest)
             except Exception:
                 pass
+
+
+def _is_within(path, root):
+    """确认规范化后的 path 位于 root 内，避免清理接口被路径穿越利用。"""
+    normalized_path = os.path.normcase(os.path.normpath(path))
+    normalized_root = os.path.normcase(os.path.normpath(root))
+    return normalized_path != normalized_root and normalized_path.startswith(normalized_root + os.sep)
+
+
+def _remove_data_file(relative_path):
+    """删除 data 目录内由清单记录的单个关联文件。"""
+    if not relative_path:
+        return
+    full_path = os.path.normpath(os.path.join(DATA_DIR, relative_path))
+    if not _is_within(full_path, DATA_DIR):
+        return
+    try:
+        if os.path.isfile(full_path):
+            os.remove(full_path)
+    except OSError:
+        pass
+
+
+def _prune_empty_dirs(path, root):
+    """仅在指定 data 子树内自底向上清理空目录。"""
+    root = os.path.normpath(root)
+    path = os.path.normpath(path)
+    while _is_within(path, root) and os.path.isdir(path):
+        try:
+            os.rmdir(path)
+        except OSError:
+            break
+        path = os.path.dirname(path)
+
+
+def _remove_song_video_links(file_path):
+    """保留视频本身，只移除指向被删歌曲精确路径的关联。"""
+    if not os.path.isfile(VIDEO_MANIFEST_PATH):
+        return
+    try:
+        with open(VIDEO_MANIFEST_PATH, "r", encoding="utf-8") as source:
+            videos = json.load(source)
+        if not isinstance(videos, list):
+            return
+        normalized_path = file_path.replace("\\", "/")
+        changed = False
+        for video in videos:
+            song_ids = video.get("song_ids") or []
+            next_ids = [song_id for song_id in song_ids if str(song_id).replace("\\", "/") != normalized_path]
+            if len(next_ids) != len(song_ids):
+                video["song_ids"] = next_ids
+                changed = True
+        if changed:
+            with open(VIDEO_MANIFEST_PATH, "w", encoding="utf-8") as target:
+                json.dump(videos, target, ensure_ascii=False, indent=2)
+    except (OSError, json.JSONDecodeError):
+        logger.warning("清理视频关联失败：%s", file_path, exc_info=True)
+
+
+def _entry_storage_location(entry):
+    """返回歌曲实际存储所用的艺人、专辑目录名。"""
+    return (
+        sanitize_name(entry.get("artist")) or "Various Artists",
+        sanitize_name(entry.get("album")) or "Unknown Album",
+    )
+
+
+def _remove_song_entry(file_path, entry, manifest, to_trash):
+    """清理一个清单条目及其所有歌曲级关联文件；成功时从 manifest 移除。"""
+    library = os.path.normpath(get_library_path())
+    audio_path = os.path.normpath(os.path.join(library, file_path))
+    if not _is_within(audio_path, library):
+        return False, "无效路径"
+
+    # 回收站模式先移动音频，失败时整首歌曲保持不动。
+    if to_trash and os.path.isfile(audio_path) and not _send_to_trash(audio_path):
+        return False, "移入 trash 文件夹失败（文件可能被占用），已保留文件"
+
+    if os.path.isfile(audio_path):
+        _remove_file(audio_path, to_trash)
+    base_no_ext = os.path.splitext(audio_path)[0]
+    for ext in (".json", ".lrc"):
+        _remove_file(base_no_ext + ext, to_trash)
+
+    artist, album = _entry_storage_location(entry)
+    title_base = os.path.splitext(os.path.basename(file_path))[0]
+    has_other_album_tracks = any(
+        key != file_path and _entry_storage_location(item) == (artist, album)
+        for key, item in manifest.items()
+    )
+
+    # 清单内路径优先，兼容旧记录缺少路径时再按文件名清理。
+    _remove_data_file(entry.get("metadata_path"))
+    _remove_data_file(entry.get("lyrics_path"))
+    remove_backup_artifacts(artist, album, title_base, remove_cover=not has_other_album_tracks)
+    for relative_path in (entry.get("metadata_path"), entry.get("lyrics_path"), entry.get("cover_path")):
+        if relative_path:
+            _prune_empty_dirs(os.path.dirname(os.path.join(DATA_DIR, relative_path)), DATA_DIR)
+
+    album_dir = os.path.join(library, artist, album)
+    if os.path.isdir(album_dir):
+        files = os.listdir(album_dir)
+        if files and all(name.startswith("cover") for name in files):
+            for name in files:
+                _remove_file(os.path.join(album_dir, name), to_trash)
+        _prune_empty_dirs(album_dir, library)
+
+    manifest.pop(file_path, None)
+    _remove_song_video_links(file_path)
+    return True, None
+
+
+def _remove_album_data_dir(base_dir, artist, album):
+    """删除一个用户明确指定专辑的数据目录，不触及其他专辑。"""
+    target = os.path.normpath(os.path.join(base_dir, artist, album))
+    if not _is_within(target, base_dir) or not os.path.isdir(target):
+        return
+    try:
+        shutil.rmtree(target)
+    except OSError:
+        logger.warning("清理专辑残留目录失败：%s", target, exc_info=True)
+        return
+    _prune_empty_dirs(os.path.dirname(target), base_dir)
+
+
+def _metadata_dirs_for_album(artist, album):
+    """解析歌曲 metadata，找出以目标专辑艺人展示的残留实际目录。"""
+    matches = {(artist, album)}
+    if not os.path.isdir(METADATA_DIR):
+        return matches
+    for artist_dir in os.listdir(METADATA_DIR):
+        artist_path = os.path.join(METADATA_DIR, artist_dir)
+        if not os.path.isdir(artist_path):
+            continue
+        for album_dir in os.listdir(artist_path):
+            album_path = os.path.join(artist_path, album_dir)
+            if not os.path.isdir(album_path):
+                continue
+            for name in os.listdir(album_path):
+                if not name.endswith(".json") or name == "album.json":
+                    continue
+                try:
+                    with open(os.path.join(album_path, name), "r", encoding="utf-8") as source:
+                        metadata = json.load(source)
+                except (OSError, json.JSONDecodeError):
+                    continue
+                metadata_artist = sanitize_name(metadata.get("album_artist") or metadata.get("artist"))
+                metadata_album = sanitize_name(metadata.get("album"))
+                if metadata_artist == artist and metadata_album == album:
+                    matches.add((artist_dir, album_dir))
+                    break
+    return matches
 
 
 class CheckRequest(BaseModel):
@@ -222,6 +376,73 @@ def _file_sha256(path):
         return None
 
 
+@router.post("/restore")
+async def restore_missing_music(file_path: str = Form(...), file: UploadFile = File(...)):
+    """将用户找到的源文件恢复到既有缺失歌曲的原始路径，保留已匹配资料。"""
+    file_path = (file_path or "").replace("\\", "/").lstrip("/")
+    manifest = load_manifest()
+    entry = manifest.get(file_path)
+    if not entry:
+        raise HTTPException(status_code=404, detail="缺失歌曲记录不存在")
+
+    library = os.path.normpath(get_library_path())
+    destination = os.path.normpath(os.path.join(library, file_path))
+    if destination == library or not destination.startswith(library + os.sep):
+        raise HTTPException(status_code=400, detail="无效的歌曲路径")
+    if os.path.exists(destination):
+        raise HTTPException(status_code=409, detail="目标歌曲已存在，无法覆盖")
+
+    os.makedirs(os.path.dirname(destination), exist_ok=True)
+    temp_destination = f"{destination}.restore-{int(time.time() * 1000)}"
+    try:
+        with open(temp_destination, "wb") as output:
+            shutil.copyfileobj(file.file, output)
+        os.replace(temp_destination, destination)
+    except Exception:
+        try:
+            if os.path.exists(temp_destination):
+                os.remove(temp_destination)
+        except OSError:
+            pass
+        raise HTTPException(status_code=500, detail="恢复音乐文件失败")
+
+    modified_time = int(time.time() * 1000)
+    entry = {**entry, "file_path": file_path, "sha256": _file_sha256(destination), "modification_time": modified_time}
+    manifest[file_path] = entry
+    save_manifest(manifest)
+
+    metadata_path = entry.get("metadata_path")
+    if metadata_path:
+        metadata_file = os.path.join(DATA_DIR, metadata_path)
+        try:
+            with open(metadata_file, "r", encoding="utf-8") as source:
+                metadata = json.load(source)
+            metadata["modification_time"] = modified_time
+            with open(metadata_file, "w", encoding="utf-8") as output:
+                json.dump(metadata, output, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    cover_path = entry.get("cover_path")
+    lyrics_path = entry.get("lyrics_path")
+    return {
+        "status": "ok",
+        "song": {
+            "title": entry.get("title"), "artist": entry.get("artist"), "album": entry.get("album"),
+            "album_artist": entry.get("album_artist"), "genre": entry.get("genre"), "year": entry.get("year"),
+            "duration": entry.get("duration"), "trackNo": entry.get("trackNo"), "discNo": entry.get("discNo"),
+            "composer": entry.get("composer"), "lyricist": entry.get("lyricist"), "publisher": entry.get("publisher"),
+            "comment": entry.get("comment"), "bitrate": entry.get("bitrate"), "codec": entry.get("codec"),
+            "file_path": file_path, "file_url": f"/library/{file_path}",
+            "cover_url": f"/data/{cover_path}" if cover_path and os.path.exists(os.path.join(DATA_DIR, cover_path)) else None,
+            "lyrics_url": f"/data/{lyrics_path}" if lyrics_path and os.path.exists(os.path.join(DATA_DIR, lyrics_path)) else None,
+            "hash": entry.get("sha256"), "matched": bool(entry.get("matched")),
+            "match_source": entry.get("match_source"), "importTime": entry.get("import_time"),
+            "modification_time": modified_time,
+        },
+    }
+
+
 @router.post("/upload")
 async def upload_music(file: UploadFile = File(...), auto_organize: str = Form("0")):
     """上传音乐文件，按 Artist/Album 组织到 Music_Library。
@@ -249,11 +470,21 @@ async def upload_music(file: UploadFile = File(...), auto_organize: str = Form("
     album_dir = os.path.join(artist_dir, album)
     os.makedirs(album_dir, exist_ok=True)
 
-    # 移动音频文件
-    safe_title = sanitize_name(title) or "unknown"
+    # 同名或已缺失的清单记录必须保留独立路径，不能覆盖另一个版本。
+    manifest = load_manifest()
+    title_base = sanitize_name(title) or "unknown"
     ext = os.path.splitext(file.filename)[1]
-    final_filename = f"{safe_title}{ext}"
-    final_path = os.path.join(album_dir, final_filename)
+    suffix_index = 0
+    while True:
+        safe_title = title_base if suffix_index == 0 else f"{title_base} ({suffix_index})"
+        final_filename = f"{safe_title}{ext}"
+        final_path = os.path.join(album_dir, final_filename)
+        candidate_rel = final_path.replace(get_library_path(), "").replace("\\", "/").lstrip("/")
+        if not os.path.exists(final_path) and candidate_rel not in manifest:
+            break
+        suffix_index += 1
+
+    # 移动音频文件
     shutil.move(temp_path, final_path)
     # 记录文件哈希（用于导入时判断是否为同一首）
     file_hash = _file_sha256(final_path)
@@ -294,7 +525,6 @@ async def upload_music(file: UploadFile = File(...), auto_organize: str = Form("
     file_rel = final_path.replace(get_library_path(), "").replace("\\", "/").lstrip("/")
 
     # 记录到清单（即使文件被外部删除，清单仍保留记录）
-    manifest = load_manifest()
     manifest[file_rel] = {
         "title": title,
         "artist": artist,
@@ -525,89 +755,66 @@ def list_music():
 
 
 @router.delete("/delete")
-def delete_music(artist: str, album: str, title: str, to_trash: str = "0"):
-    """删除指定歌曲（含备份），并清理空的专辑 / 艺人目录。
+def delete_music(file_path: str, to_trash: str = "0"):
+    """按精确 file_path 删除指定歌曲及其关联资料。
     to_trash=1 时音乐文件移入项目 trash 文件夹而非永久删除。
     """
     to_trash = to_trash == "1"
-    if not artist or not album or not title:
-        return {"status": "error", "msg": "指定 artist/album/title"}
-
-    san_artist = sanitize_name(artist) or artist
-    san_album = sanitize_name(album) or album
-    album_dir = os.path.join(get_library_path(), san_artist, san_album)
-
-    # 从清单中找到对应 file_path，获取精确文件名
+    file_path = (file_path or "").replace("\\", "/").lstrip("/")
+    if not file_path:
+        return {"status": "error", "msg": "缺少 file_path"}
     manifest = load_manifest()
-    target_path = None
-    for key, entry in manifest.items():
-        if entry.get("title") == title:
-            target_path = key
-            break
-
-    safe_title = None
-    if target_path:
-        safe_title = os.path.splitext(os.path.basename(target_path))[0]
-    else:
-        safe_title = sanitize_name(title) or title
-
-    # 定位音频文件
-    audio_path = None
-    if target_path:
-        audio_path = os.path.join(get_library_path(), target_path)
-    elif os.path.exists(album_dir):
-        for f in os.listdir(album_dir):
-            base = os.path.splitext(f)[0]
-            if base == title or base == title.replace(" ", "_"):
-                audio_path = os.path.join(album_dir, f)
-                break
-
-    # 回收站模式：音频移入 trash 文件夹失败则中止删除（保留文件，避免永久删除）
-    if to_trash and audio_path and os.path.exists(audio_path) and not _send_to_trash(audio_path):
-        return {"status": "error", "msg": "移入 trash 文件夹失败（文件可能被占用），已保留文件"}
-
-    # 删除音频（回收站已移入或永久删除）+ 同目录伴随 .json/.lrc
-    if audio_path:
-        _remove_file(audio_path, to_trash)
-        base_no_ext = os.path.splitext(audio_path)[0]
-        for ext in (".json", ".lrc"):
-            _remove_file(base_no_ext + ext, to_trash)
-
-    # 删除 data 备份（封面 / 歌词 / 元信息）
-    remove_backup_artifacts(san_artist, san_album, safe_title)
-
-    # 若专辑目录只剩封面或已空，删除封面并清理空目录
-    if os.path.exists(album_dir):
-        files = os.listdir(album_dir)
-        if files and all(f.startswith("cover") for f in files):
-            for f in files:
-                try:
-                    os.remove(os.path.join(album_dir, f))
-                except Exception:
-                    pass
-        if os.path.exists(album_dir) and not os.listdir(album_dir):
-            try:
-                os.rmdir(album_dir)
-            except Exception:
-                pass
-        artist_dir = os.path.dirname(album_dir)
-        if os.path.exists(artist_dir) and not os.listdir(artist_dir):
-            try:
-                os.rmdir(artist_dir)
-            except Exception:
-                pass
-
-    # 从清单移除
-    removed = False
-    for key in list(manifest.keys()):
-        entry = manifest.get(key) or {}
-        if entry.get("title") == title:
-            del manifest[key]
-            removed = True
-    if removed:
-        save_manifest(manifest)
-
+    entry = manifest.get(file_path)
+    if not entry:
+        return {"status": "error", "msg": "歌曲不存在"}
+    removed, message = _remove_song_entry(file_path, entry, manifest, to_trash)
+    if not removed:
+        return {"status": "error", "msg": message or "删除失败"}
+    save_manifest(manifest)
     return {"status": "ok"}
+
+
+@router.delete("/album")
+def delete_album(artist: str, album: str, to_trash: str = "0"):
+    """删除指定专辑的歌曲和残留资料；空专辑卡片也可通过此接口清理。"""
+    artist = sanitize_name(artist)
+    album = sanitize_name(album)
+    if not artist or not album:
+        return {"status": "error", "msg": "缺少有效的专辑艺人或专辑名"}
+
+    to_trash = to_trash == "1"
+    manifest = load_manifest()
+    matching_paths = [
+        file_path for file_path, entry in manifest.items()
+        if (sanitize_name(entry.get("album_artist")) or sanitize_name(entry.get("artist")) or "Various Artists") == artist
+        and (sanitize_name(entry.get("album")) or "Unknown Album") == album
+    ]
+    data_locations = _metadata_dirs_for_album(artist, album)
+    data_locations.update(_entry_storage_location(manifest[file_path]) for file_path in matching_paths)
+    failures = []
+    for file_path in matching_paths:
+        entry = manifest.get(file_path)
+        if not entry:
+            continue
+        removed, message = _remove_song_entry(file_path, entry, manifest, to_trash)
+        if not removed:
+            failures.append(f"{file_path}: {message or '删除失败'}")
+    save_manifest(manifest)
+
+    # 即使没有清单歌曲，也按用户确认的专辑路径清除 metadata / 歌词 / 封面残留。
+    if not failures:
+        # 某些歌曲可能共享实际资料目录但归属到不同专辑艺人卡片；仍有清单歌曲时不清空共享目录。
+        removable_locations = {
+            location for location in data_locations
+            if not any(_entry_storage_location(entry) == location for entry in manifest.values())
+        }
+        for data_artist, data_album in removable_locations:
+            for base_dir in (PICTURE_DIR, LYRICS_DIR, METADATA_DIR):
+                _remove_album_data_dir(base_dir, data_artist, data_album)
+
+    if failures:
+        return {"status": "error", "msg": "；".join(failures)}
+    return {"status": "ok", "deleted": len(matching_paths)}
 
 
 @router.post("/check")

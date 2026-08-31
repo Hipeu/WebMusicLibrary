@@ -1,9 +1,9 @@
 import { startTransition, useState, useRef, useEffect, useCallback } from "react";
 import { FiPlus } from "react-icons/fi";
-import { FaEllipsisH, FaCompactDisc, FaUser, FaHeart, FaStepForward, FaClock, FaPlus, FaArrowUp, FaTrash, FaMusic, FaInfoCircle, FaCog, FaPlay, FaExclamationCircle, FaCheckCircle, FaTimes, FaBell, FaStar, FaVideo } from "react-icons/fa";
+import { FaEllipsisH, FaCompactDisc, FaUser, FaHeart, FaStepForward, FaClock, FaPlus, FaArrowUp, FaTrash, FaMusic, FaInfoCircle, FaCog, FaPlay, FaExclamationCircle, FaCheckCircle, FaTimes, FaBell, FaStar, FaVideo, FaObjectGroup } from "react-icons/fa";
 import { readMetadata } from "../utils/MetadataReader";
 import { splitArtists, joinArtists, albumBelongsToArtist, collectAllArtists, isPrimaryAlbum } from "../utils/artistSplit";
-import { uploadMusic, getMusicList, getAssetUrl, deleteMusic, checkMusicFiles, updateMusicMetadata, updateAlbumDescription, matchSong, getLyrics, getPlaylists, savePlaylists, resetAll, getResetProgress, openMusicFile, getArtists, saveArtist, deleteArtist, getMatchAllProgress, cancelMatchAll, getSettings, saveAppSettings, getDataJob, getDataExportDownloadUrl, cancelDataJob, startSmartJob, getSmartJob, cancelSmartJob, getSmartProviders, getVideos, uploadVideo, addWebVideo, updateVideo, updateVideoCover, deleteVideo, openVideoFile } from "../services/api";
+import { uploadMusic, restoreMissingMusic, getMusicList, getAssetUrl, deleteMusic, deleteAlbum, checkMusicFiles, updateMusicMetadata, updateAlbumDescription, matchSong, getLyrics, getPlaylists, savePlaylists, resetAll, getResetProgress, openMusicFile, getArtists, saveArtist, deleteArtist, getMatchAllProgress, cancelMatchAll, getSettings, saveAppSettings, getDataJob, getDataExportDownloadUrl, cancelDataJob, startSmartJob, getSmartJob, cancelSmartJob, getSmartProviders, getVideos, uploadVideo, addWebVideo, updateVideo, updateVideoCover, deleteVideo, openVideoFile } from "../services/api";
 import { saveSongToIndex, removeSongFromIndex, loadMusicIndex } from "../utils/musicIndex";
 import { normalizePlaylists, loadPlaylistCache, savePlaylistCache } from "../utils/playlistStore";
 import { isUnplayableCodec, songPlayable, isPlaceholderPublisher } from "../utils/formatCheck";
@@ -375,6 +375,7 @@ export default function MusicLibrary() {
   const dragExcludedRef = useRef(false); // 当前是否悬浮在排除区（侧栏/顶栏/底部播放条）
   const [importPending, setImportPending] = useState(null); // 不可播放格式导入确认 { entries, unplayable, unplayableSkippedList, duplicateSkippedList, skippedNonMusic }
   const [importConfirm, setImportConfirm] = useState(null); // 一致性确认 { item, context }
+  const [reimportMismatch, setReimportMismatch] = useState(null); // 查找恢复不一致 { file, meta, target, choice }
   const [importRememberChoice, setImportRememberChoice] = useState(false); // 确认弹窗「后续都默认此操作」复选
   const importUnplayableChoiceRef = useRef(null); // 会话级记忆："continue" | "cancel" | null（刷新失效）
   const [importSkipDetail, setImportSkipDetail] = useState(null); // 导入结果详情 { duplicate, unplayable }
@@ -1074,6 +1075,31 @@ export default function MusicLibrary() {
     return { ...mm, url: URL.createObjectURL(f) };
   }
 
+  // 将找到的源文件写回缺失歌曲的既有路径，并保留匹配后的资料与关联关系。
+  async function restoreMissingSong(file, target, signal) {
+    const result = await restoreMissingMusic(target.file_path, file, signal);
+    const restoredSong = buildIndexSong(target, result.song || {});
+    if (!restoredSong.coverURL) restoredSong.coverURL = target.coverURL || null;
+    saveSongToIndex(restoredSong);
+    setAlbums((prev) => prev.map((album) => {
+      const containsTarget = (album.songs || []).some((song) => song.file_path === target.file_path);
+      if (!containsTarget) return album;
+      return {
+        ...album,
+        coverURL: album.coverURL || restoredSong.coverURL || null,
+        year: album.year || restoredSong.year || null,
+        songs: album.songs.map((song) => song.file_path === target.file_path ? restoredSong : song),
+      };
+    }));
+    setMissingSongs((prev) => {
+      const next = new Set(prev);
+      next.delete(target.file_path);
+      return next;
+    });
+    await refreshFromServer({ replace: true });
+    return restoredSong;
+  }
+
   // 将条目按专辑分组并合并到 albums 状态
   function finishImport(entries) {
     const albumMap = new Map();
@@ -1127,11 +1153,12 @@ export default function MusicLibrary() {
 
   // 导入完成上报：合并进 albums，并将导入进度通知更新为「导入完成」
   function finishImportResult(entries, opts = {}) {
-    const { duplicate = [], unplayable = [], nonMusic = 0 } = opts;
+    const { duplicate = [], unplayable = [], nonMusic = 0, restored = 0 } = opts;
     finishImport(entries);
     const hasDup = duplicate.length > 0;
     const hasUnplayable = unplayable.length > 0;
     const parts = [];
+    if (restored > 0) parts.push(`已恢复 ${restored} 首歌曲`);
     if (hasDup && hasUnplayable) parts.push("重复歌曲和无法播放歌曲已经跳过");
     else if (hasDup) parts.push("重复音乐已跳过");
     else if (hasUnplayable) parts.push("无法播放歌曲已跳过");
@@ -1306,6 +1333,9 @@ export default function MusicLibrary() {
     const unplayableSkippedList = []; // 已跳过的不可播放文件（标题/艺人）
     const duplicateSkippedList = []; // 重复导入被跳过的文件（标题/艺人）
     const pendingFiles = []; // 需要一致性确认的文件 { file, meta, replace }
+    let restoredCount = 0;
+    let mismatchItem = null;
+    let reimportFailed = false;
     let done = 0;
     for (const f of musicFiles) {
       if (importCancelledRef.current) break;
@@ -1323,19 +1353,31 @@ export default function MusicLibrary() {
       const mAlbum = meta?.album || "";
       const metaKey = songDupKey(mTitle, mArtist, mAlbum);
 
+      // 查找缺失歌曲时，完全一致的来源直接写回原路径；不一致则由用户决定替换或新增。
+      if (reimportTarget) {
+        const targetKey = songDupKey(reimportTarget.title, reimportTarget.artist, reimportTarget.album);
+        if (metaKey === targetKey) {
+          try {
+            await restoreMissingSong(f, reimportTarget, abort.signal);
+            restoredCount++;
+          } catch (err) {
+            if (err && err.name === "AbortError") break;
+            reimportFailed = true;
+            finishReimportFailure(err?.message || "恢复缺失音乐失败");
+          }
+        } else {
+          mismatchItem = { file: f, meta, target: reimportTarget };
+        }
+        done++;
+        if (importNotifIdRef.current) updateNotification(importNotifIdRef.current, { progress: { done, total: musicFiles.length } });
+        if (mismatchItem) break;
+        continue;
+      }
+
       // 确定比对目标 / 一致性类型
       let target;
       let replaceType = null; // "replace"（内容不一致，覆盖）| "new"（不同歌曲，仅新增）
-      if (reimportTarget) {
-        // 查找重导入：目标为指定的缺失歌曲
-        if (metaKey === songDupKey(reimportTarget.title, reimportTarget.artist, reimportTarget.album)) {
-          target = reimportTarget;
-        } else {
-          replaceType = "new";
-        }
-      } else {
-        target = metaKey !== "||" ? existingByMeta.get(metaKey) : undefined;
-      }
+      target = metaKey !== "||" ? existingByMeta.get(metaKey) : undefined;
 
       if (target) {
         // 元信息匹配 → 一致性校验（哈希）
@@ -1392,6 +1434,17 @@ export default function MusicLibrary() {
       // 取消：保留已导入部分，丢弃未处理的队列
       abort.abort();
       finishImportResult(entries, { duplicate: duplicateSkippedList, unplayable: unplayableSkippedList, nonMusic: skippedNonMusic });
+      return;
+    }
+
+    if (mismatchItem) {
+      setReimportMismatch({ ...mismatchItem, choice: "merge" });
+      return;
+    }
+
+    if (reimportTarget) {
+      if (reimportFailed) return;
+      finishImportResult([], { duplicate: duplicateSkippedList, unplayable: unplayableSkippedList, nonMusic: skippedNonMusic, restored: restoredCount });
       return;
     }
 
@@ -1637,6 +1690,46 @@ export default function MusicLibrary() {
     // 进入播放列表详情：按需检测该播放列表歌曲是否缺失
     const pl = playlists.find((p) => p.id === playlistId);
     if (pl) runFileCheck((pl.songs || []).map((s) => s.file_path));
+  }
+
+  function finishReimportFailure(message) {
+    if (importNotifIdRef.current) {
+      updateNotification(importNotifIdRef.current, {
+        ongoing: false, progress: null, cover: null, popup: true,
+        kind: "warning", title: "导入失败", content: message,
+      });
+    } else {
+      showToast(message, "warning");
+    }
+  }
+
+  async function handleReimportMismatchConfirm() {
+    const choice = reimportMismatch;
+    if (!choice) return;
+    setReimportMismatch(null);
+    try {
+      if (choice.choice === "merge") {
+        await restoreMissingSong(choice.file, choice.target);
+        finishImportResult([], { restored: 1 });
+        return;
+      }
+      const skipUnplayable = localStorage.getItem("import-skip-unplayable") !== "false";
+      if (choice.meta && isUnplayableCodec(choice.meta.codec || choice.meta.container) && skipUnplayable) {
+        finishImportResult([], {
+          unplayable: [{ title: choice.meta.title || choice.file.name.replace(/\.[^/.]+$/, ""), artist: choice.meta.artist || "未知艺术家" }],
+        });
+        return;
+      }
+      if (choice.meta && isUnplayableCodec(choice.meta.codec || choice.meta.container)) {
+        setImportRememberChoice(false);
+        setImportPending({ entries: [], unplayable: [{ file: choice.file, meta: choice.meta }], unplayableSkippedList: [], duplicateSkippedList: [], skippedNonMusic: 0 });
+        return;
+      }
+      const entry = await buildEntryFromFile(choice.file, choice.meta);
+      finishImportResult(entry ? [entry] : []);
+    } catch (err) {
+      finishReimportFailure(err?.message || "恢复缺失音乐失败");
+    }
   }
 
   function handleOpenVideoDetail(videoId) {
@@ -2119,7 +2212,7 @@ export default function MusicLibrary() {
     deletedSongs.forEach((s) => {
       (async () => {
         try {
-          const res = await deleteMusic(s.artist, s.album, s.title, deleteToTrashEnabled());
+          const res = await deleteMusic(s.file_path, deleteToTrashEnabled());
           if (res?.status === "error") showToast(res.msg || "删除失败", "warning");
         } catch (err) {
           console.warn("后端删除失败:", err);
@@ -2171,7 +2264,7 @@ export default function MusicLibrary() {
     // 同步删除后端文件（尽力而为，失败不阻塞）
     (async () => {
       try {
-        const res = await deleteMusic(deleteSongConfirm.artist, deleteSongConfirm.album, deleteSongConfirm.title, deleteToTrashEnabled());
+        const res = await deleteMusic(deleteSongConfirm.file_path, deleteToTrashEnabled());
         if (res?.status === "error") showToast(res.msg || "删除失败", "warning");
       } catch (err) {
         console.warn("后端删除失败:", err);
@@ -2389,30 +2482,34 @@ export default function MusicLibrary() {
     });
   }
 
-  function handleConfirmDeleteAlbum() {
+  async function handleConfirmDeleteAlbum() {
     const albumId = deleteAlbumConfirm;
     if (!albumId) return;
 
     const album = albums.find((a) => a.id === albumId);
 
-    // 同步删除后端的专辑内所有歌曲（尽力而为）
+    // 后端统一删除整张专辑，空歌曲列表的残留卡片也能被清理。
     if (album) {
+      try {
+        const res = await deleteAlbum(album.artist, album.title, deleteToTrashEnabled());
+        if (res?.status === "error") {
+          showToast(res.msg || "删除失败", "warning");
+          return;
+        }
+      } catch (err) {
+        console.warn("后端删除专辑失败:", err);
+        showToast("删除专辑失败，请稍后重试", "warning");
+        return;
+      }
+
       const urls = new Set();
       const paths = new Set();
-      for (const s of album.songs) {
+      for (const s of album.songs || []) {
         if (s.file_path) {
           removeSongFromIndex(s.file_path);
           paths.add(s.file_path);
         }
         if (s.url) urls.add(s.url);
-        (async () => {
-          try {
-            const res = await deleteMusic(s.artist, s.album, s.title, deleteToTrashEnabled());
-            if (res?.status === "error") showToast(res.msg || "删除失败", "warning");
-          } catch (err) {
-            console.warn("后端删除失败:", err);
-          }
-        })();
       }
       // 从所有播放列表中移除该专辑的歌曲
       removeSongsFromPlaylists((s) => urls.has(s.url) || paths.has(s.file_path));
@@ -2431,6 +2528,7 @@ export default function MusicLibrary() {
     syncArtistsAfterDelete(albums, nextAlbums);
     setDeleteAlbumConfirm(null);
     setDetailAlbumId((prev) => prev === albumId ? null : prev);
+    await Promise.all([refreshFromServer({ replace: true }), refreshVideos()]);
   }
 
     function handleCancelDeleteAlbum() {
@@ -2640,7 +2738,48 @@ export default function MusicLibrary() {
     function handleAlbumMatchSaved(albumId, oldSong, updatedSong) {
       if (!oldSong?.file_path || !updatedSong?.file_path) return;
       removeSongFromIndex(oldSong.file_path);
-      saveSongToIndex(buildIndexSong(oldSong, updatedSong));
+      const movedSong = buildIndexSong(oldSong, updatedSong);
+      // 后端匹配可能会移动歌曲到新的「艺人/专辑」路径。索引已同步时，
+      // 资料库内存状态也必须同步迁移，避免旧专辑卡片残留并与新卡片重复。
+      if (!movedSong.coverURL) movedSong.coverURL = oldSong.coverURL || null;
+      saveSongToIndex(movedSong);
+      setAlbums((prev) => {
+        const oldPath = oldSong.file_path;
+        const newPath = movedSong.file_path;
+        const targetArtist = movedSong.album_artist || movedSong.artist || "未知艺术家";
+        const targetTitle = movedSong.album || "未知专辑";
+        const targetKey = `${targetArtist}|${targetTitle}`;
+        const albumKey = (album) => `${album.album_artist || album.artist || "未知艺术家"}|${album.title || "未知专辑"}`;
+        let sourceAlbum = null;
+        const next = [];
+
+        for (const album of prev) {
+          const songs = (album.songs || []).filter((song) => song.file_path !== oldPath && song.file_path !== newPath);
+          if ((album.songs || []).some((song) => song.file_path === oldPath)) sourceAlbum = album;
+          if (songs.length > 0) next.push({ ...album, songs });
+        }
+
+        const targetIndex = next.findIndex((album) => albumKey(album) === targetKey);
+        const targetAlbum = targetIndex >= 0 ? next[targetIndex] : null;
+        const mergedTarget = {
+          ...(targetAlbum || sourceAlbum || {}),
+          id: targetAlbum?.id || `server-${targetArtist}-${targetTitle}`,
+          title: targetTitle,
+          artist: targetArtist,
+          album_artist: movedSong.album_artist || null,
+          year: movedSong.year || targetAlbum?.year || sourceAlbum?.year || null,
+          genre: movedSong.genre || targetAlbum?.genre || sourceAlbum?.genre || null,
+          publisher: movedSong.publisher || targetAlbum?.publisher || sourceAlbum?.publisher || null,
+          coverURL: movedSong.coverURL || targetAlbum?.coverURL || sourceAlbum?.coverURL || null,
+          description: targetAlbum?.description || sourceAlbum?.description || "",
+          importTime: targetAlbum?.importTime || sourceAlbum?.importTime || movedSong.importTime || nowTs(),
+          matched: true,
+          songs: [...(targetAlbum?.songs || []), movedSong],
+        };
+        if (targetIndex >= 0) next[targetIndex] = mergedTarget;
+        else next.push(mergedTarget);
+        return next;
+      });
       if (detailAlbumId === albumId) {
         const nextAlbumId = `server-${updatedSong.album_artist || updatedSong.artist || "未知艺术家"}-${updatedSong.album || "未知专辑"}`;
         setDetailAlbumId(nextAlbumId);
@@ -5189,6 +5328,48 @@ onArtistVisibilityChange={(value) => {
             <div style={styles.confirmActions}>
               <button style={styles.confirmCancelBtn} onClick={() => setImportSkipDetail(null)}>
                 确定
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== 缺失歌曲查找：源文件不一致时选择替换或新增 ===== */}
+      {reimportMismatch && (
+        <div style={styles.overlay}>
+          <div style={styles.confirmDialog} onClick={(e) => e.stopPropagation()}>
+            <h3 style={styles.confirmTitle}>继续导入</h3>
+            <div style={styles.confirmDivider} />
+            <p style={styles.confirmText}>导入的内容与源文件不一致，接下来要怎么做？</p>
+            <div style={{ display: "grid", gap: "10px", margin: "18px 0 22px" }}>
+              {[
+                { id: "merge", icon: FaObjectGroup, title: "将添加项目与资料库项目合并" },
+                { id: "add", icon: FaPlus, title: "将音乐新加入到库中" },
+              ].map(({ id, icon: Icon, title }) => {
+                const selected = reimportMismatch.choice === id;
+                return <button
+                  type="button"
+                  key={id}
+                  onClick={() => setReimportMismatch((current) => current ? { ...current, choice: id } : current)}
+                  style={{ position: "relative", display: "flex", alignItems: "center", gap: "10px", minHeight: "54px", padding: "12px 14px", border: selected ? "1px solid #e94560" : "1px solid #e5e7eb", borderRadius: "10px", background: selected ? "#fff6f7" : "#fff", color: "#374151", font: "inherit", textAlign: "left", cursor: "pointer", overflow: "hidden" }}
+                >
+                  <span style={{ width: "15px", color: "#e94560", fontWeight: 700 }}>{selected ? "✔" : ""}</span>
+                  <Icon size={17} color={selected ? "#e94560" : "#6b7280"} />
+                  <span>{title}</span>
+                  {selected && <span style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: "3px", background: "#e94560" }} />}
+                </button>;
+              })}
+            </div>
+            <div style={styles.confirmActions}>
+              <button style={styles.confirmDeleteBtn} onClick={handleReimportMismatchConfirm}>确认</button>
+              <button
+                style={styles.confirmCancelBtn}
+                onClick={() => {
+                  setReimportMismatch(null);
+                  if (importNotifIdRef.current) updateNotification(importNotifIdRef.current, { ongoing: false, progress: null, cover: null, popup: true, kind: "info", title: "已取消导入", content: null });
+                }}
+              >
+                取消
               </button>
             </div>
           </div>

@@ -29,6 +29,15 @@ export async function uploadMusic(file, signal) {
   return res.json();
 }
 
+/** 将查找到的源文件恢复到缺失歌曲的既有路径，保留原有匹配资料。 */
+export async function restoreMissingMusic(filePath, file, signal) {
+  const form = new FormData();
+  form.append("file_path", filePath);
+  form.append("file", file);
+  const res = await fetch(`${BASE_URL}/api/music/restore`, { method: "POST", body: form, signal });
+  return requireJson(res, "恢复缺失音乐失败");
+}
+
 /** 获取音乐库中所有已持久化的音乐列表 */
 export async function getMusicList() {
   const res = await fetch(`${BASE_URL}/api/music/list`);
@@ -36,13 +45,23 @@ export async function getMusicList() {
 }
 
 /** 删除音乐库中的歌曲（toTrash=true 时移入项目 trash 文件夹） */
-export async function deleteMusic(artist, album, title, toTrash) {
-  const params = new URLSearchParams({ artist, album, title });
+export async function deleteMusic(filePath, toTrash) {
+  const params = new URLSearchParams({ file_path: filePath });
   if (toTrash) params.append("to_trash", "1");
   const res = await fetch(`${BASE_URL}/api/music/delete?${params}`, {
     method: "DELETE",
   });
-  return res.json();
+  return requireJson(res, "删除音乐失败");
+}
+
+/** 删除整张专辑；后端同时清理没有歌曲的残留专辑资料。 */
+export async function deleteAlbum(artist, album, toTrash) {
+  const params = new URLSearchParams({ artist, album });
+  if (toTrash) params.append("to_trash", "1");
+  const res = await fetch(`${BASE_URL}/api/music/album?${params}`, {
+    method: "DELETE",
+  });
+  return requireJson(res, "删除专辑失败");
 }
 
 /** 测试后端连接 */
@@ -453,6 +472,7 @@ export default {
   uploadMusic,
   getMusicList,
   deleteMusic,
+  deleteAlbum,
   testConnection,
   checkMusicFiles,
   openMusicFile,
