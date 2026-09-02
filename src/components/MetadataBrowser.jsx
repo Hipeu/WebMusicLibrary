@@ -9,7 +9,7 @@ const unique = (items) => Array.from(new Set(items));
 const matches = (album, field, value) => splitValues(album[field]).includes(value) || (album.songs || []).some((song) => splitValues(song[field] || album[field]).includes(value));
 
 function AlbumCard({ album, onOpen }) {
-  return <button type="button" style={styles.albumCard} onClick={() => onOpen?.(album.id)}>
+  return <button type="button" className="metadata-album-card" style={styles.albumCard} onClick={() => onOpen?.(album.id)}>
     {album.coverURL ? <img src={album.coverURL} alt="" style={styles.albumCover} /> : <div style={styles.albumPlaceholder}><FaCompactDisc /></div>}
     <span style={styles.albumName}>{album.title}</span><span style={styles.albumArtist}>{album.artist}</span>
   </button>;
@@ -18,7 +18,7 @@ function AlbumCard({ album, onOpen }) {
 function ArtistCard({ artist, albums, artistRecords, onOpen }) {
   const stored = artistRecords?.[artist]?.cover_url;
   const cover = stored ? getAssetUrl(stored) : albums.find((album) => albumBelongsToArtist(album, artist))?.coverURL;
-  return <button type="button" style={styles.artistCard} onClick={() => onOpen?.(artist)}>
+  return <button type="button" className="metadata-artist-card" style={styles.artistCard} onClick={() => onOpen?.(artist)}>
     {cover ? <img src={cover} alt="" style={styles.artistCover} /> : <div style={styles.artistPlaceholder}><FaUser /></div>}
     <span style={styles.artistName}>{artist}</span>
   </button>;
@@ -38,14 +38,14 @@ function GenreDetail({ genre, albums, artistRecords, view, onRouteChange, onOpen
   const allMode = view?.startsWith("all-");
   const allItems = view === "all-recent" ? recent : view === "all-artists" ? artists : related;
   const allTitle = view === "all-recent" ? "新入库" : view === "all-artists" ? "相关艺人" : "相关专辑";
-  if (allMode) return <div style={styles.page}>
-    <button type="button" style={styles.back} onClick={() => onRouteChange(genre, "detail")}><FaArrowLeft /></button>
+  if (allMode) return <div className="metadata-browser-page" style={styles.page}>
+    <button type="button" className="detail-back-btn" style={styles.back} onClick={() => onRouteChange(genre, "detail")}><FaArrowLeft /></button>
     <h1 style={styles.title}>{genre} · {allTitle}</h1>
     {view === "all-artists" ? <div style={styles.artistGrid}>{allItems.map((artist) => <ArtistCard key={artist} artist={artist} albums={albums} artistRecords={artistRecords} onOpen={onOpenArtist} />)}</div> : <div style={styles.albumGrid}>{allItems.map((album) => <AlbumCard key={album.id} album={album} onOpen={onOpenAlbum} />)}</div>}
   </div>;
-  return <div style={styles.page}>
+  return <div className="metadata-browser-page" style={styles.page}>
     <section style={{ ...styles.genreHero, background: `linear-gradient(120deg, ${color}55, ${color}18 58%, transparent)` }}>
-      <button type="button" style={styles.back} onClick={() => onRouteChange(null, "list")}><FaArrowLeft /></button>
+      <button type="button" className="detail-back-btn" style={styles.back} onClick={() => onRouteChange(null, "list")}><FaArrowLeft /></button>
       <h1 style={styles.genreTitle}>{genre}</h1>
       <div style={styles.spotlight}>{spotlight.map((album, index) => <img key={album.id} src={album.coverURL} alt="" style={{ ...styles.spotlightImage, transform: `translateX(${index * -22}px) translateY(${index * -10}px)` }} />)}</div>
     </section>
@@ -56,7 +56,7 @@ function GenreDetail({ genre, albums, artistRecords, view, onRouteChange, onOpen
 }
 
 function SearchBox({ value, onChange }) {
-  return <label style={styles.searchBox}><FaSearch /><input value={value} onChange={(event) => onChange(event.target.value)} placeholder="搜索" style={styles.searchInput} /></label>;
+  return <label className="metadata-search-box" style={styles.searchBox}><FaSearch /><input value={value} onChange={(event) => onChange(event.target.value)} placeholder="搜索" style={styles.searchInput} /></label>;
 }
 
 export default function MetadataBrowser({ type, albums = [], artistRecords = {}, selected, view = "list", onRouteChange, onOpenAlbum, onOpenArtist }) {
@@ -64,12 +64,12 @@ export default function MetadataBrowser({ type, albums = [], artistRecords = {},
   const field = type === "composer" ? "composer" : type === "lyricist" ? "lyricist" : "genre";
   const label = type === "composer" ? "作曲者" : type === "lyricist" ? "作词者" : type === "video" ? "视频" : "流派";
   const values = useMemo(() => unique(albums.flatMap((album) => (album.songs || []).flatMap((song) => splitValues(song[field] || album[field])))).sort((a, b) => a.localeCompare(b, "zh-CN")), [albums, field]);
-  if (type === "video") return <div style={styles.page}><div style={styles.header}><h1 style={styles.title}>视频</h1><SearchBox value={query} onChange={setQuery} /></div><div style={styles.videoEmpty}><FaVideo size={34} /><span>暂无已入库视频</span></div></div>;
+  if (type === "video") return <div className="metadata-browser-page" style={styles.page}><div style={styles.header}><h1 style={styles.title}>视频</h1><SearchBox value={query} onChange={setQuery} /></div><div style={styles.videoEmpty}><FaVideo size={34} /><span>暂无已入库视频</span></div></div>;
   const filtered = values.filter((value) => value.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   const related = selected ? albums.filter((album) => matches(album, field, selected)) : [];
   if (type === "genre" && selected) return <GenreDetail genre={selected} albums={albums} artistRecords={artistRecords} view={view} onRouteChange={onRouteChange} onOpenAlbum={onOpenAlbum} onOpenArtist={onOpenArtist} />;
-  if (selected) return <div style={styles.page}><button type="button" style={styles.back} onClick={() => onRouteChange(null, "list")}><FaArrowLeft /></button><h1 style={styles.title}>{selected}</h1><div style={styles.albumGrid}>{related.map((album) => <AlbumCard key={album.id} album={album} onOpen={onOpenAlbum} />)}</div></div>;
-  return <div style={styles.page}><div style={styles.header}><h1 style={styles.title}>{label}</h1><SearchBox value={query} onChange={setQuery} /></div><div style={styles.nameList}>{filtered.map((value) => <button key={value} className="metadata-name-row" style={styles.nameRow} onClick={() => onRouteChange(value, "detail")}><span>{value}</span><span>{albums.filter((album) => matches(album, field, value)).length} 个专辑</span></button>)}{filtered.length === 0 && <p style={styles.empty}>{query ? "没有匹配结果" : `暂无可用的${label}信息`}</p>}</div></div>;
+  if (selected) return <div className="metadata-browser-page" style={styles.page}><button type="button" className="detail-back-btn" style={styles.back} onClick={() => onRouteChange(null, "list")}><FaArrowLeft /></button><h1 style={styles.title}>{selected}</h1><div style={styles.albumGrid}>{related.map((album) => <AlbumCard key={album.id} album={album} onOpen={onOpenAlbum} />)}</div></div>;
+  return <div className="metadata-browser-page" style={styles.page}><div style={styles.header}><h1 style={styles.title}>{label}</h1><SearchBox value={query} onChange={setQuery} /></div><div style={styles.nameList}>{filtered.map((value) => <button key={value} className="metadata-name-row" style={styles.nameRow} onClick={() => onRouteChange(value, "detail")}><span>{value}</span><span>{albums.filter((album) => matches(album, field, value)).length} 个专辑</span></button>)}{filtered.length === 0 && <p style={styles.empty}>{query ? "没有匹配结果" : `暂无可用的${label}信息`}</p>}</div></div>;
 }
 
 const styles = {

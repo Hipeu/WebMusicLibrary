@@ -38,33 +38,34 @@ export default function ArtistMatchPicker({ artistName, onPick, onClose }) {
   }
 
   return (
-    <div style={styles.overlay} onClick={onClose}>
-      <div style={styles.dialog} onClick={(event) => event.stopPropagation()}>
-        <button type="button" style={styles.closeButton} onClick={onClose} title="关闭">
+    <div className="artist-match-overlay" style={styles.overlay} onClick={onClose}>
+      <div className="artist-match-dialog" style={styles.dialog} onClick={(event) => event.stopPropagation()}>
+        <button type="button" className="artist-match-close" style={styles.closeButton} onClick={onClose} title="关闭">
           <FaTimes size={16} />
         </button>
         <h3 style={styles.title}>匹配艺人</h3>
         <p style={styles.subtitle}>{artistName}</p>
-        <div style={styles.sourceRow}>
+        <div className="artist-match-sources" style={styles.sourceRow}>
           {[['all', '全部'], ['qq', 'QQ音乐'], ['netease', '网易云音乐']].map(([key, label]) => (
             <button
               type="button"
               key={key}
+              className={source === key ? "is-active" : ""}
               style={{ ...styles.sourceButton, ...(source === key ? styles.sourceButtonActive : {}) }}
               onClick={() => setSource(key)}
             >
               {label}
             </button>
           ))}
-          <button type="button" style={styles.searchButton} onClick={search} disabled={loading}>
+          <button type="button" className="artist-match-search" style={styles.searchButton} onClick={search} disabled={loading}>
             {loading ? "搜索中…" : "搜索"}
           </button>
         </div>
         {error && <p style={styles.error}>{error}</p>}
         <div style={styles.grid}>
           {activeResults.map((candidate) => (
-            <button type="button" key={`${candidate.source}-${candidate.singermid || candidate.artist_id}`} style={styles.card} onClick={() => pick(candidate)}>
-              <div style={styles.avatarWrap}>
+            <button type="button" className="artist-match-card" key={`${candidate.source}-${candidate.singermid || candidate.artist_id}`} style={styles.card} onClick={() => pick(candidate)}>
+              <div className="artist-match-avatar" style={styles.avatarWrap}>
                 {candidate.avatar_url ? <img src={candidate.avatar_url} alt="" style={styles.avatar} /> : <span style={styles.placeholder}>🎤</span>}
               </div>
               <span style={styles.name}>{candidate.name}</span>

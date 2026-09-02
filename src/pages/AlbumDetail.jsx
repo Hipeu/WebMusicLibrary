@@ -101,7 +101,7 @@ export default function AlbumDetail({
 
   return (
     <div style={styles.container} className="album-detail-page">
-      <button style={styles.backBtn} onClick={onBack} title="返回">
+      <button className="detail-back-btn" style={styles.backBtn} onClick={onBack} title="返回">
         <FaArrowLeft size={18} />
       </button>
 
@@ -178,7 +178,7 @@ export default function AlbumDetail({
             {genreText && <><span style={styles.yearGenreSep}>·</span><span style={styles.albumGenre}>{genreText}</span></>}
           </p>
           {description && (
-            <button
+            <button className="detail-description-button"
               type="button"
               style={styles.descriptionButton}
               onClick={() => setShowDescriptionModal(true)}
@@ -218,7 +218,7 @@ export default function AlbumDetail({
                         {showAlbumMenu && (
                           <>
                             <div style={styles.menuOverlay} onClick={() => setShowAlbumMenu(false)} />
-                            <div style={styles.albumDropdown}>
+                            <div className="albumDropdown album-detail-menu" style={styles.albumDropdown}>
                               <button
                                 className="song-dropdown-item"
                                 style={styles.dropdownItem}

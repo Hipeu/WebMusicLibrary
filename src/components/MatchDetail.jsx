@@ -27,20 +27,20 @@ export default function MatchDetail({ data, initialFilter = "all", onCancel, onC
   return (
     <div style={styles.overlay} onClick={onClose}>
       <div style={styles.window} className="match-detail-window" onClick={(e) => e.stopPropagation()}>
-        <button style={styles.closeBtn} onClick={onClose} title="关闭">
+        <button className="match-detail-close" style={styles.closeBtn} onClick={onClose} title="关闭">
           <FaTimes size={16} />
         </button>
 
         {/* 标题 + 状态 */}
-        <div style={styles.header}>
+        <div className="match-detail-header" style={styles.header}>
           <h3 style={styles.title}>匹配详情</h3>
-          <span style={{ ...styles.status, ...(running ? styles.statusRunning : {}) }}>
+          <span className={`match-detail-status${running ? " is-running" : ""}`} style={{ ...styles.status, ...(running ? styles.statusRunning : {}) }}>
             {statusLabel}
           </span>
         </div>
 
         {/* 统计 */}
-        <div style={styles.statsRow}>
+        <div className="match-detail-stats" style={styles.statsRow}>
           <span style={styles.stat}>已完成 <b>{data.done || 0}/{data.total || 0}</b></span>
           <span style={styles.statOk}>成功 {data.matched || 0}</span>
           <span style={styles.statFail}>失败 {data.failed || 0}</span>
@@ -49,10 +49,11 @@ export default function MatchDetail({ data, initialFilter = "all", onCancel, onC
 
         {/* 工具栏：筛选 + 取消 */}
         <div style={styles.toolbar}>
-          <div style={styles.filterGroup}>
+          <div className="match-detail-filters" style={styles.filterGroup}>
             {(["all", "failed"]).map((f) => (
               <button
                 key={f}
+                className={filter === f ? "is-active" : ""}
                 style={{ ...styles.filterBtn, ...(filter === f ? styles.filterBtnActive : {}) }}
                 onClick={() => setFilter(f)}
               >
@@ -61,14 +62,14 @@ export default function MatchDetail({ data, initialFilter = "all", onCancel, onC
             ))}
           </div>
           {running && (
-            <button style={styles.cancelBtn} onClick={onCancel}>
+            <button className="match-detail-cancel" style={styles.cancelBtn} onClick={onCancel}>
               取消
             </button>
           )}
         </div>
 
         {/* 日志 */}
-        <div style={styles.logBox}>
+        <div className="match-detail-log" style={styles.logBox}>
           {shownLog.length === 0 ? (
             <p style={styles.empty}>暂无日志</p>
           ) : (
@@ -86,7 +87,7 @@ export default function MatchDetail({ data, initialFilter = "all", onCancel, onC
                 >
                   {logIcon(item.kind)}
                 </span>
-                <span style={styles.logText}>{item.message}</span>
+                <span className="match-detail-log-text" style={styles.logText}>{item.message}</span>
               </div>
             ))
           )}

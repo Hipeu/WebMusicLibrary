@@ -2578,7 +2578,7 @@ export default function MusicLibrary() {
       setDetailPlaylistId(null);
       setDetailArtistName(null);
       setArtistRecords({});
-      showToast("重置资料库成功", "success");
+      window.location.href = "/setup";
     };
     poll();
   }
@@ -3697,7 +3697,7 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                     {showImportMenu && (
                       <>
                         <div style={styles.menuOverlay} onClick={() => setShowImportMenu(false)} />
-                        <div style={styles.importDropdown}>
+                        <div className="importDropdown add-entry-menu" style={styles.importDropdown}>
                           <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => { setShowImportMenu(false); fileInputRef.current?.click(); }}><FaMusic size={14} style={{ marginRight: "10px" }} /><span>添加歌曲</span></div>
                           <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => { setShowImportMenu(false); videoInputRef.current?.click(); }}><FaVideo size={14} style={{ marginRight: "10px" }} /><span>添加视频</span></div>
                           <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => { setShowImportMenu(false); handleAddWebVideo(); }}><FaVideo size={14} style={{ marginRight: "10px" }} /><span>关联视频网站视频</span></div>
@@ -4034,6 +4034,7 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                       <>
                         <div style={styles.contextOverlay} onClick={handleCloseAlbumMenu} />
                         <div
+                          className="context-menu album-context-menu"
                           style={{
                             ...styles.contextMenu,
                             left: albumMenu.x,
@@ -4064,7 +4065,7 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                             <FaClock size={14} style={{ marginRight: "10px" }} />
                             <span>稍后播放</span>
                           </div>
-                          <div style={styles.contextMenuDivider} />
+                          <div className="context-menu-divider" style={styles.contextMenuDivider} />
                           <div className="context-menu-item" style={{ ...styles.contextMenuItem, color: "#e94560" }} onClick={() => handleAlbumMenuAction("delete", albumMenu.album)}>
                             <FaTrash size={14} style={{ marginRight: "10px" }} />
                             <span>删除</span>
@@ -4130,8 +4131,8 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                               ? (primaryAlbums.length > 0 ? `${primaryAlbums.length} 个专辑` : "")
                               : `${artistAlbums.length} 个专辑`;
                             return (
-                              <div key={artist} style={styles.artistCard} onClick={() => handleOpenArtistDetail(artist)}>
-                                <div style={styles.artistAvatar}>
+                              <div key={artist} className="library-artist-card" style={styles.artistCard} onClick={() => handleOpenArtistDetail(artist)}>
+                                <div className="library-artist-avatar" style={styles.artistAvatar}>
                                   <span style={styles.artistAvatarIcon}>👤</span>
                                   {artistCover && (
                                     <img
@@ -4142,8 +4143,8 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                                     />
                                   )}
                                 </div>
-                                <p style={styles.artistName}>{artist}</p>
-                                <p style={styles.artistAlbumCount}>{countText}</p>
+                                <p className="library-artist-name" style={styles.artistName}>{artist}</p>
+                                <p className="library-artist-count" style={styles.artistAlbumCount}>{countText}</p>
                               </div>
                             );
                           });
@@ -4405,7 +4406,7 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                                                                         );
                                                                       })()}
                                                                     </div>
-                                                                     <span style={{
+                                                                     <span className={`library-song-title${isMissing ? " is-missing" : ""}${isActive ? " is-active" : ""}`} style={{
                                                                        ...styles.songCellTitle,
                                                                        ...(isActive ? styles.songCellTitleActive : {}),
                                                                        ...(isMissing ? styles.songCellTextMissing : {}),
@@ -4468,6 +4469,7 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                       <>
                         <div style={styles.contextOverlay} onClick={handleCloseContextMenu} />
                         <div
+                          className="context-menu song-context-menu"
                           style={{
                             ...styles.contextMenu,
                             left: contextMenu.x,
@@ -4482,7 +4484,7 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                             <FaUser size={14} style={{ marginRight: "10px", flexShrink: 0 }} />
                             <span>艺人</span>
                           </div>
-                          <div style={styles.contextMenuDivider} />
+                          <div className="context-menu-divider" style={styles.contextMenuDivider} />
                           <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handleContextMenuAction("addToPlaylist", contextMenu.song)}>
                             <FaHeart size={14} style={{ marginRight: "10px", flexShrink: 0 }} />
                             <span>喜欢</span>
@@ -4503,7 +4505,7 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                             <FaClock size={14} style={{ marginRight: "10px", flexShrink: 0 }} />
                             <span>稍后播放</span>
                           </div>
-                          <div style={styles.contextMenuDivider} />
+                          <div className="context-menu-divider" style={styles.contextMenuDivider} />
                           <div className="context-menu-item" style={{ ...styles.contextMenuItem, color: "#e94560" }} onClick={() => handleContextMenuAction("deleteSong", contextMenu.song)}>
                             <FaTrash size={14} style={{ marginRight: "10px", flexShrink: 0 }} />
                             <span>删除</span>
@@ -4707,6 +4709,7 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                                       <>
                                         <div style={styles.contextOverlay} onClick={handleCloseAlbumMenu} />
                                         <div
+                                          className="context-menu album-context-menu"
                                           style={{
                                             ...styles.contextMenu,
                                             left: albumMenu.x,
@@ -4737,7 +4740,7 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                                             <FaClock size={14} style={{ marginRight: "10px" }} />
                                             <span>稍后播放</span>
                                           </div>
-                                          <div style={styles.contextMenuDivider} />
+                                          <div className="context-menu-divider" style={styles.contextMenuDivider} />
                                           <div className="context-menu-item" style={{ ...styles.contextMenuItem, color: "#e94560" }} onClick={() => handleAlbumMenuAction("delete", albumMenu.album)}>
                                             <FaTrash size={14} style={{ marginRight: "10px" }} />
                                             <span>删除</span>
@@ -4855,7 +4858,7 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                 <label style={styles.playlistFieldLabel}>播放列表简介</label>
                 <div style={styles.playlistDescriptionWrap}><textarea style={{ ...styles.createTextarea, minHeight: "360px", resize: "none" }} placeholder="简介（可选）" value={newPlaylistDesc} onChange={(e) => setNewPlaylistDesc(e.target.value)} />{smartAvailable && editingPlaylistId && <button type="button" style={styles.playlistAiButton} onClick={generatePlaylistDescription} title="AI 生成简介"><FaStar /></button>}</div>
                 {playlistSuggestion?.playlistId === editingPlaylistId && <div style={styles.playlistSuggestion}><p>AI 建议</p><div>{playlistSuggestion.description}</div><div style={styles.suggestionActions}><button type="button" style={styles.confirmCancelBtn} onClick={() => setPlaylistSuggestion(null)}>不采用</button><button type="button" style={styles.confirmDeleteBtn} onClick={() => { setNewPlaylistDesc(playlistSuggestion.description); setPlaylistSuggestion(null); }}>采用建议</button></div></div>}
-                <label style={styles.createToggleRow}><span style={styles.createToggleText}>封面样式</span><button type="button" aria-label="切换封面样式" style={{ ...styles.createToggleSwitch, ...(newPlaylistCoverStyle ? styles.createToggleSwitchOn : {}) }} onClick={() => setNewPlaylistCoverStyle((v) => !v)}><div style={{ ...styles.createToggleKnob, ...(newPlaylistCoverStyle ? styles.createToggleKnobOn : {}) }} /></button></label>
+                <label style={styles.createToggleRow}><span className="playlist-cover-style-label" style={styles.createToggleText}>封面样式</span><button type="button" aria-label="切换封面样式" style={{ ...styles.createToggleSwitch, ...(newPlaylistCoverStyle ? styles.createToggleSwitchOn : {}) }} onClick={() => setNewPlaylistCoverStyle((v) => !v)}><div style={{ ...styles.createToggleKnob, ...(newPlaylistCoverStyle ? styles.createToggleKnobOn : {}) }} /></button></label>
               </div>
             </div>
             <div style={styles.playlistDialogActions}><button style={styles.confirmCancelBtn} onClick={handleCloseCreatePlaylist}>取消</button><button style={{ ...styles.confirmDeleteBtn, ...(!newPlaylistName.trim() ? styles.confirmBtnDisabled : {}) }} onClick={handlePlaylistFormSubmit} disabled={!newPlaylistName.trim()}>保存</button></div>
@@ -5227,7 +5230,7 @@ onArtistVisibilityChange={(value) => {
       {/* ===== 不受支持格式导入确认浮窗 ===== */}
       {importPending && (
         <div style={styles.overlay}>
-          <div style={styles.confirmDialog} onClick={(e) => e.stopPropagation()}>
+          <div className="app-confirm-dialog" style={styles.confirmDialog} onClick={(e) => e.stopPropagation()}>
             <h3 style={styles.confirmTitle}>该内容不受支持</h3>
             <div style={styles.confirmDivider} />
             <p style={styles.confirmText}>该内容可以继续添加至资料库但无法播放，还要继续吗？</p>
@@ -5242,6 +5245,7 @@ onArtistVisibilityChange={(value) => {
             </label>
             <div style={styles.confirmActions}>
               <button
+                className="app-confirm-primary"
                 style={styles.confirmDeleteBtn}
                 onClick={() => {
                   if (importRememberChoice) importUnplayableChoiceRef.current = "continue";
@@ -5251,6 +5255,7 @@ onArtistVisibilityChange={(value) => {
                 继续
               </button>
               <button
+                className="app-confirm-secondary"
                 style={styles.confirmCancelBtn}
                 onClick={() => {
                   if (importRememberChoice) importUnplayableChoiceRef.current = "cancel";
@@ -5363,6 +5368,7 @@ onArtistVisibilityChange={(value) => {
             <div style={styles.confirmActions}>
               <button style={styles.confirmDeleteBtn} onClick={handleReimportMismatchConfirm}>确认</button>
               <button
+                className="app-confirm-secondary"
                 style={styles.confirmCancelBtn}
                 onClick={() => {
                   setReimportMismatch(null);
@@ -5398,20 +5404,21 @@ onArtistVisibilityChange={(value) => {
       {/* ===== 播放不可播放格式提示浮窗 ===== */}
       {unplayableDialogSong && (
         <div style={styles.overlay} onClick={() => setUnplayableDialogSong(null)}>
-          <div style={styles.confirmDialog} onClick={(e) => e.stopPropagation()}>
+          <div className="app-confirm-dialog" style={styles.confirmDialog} onClick={(e) => e.stopPropagation()}>
             <h3 style={styles.confirmTitle}>此格式浏览器不支持</h3>
             <div style={styles.confirmDivider} />
             <p style={styles.confirmText}>无法在播放器中播放，可以尝试直接打开文件</p>
             <div style={styles.confirmActions}>
               {unplayableDialogSong.file_path && (
                 <button
+                  className="app-confirm-primary"
                   style={styles.confirmDeleteBtn}
                   onClick={() => handleOpenLocalFile(unplayableDialogSong.file_path)}
                 >
                   打开
                 </button>
               )}
-              <button style={styles.confirmCancelBtn} onClick={() => setUnplayableDialogSong(null)}>确定</button>
+              <button className="app-confirm-secondary" style={styles.confirmCancelBtn} onClick={() => setUnplayableDialogSong(null)}>确定</button>
             </div>
           </div>
         </div>
@@ -5476,15 +5483,15 @@ onArtistVisibilityChange={(value) => {
       {/* 专辑删除确认浮窗 */}
       {deleteAlbumConfirm && (
         <div style={styles.overlay} onClick={handleCancelDeleteAlbum}>
-          <div style={styles.confirmDialog} onClick={(e) => e.stopPropagation()}>
+          <div className="app-confirm-dialog" style={styles.confirmDialog} onClick={(e) => e.stopPropagation()}>
             <h3 style={styles.confirmTitle}>确认删除</h3>
             <div style={styles.confirmDivider} />
             <p style={styles.confirmText}>
               确定要删除专辑「{albums.find(a => a.id === deleteAlbumConfirm)?.title}」吗？此操作不可撤销。
             </p>
             <div style={styles.confirmActions}>
-              <button style={styles.confirmDeleteBtn} onClick={handleConfirmDeleteAlbum}>确认删除</button>
-              <button style={styles.confirmCancelBtn} onClick={handleCancelDeleteAlbum}>取消</button>
+              <button className="app-confirm-primary" style={styles.confirmDeleteBtn} onClick={handleConfirmDeleteAlbum}>确认删除</button>
+              <button className="app-confirm-secondary" style={styles.confirmCancelBtn} onClick={handleCancelDeleteAlbum}>取消</button>
             </div>
           </div>
         </div>

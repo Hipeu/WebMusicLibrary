@@ -24,6 +24,14 @@ body {
   flex-direction: column;
 }
 
+.app-startup-loading {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  color: #6b7280;
+  font-size: 14px;
+}
+
 :root {
   --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
   --mono: ui-monospace, Consolas, monospace;
@@ -34,4 +42,3 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
-

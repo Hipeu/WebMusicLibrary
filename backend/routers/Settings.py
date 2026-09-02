@@ -1,6 +1,6 @@
 import os
 from fastapi import APIRouter, Body
-from services.library_config import get_library_path, start_library_migration, migration_status, get_app_settings, save_app_settings
+from services.library_config import DEFAULT_LIBRARY, get_library_path, start_library_migration, migration_status, get_app_settings, save_app_settings
 
 router = APIRouter(prefix="/api")
 
@@ -10,6 +10,7 @@ def get_settings():
     """返回资料库路径与跨浏览器同步的应用设置。"""
     return {
         "library_path": get_library_path(),
+        "default_library_path": DEFAULT_LIBRARY,
         "app_settings": get_app_settings(),
     }
 

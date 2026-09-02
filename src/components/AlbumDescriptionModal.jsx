@@ -8,12 +8,12 @@ export default function AlbumDescriptionModal({ album, playlist, isPlaying, them
 
   return (
     <div style={styles.overlay} onClick={onClose}>
-      <div style={styles.dialog} onClick={(event) => event.stopPropagation()}>
-        <button type="button" style={styles.closeButton} onClick={onClose} title="关闭">
+      <div className="description-detail-dialog" style={styles.dialog} onClick={(event) => event.stopPropagation()}>
+        <button type="button" className="description-detail-close" style={styles.closeButton} onClick={onClose} title="关闭">
           <FaTimes size={16} />
         </button>
 
-        <div
+        <div className="description-detail-header"
           style={{
             ...styles.header,
             ...(themeColor ? {
@@ -54,9 +54,9 @@ export default function AlbumDescriptionModal({ album, playlist, isPlaying, them
           </div>
         </div>
 
-        <div style={styles.body}>
+        <div className="description-detail-body" style={styles.body}>
           <h3 style={styles.sectionTitle}>{isPlaylist ? "播放列表简介" : "专辑简介"}</h3>
-          <p style={styles.description}>{item.description || "暂无简介"}</p>
+          <p className="description-detail-text" style={styles.description}>{item.description || "暂无简介"}</p>
 
         </div>
       </div>

@@ -1598,3 +1598,241 @@ html[data-theme="dark"] .web-video-dialog { background: #282843; color: #e5e7eb;
   font-size: 12px;
 }
 html[data-theme="dark"] .song-lazy-sentinel { color: #aab2c2; }
+
+/* Dark theme completion for library cards, dialogs and settings controls. */
+html[data-theme="dark"] .library-artist-card { background:#282844!important;border-color:#414163!important;color:#e5e7eb!important; }
+html[data-theme="dark"] .library-artist-card:hover { background:#30304d!important;border-color:#56567a!important; }
+html[data-theme="dark"] .library-artist-avatar { background:#343451!important; }
+html[data-theme="dark"] .library-artist-name { color:#f4f4f5!important; }
+html[data-theme="dark"] .library-artist-count { color:#a8b0c0!important; }
+html[data-theme="dark"] .library-song-title { color:#f1f5f9!important; }
+html[data-theme="dark"] .library-song-title.is-active { color:#fff!important; }
+html[data-theme="dark"] .library-song-title.is-missing { color:#7f8799!important; }
+html[data-theme="dark"] .song-context-menu { background:#2c2c4a!important;border-color:#48486a!important;color:#e5e7eb!important; }
+html[data-theme="dark"] .song-context-menu .context-menu-divider { background:#48486a!important;border-color:#48486a!important; }
+
+html[data-theme="dark"] .artist-detail-page { background:#1a1a2e!important;color:#e5e7eb!important; }
+html[data-theme="dark"] .artist-detail-page .artist-compact-header,
+html[data-theme="dark"] .artist-detail-page .artist-info-section,
+html[data-theme="dark"] .artist-detail-page .artist-song-card,
+html[data-theme="dark"] .artist-detail-page .album-card { background:#282844!important;border-color:#414163!important; }
+html[data-theme="dark"] .artist-detail-page .artist-song-card:hover,
+html[data-theme="dark"] .artist-detail-page .album-card:hover { background:#30304d!important; }
+html[data-theme="dark"] .artist-detail-page .artist-song-card p:first-of-type,
+html[data-theme="dark"] .artist-detail-page .album-card p:first-of-type { color:#f4f4f5!important; }
+html[data-theme="dark"] .artist-detail-page .artist-song-card p:last-of-type,
+html[data-theme="dark"] .artist-detail-page .album-card p:last-of-type { color:#a8b0c0!important; }
+html[data-theme="dark"] .artist-detail-page .artist-info-section > div { color:#cbd5e1!important; }
+html[data-theme="dark"] .artist-detail-page .artist-info-section > div > span { background:#343451!important;color:#dbe1ea!important; }
+html[data-theme="dark"] .artist-detail-page .artist-info-section > div > span span { color:#dbe1ea!important; }
+html[data-theme="dark"] .artist-detail-page button:not(.cover-play-btn) { border-color:#4b4b6c!important;color:#dbe1ea!important; }
+html[data-theme="dark"] .artist-detail-page [style*="background: #f3f4f6"],
+html[data-theme="dark"] .artist-detail-page [style*="background: #f9fafb"],
+html[data-theme="dark"] .artist-detail-page [style*="background: #ffffff"] { background:#282844!important; }
+
+html[data-theme="dark"] .settings-backup-toggle-row { background:#202038!important;border:1px solid #414163!important; }
+html[data-theme="dark"] .settings-backup-toggle-row > div > span,
+html[data-theme="dark"] .settings-backup-toggle-row > span { color:#f1f5f9!important; }
+html[data-theme="dark"] .settings-backup-toggle-row p { color:#a8b0c0!important; }
+html[data-theme="dark"] .settings-match-start { background:#e94560!important;color:#fff!important; }
+html[data-theme="dark"] .settings-match-start:disabled { background:#96374f!important; }
+html[data-theme="dark"] .settings-match-cancel,
+html[data-theme="dark"] .settings-match-detail-btn { background:#343451!important;border-color:#56567a!important;color:#e5e7eb!important; }
+html[data-theme="dark"] .settings-match-track { background:#525274!important; }
+html[data-theme="dark"] .settings-match-detail-row { background:#202038!important;border-color:#414163!important; }
+html[data-theme="dark"] .settings-match-progress > div:last-child span:nth-child(1) { color:#4ade80!important; }
+html[data-theme="dark"] .settings-match-progress > div:last-child span:nth-child(2) { color:#fb7185!important; }
+html[data-theme="dark"] .settings-match-progress > div:last-child span:nth-child(3) { color:#a8b0c0!important; }
+
+html[data-theme="dark"] .match-detail-window { background:#282843!important;color:#e5e7eb!important; }
+html[data-theme="dark"] .match-detail-window h3 { color:#f4f4f5!important; }
+html[data-theme="dark"] .match-detail-close,
+html[data-theme="dark"] .match-detail-cancel { background:#343451!important;border-color:#56567a!important;color:#e5e7eb!important; }
+html[data-theme="dark"] .match-detail-status { background:#343451!important;color:#cbd5e1!important; }
+html[data-theme="dark"] .match-detail-status.is-running { background:rgba(233,69,96,.18)!important;color:#ff7188!important; }
+html[data-theme="dark"] .match-detail-stats,
+html[data-theme="dark"] .match-detail-log { background:#202038!important;border-color:#454565!important;color:#cbd5e1!important; }
+html[data-theme="dark"] .match-detail-filters { background:#343451!important; }
+html[data-theme="dark"] .match-detail-filters button { color:#cbd5e1!important; }
+html[data-theme="dark"] .match-detail-filters button.is-active { background:#e94560!important;color:#fff!important; }
+html[data-theme="dark"] .match-detail-log-text { color:#d7dce5!important; }
+
+html[data-theme="dark"] .artist-edit-dialog { background:#282843!important;color:#e5e7eb!important; }
+html[data-theme="dark"] .artist-edit-dialog h3,
+html[data-theme="dark"] .artist-edit-dialog p { color:#e5e7eb!important; }
+html[data-theme="dark"] .artist-edit-header,
+html[data-theme="dark"] .artist-edit-footer { border-color:#454565!important; }
+html[data-theme="dark"] .artist-edit-avatar,
+html[data-theme="dark"] .artist-edit-banner-preview { background:#343451!important; }
+html[data-theme="dark"] .artist-edit-tabs { background:#343451!important; }
+html[data-theme="dark"] .artist-edit-tabs button { color:#cbd5e1!important; }
+html[data-theme="dark"] .artist-edit-tabs button.is-active { background:#e94560!important;color:#fff!important; }
+html[data-theme="dark"] .artist-edit-dialog input,
+html[data-theme="dark"] .artist-edit-dialog textarea { background:#202038!important;border-color:#4b4b6c!important;color:#f1f5f9!important; }
+html[data-theme="dark"] .artist-edit-cover-add { border-color:#626287!important;color:#a8b0c0!important; }
+html[data-theme="dark"] .artist-edit-match-btn { background:#282843!important; }
+html[data-theme="dark"] .artist-edit-confirm { background:#282843!important;color:#e5e7eb!important; }
+html[data-theme="dark"] .artist-edit-content button:not(.is-active),
+html[data-theme="dark"] .artist-edit-footer button { background:#343451!important;border-color:#535376!important;color:#e5e7eb!important; }
+html[data-theme="dark"] .artist-edit-footer button:last-child { background:#e94560!important;border-color:#e94560!important;color:#fff!important; }
+html[data-theme="dark"] .artist-edit-confirm button:first-of-type { background:#e94560!important;color:#fff!important; }
+html[data-theme="dark"] .artist-edit-confirm button:last-of-type { background:#343451!important;border-color:#535376!important;color:#e5e7eb!important; }
+html[data-theme="dark"] .artist-edit-content [style*="background: #f3f4f6"],
+html[data-theme="dark"] .artist-edit-content [style*="background: #f9fafb"],
+html[data-theme="dark"] .artist-edit-content [style*="background: #ffffff"] { background:#202038!important;color:#cbd5e1!important; }
+
+html[data-theme="dark"] .artist-match-dialog { background:#282843!important;color:#e5e7eb!important; }
+html[data-theme="dark"] .artist-match-dialog h3,
+html[data-theme="dark"] .artist-match-dialog p { color:#e5e7eb!important; }
+html[data-theme="dark"] .artist-match-close,
+html[data-theme="dark"] .artist-match-sources button:not(.is-active):not(.artist-match-search) { background:#343451!important;border-color:#535376!important;color:#cbd5e1!important; }
+html[data-theme="dark"] .artist-match-card { background:#202038!important;border-color:#454565!important; }
+html[data-theme="dark"] .artist-match-card:hover { background:#343451!important; }
+html[data-theme="dark"] .artist-match-card > span { color:#e5e7eb!important; }
+html[data-theme="dark"] .artist-match-card > span:last-child { color:#a8b0c0!important; }
+html[data-theme="dark"] .artist-match-avatar { background:#343451!important; }
+
+/* Video editor tabs intentionally keep the light pill from the reference. */
+.video-edit-dialog .video-edit-tabs.capsule-tabs { gap:2px;border:0!important;background:#edf0f4!important;padding:4px!important;border-radius:999px!important; }
+.video-edit-dialog .video-edit-tabs.capsule-tabs button { border:0!important;border-radius:999px!important;color:#667085!important; }
+.video-edit-dialog .video-edit-tabs.capsule-tabs button.active { background:#e94560!important;color:#fff!important; }
+html[data-theme="dark"] .video-edit-dialog .video-edit-tabs.capsule-tabs { background:#f0f1f5!important; }
+html[data-theme="dark"] .video-edit-dialog .video-form > label,
+html[data-theme="dark"] .video-edit-dialog .video-type p { color:#cbd5e1!important; }
+html[data-theme="dark"] .video-edit-dialog .video-type p { border-color:#454565!important; }
+html[data-theme="dark"] .video-edit-dialog .video-linked-list button,
+html[data-theme="dark"] .video-edit-dialog .video-cover-edit button,
+html[data-theme="dark"] .video-edit-dialog footer button { background:#343451!important;border-color:#535376!important;color:#e5e7eb!important; }
+html[data-theme="dark"] .video-edit-dialog footer .save { background:#e94560!important;color:#fff!important; }
+html[data-theme="dark"] .video-edit-dialog .cover-preview-box { background:#343451!important; }
+
+/* Hide the bright header/footer dividers only in dark edit dialogs. */
+html[data-theme="dark"] .music-edit-dialog [style*="borderBottom: 1px solid"],
+html[data-theme="dark"] .music-edit-dialog [style*="borderTop: 1px solid"] { border-color:transparent!important; }
+html[data-theme="dark"] .music-edit-dialog .music-edit-top-section,
+html[data-theme="dark"] .music-edit-dialog .music-edit-footer { border-color:transparent!important; }
+
+/* Dark theme follow-up: descriptions, add menu and metadata browsers. */
+html[data-theme="dark"] .album-detail-page .detail-description-button,
+html[data-theme="dark"] .playlist-detail-page .detail-description-button { color:#f1f5f9!important; }
+html[data-theme="dark"] .album-detail-page .detail-description-button > span:first-child,
+html[data-theme="dark"] .playlist-detail-page .detail-description-button > span:first-child { color:#f1f5f9!important; }
+html[data-theme="dark"] .album-detail-page .detail-description-button > span:last-child,
+html[data-theme="dark"] .playlist-detail-page .detail-description-button > span:last-child { color:#fb7185!important; }
+
+html[data-theme="dark"] .description-detail-dialog { background:#282843!important;color:#e5e7eb!important; }
+html[data-theme="dark"] .description-detail-header { background:linear-gradient(135deg,#30304d,#282843)!important; }
+html[data-theme="dark"] .description-detail-dialog h2,
+html[data-theme="dark"] .description-detail-dialog h3 { color:#f4f4f5!important; }
+html[data-theme="dark"] .description-detail-dialog p { color:#cbd5e1!important; }
+html[data-theme="dark"] .description-detail-text { color:#f1f5f9!important; }
+html[data-theme="dark"] .description-detail-close { background:#3a3a59!important;color:#e5e7eb!important; }
+html[data-theme="dark"] .description-detail-dialog [style*="background: #e5e7eb"] { background:#343451!important; }
+
+html[data-theme="dark"] .settings-dialog-overlay .settings-dialog {
+  background:#282844!important;
+  border:1px solid #414163!important;
+  background-clip:padding-box;
+  overflow:hidden;
+}
+html[data-theme="dark"] .settings-dialog .settings-advanced-panel { background:#202038!important;border-color:#414163!important; }
+html[data-theme="dark"] .settings-dialog .settings-advanced-panel + p { color:#a8b0c0!important; }
+
+html[data-theme="dark"] .add-entry-menu { background:#2c2c4a!important;border-color:#48486a!important;color:#e5e7eb!important; }
+html[data-theme="dark"] .add-entry-menu .context-menu-item { color:#e5e7eb!important; }
+html[data-theme="dark"] .add-entry-menu .context-menu-item:hover { background:#3a3a59!important; }
+
+html[data-theme="dark"] .artist-detail-edit-btn {
+  background:#343451!important;
+  border:1px solid #525274!important;
+  color:#f1f5f9!important;
+  box-shadow:0 4px 14px rgba(0,0,0,.22)!important;
+}
+html[data-theme="dark"] .artist-detail-edit-btn:hover { background:#41415f!important;color:#fff!important; }
+
+html[data-theme="dark"] .metadata-browser-page { color:#f1f5f9!important; }
+html[data-theme="dark"] .metadata-browser-page h1,
+html[data-theme="dark"] .metadata-browser-page h2 { color:#f4f4f5!important; }
+html[data-theme="dark"] .metadata-name-row { color:#f1f5f9!important; }
+html[data-theme="dark"] .metadata-name-row > span:last-child { color:#cbd5e1!important; }
+html[data-theme="dark"] .metadata-name-row:hover,
+html[data-theme="dark"] .metadata-name-row:focus-visible { background:#2c2c4a!important;box-shadow:inset 0 -2px 0 #454565!important; }
+html[data-theme="dark"] .metadata-search-box { background:#2c2c4a!important;border-color:#4a4a6b!important;color:#a8b0c0!important; }
+html[data-theme="dark"] .metadata-search-box input { background:transparent!important;border:0!important;color:#f4f4f5!important; }
+html[data-theme="dark"] .metadata-search-box input::placeholder { color:#8f98aa!important; }
+html[data-theme="dark"] .metadata-browser-page > button { background:#343451!important;color:#e5e7eb!important; }
+html[data-theme="dark"] .metadata-album-card,
+html[data-theme="dark"] .metadata-artist-card { color:#f1f5f9!important; }
+html[data-theme="dark"] .metadata-album-card > span:first-of-type,
+html[data-theme="dark"] .metadata-artist-card > span { color:#f1f5f9!important; }
+html[data-theme="dark"] .metadata-album-card > div,
+html[data-theme="dark"] .metadata-artist-card > div { background:#343451!important;color:#a8b0c0!important; }
+
+/* A coverless artist page should read as one continuous surface. */
+html[data-theme="dark"] .artist-detail-page .artist-compact-header,
+html[data-theme="dark"] .artist-detail-page .artist-info-section {
+  background:transparent!important;
+  border-color:transparent!important;
+  box-shadow:none!important;
+}
+html[data-theme="dark"] .artist-detail-page .artist-compact-header { border-bottom:0!important; }
+
+/* Album action menus in both library layouts and album detail. */
+html[data-theme="dark"] .album-context-menu,
+html[data-theme="dark"] .album-detail-menu {
+  background:#2c2c4a!important;
+  border-color:#48486a!important;
+  color:#e5e7eb!important;
+}
+html[data-theme="dark"] .album-context-menu .context-menu-item,
+html[data-theme="dark"] .album-detail-menu .song-dropdown-item { color:#e5e7eb!important; }
+html[data-theme="dark"] .album-context-menu .context-menu-item:hover,
+html[data-theme="dark"] .album-detail-menu .song-dropdown-item:hover { background:#3a3a59!important; }
+html[data-theme="dark"] .album-context-menu .context-menu-divider { background:#48486a!important;border-color:#48486a!important; }
+
+/* Shared confirmation dialogs shown by unsupported and delete flows. */
+html[data-theme="dark"] .app-confirm-dialog {
+  background:#282843!important;
+  border:1px solid #454565!important;
+  color:#e5e7eb!important;
+  box-shadow:0 24px 70px rgba(0,0,0,.42)!important;
+}
+html[data-theme="dark"] .app-confirm-dialog h3 { color:#f4f4f5!important; }
+html[data-theme="dark"] .app-confirm-dialog p,
+html[data-theme="dark"] .app-confirm-dialog label,
+html[data-theme="dark"] .app-confirm-dialog span { color:#d7dce5!important; }
+html[data-theme="dark"] .app-confirm-dialog [style*="background: #e5e7eb"] { background:#454565!important; }
+html[data-theme="dark"] .app-confirm-dialog input[type="checkbox"] {
+  background:#202038!important;
+  border-color:#65658a!important;
+  accent-color:#e94560;
+}
+html[data-theme="dark"] .app-confirm-dialog .app-confirm-secondary {
+  background:#343451!important;
+  border-color:#5a5a7d!important;
+  color:#f1f5f9!important;
+}
+html[data-theme="dark"] .app-confirm-dialog .app-confirm-primary { background:#e94560!important;border-color:#e94560!important;color:#fff!important; }
+
+html[data-theme="dark"] .playlist-cover-style-label { color:#fff!important; }
+
+/* One consistent back affordance across every dark detail view. */
+html[data-theme="dark"] .detail-back-btn,
+html[data-theme="dark"] .video-back {
+  width:48px!important;
+  height:48px!important;
+  min-width:48px!important;
+  padding:0!important;
+  display:inline-flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  border:1px solid #525274!important;
+  border-radius:50%!important;
+  background:#343451!important;
+  color:#f1f5f9!important;
+  box-shadow:none!important;
+}
+html[data-theme="dark"] .detail-back-btn:hover,
+html[data-theme="dark"] .video-back:hover { background:#41415f!important;border-color:#68688e!important;color:#fff!important; }
+html[data-theme="dark"] .detail-back-btn:focus-visible,
+html[data-theme="dark"] .video-back:focus-visible { outline:2px solid #e94560!important;outline-offset:3px!important; }

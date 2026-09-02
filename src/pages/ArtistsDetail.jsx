@@ -108,7 +108,7 @@ if (!artist) return null;
     <div style={styles.container} className="artist-detail-page">
       {subView === "songs" ? (
         <div style={styles.subPage}>
-          <button style={styles.subBackBtn} onClick={() => setSubView(null)} title="返回">
+          <button className="detail-back-btn" style={styles.subBackBtn} onClick={() => setSubView(null)} title="返回">
             <FaArrowLeft size={18} />
           </button>
           <h1 style={styles.subTitle}>全部歌曲</h1>
@@ -118,6 +118,7 @@ if (!artist) return null;
               return (
                 <div
                   key={`${song.albumId}-${song.songIndex}`}
+                  className="artist-song-card"
                   style={{
                     ...styles.songCell,
                     ...(isActive ? styles.songCellActive : {}),
@@ -146,7 +147,7 @@ if (!artist) return null;
         </div>
       ) : subView === "albums" ? (
         <div style={styles.subPage}>
-          <button style={styles.subBackBtn} onClick={() => setSubView(null)} title="返回">
+          <button className="detail-back-btn" style={styles.subBackBtn} onClick={() => setSubView(null)} title="返回">
             <FaArrowLeft size={18} />
           </button>
           <h1 style={styles.subTitle}>全部专辑</h1>
@@ -182,7 +183,7 @@ if (!artist) return null;
       ) : (
         <>
       {/* 返回按钮 */}
-      <button style={styles.backBtn} onClick={onBack} title="返回">
+      <button className="detail-back-btn" style={styles.backBtn} onClick={onBack} title="返回">
         <FaArrowLeft size={18} />
       </button>
 
@@ -206,7 +207,7 @@ if (!artist) return null;
             <div style={styles.nameRow}>
               <h1 style={styles.artistName}>{artist}</h1>
               {onEditArtist && (
-                <button style={styles.editBtn} onClick={() => onEditArtist(artist)} title="编辑艺人">
+                <button className="artist-detail-edit-btn" style={styles.editBtn} onClick={() => onEditArtist(artist)} title="编辑艺人">
                   <FaPen size={14} />
                 </button>
               )}
@@ -215,11 +216,11 @@ if (!artist) return null;
           </div>
         </div>
       ) : (
-        <div style={styles.compactHeader}>
+        <div className="artist-compact-header" style={styles.compactHeader}>
           <div style={styles.nameRow}>
             <h1 style={styles.compactName}>{artist}</h1>
             {onEditArtist && (
-              <button style={styles.editBtnCompact} onClick={() => onEditArtist(artist)} title="编辑艺人">
+              <button className="artist-detail-edit-btn" style={styles.editBtnCompact} onClick={() => onEditArtist(artist)} title="编辑艺人">
                 <FaPen size={14} />
               </button>
             )}
@@ -286,6 +287,7 @@ if (!artist) return null;
               return (
                 <div
                   key={`${song.albumId}-${song.songIndex}`}
+                  className="artist-song-card"
                   style={{
                     ...styles.songCell,
                     ...(isActive ? styles.songCellActive : {}),
@@ -467,7 +469,7 @@ if (!artist) return null;
       {/* ⑤ 底部：艺人简介（仅在有内容时显示）                       */}
       {/* ============================================================ */}
       {record?.bio ? (
-        <div style={styles.infoSection}>
+        <div className="artist-info-section" style={styles.infoSection}>
           <h2 style={styles.sectionTitle}>艺人简介</h2>
           <div style={styles.bioText}>{record.bio}</div>
         </div>
@@ -477,7 +479,7 @@ if (!artist) return null;
       {/* ⑥ 相关流派（艺人编辑里的流派信息）                         */}
       {/* ============================================================ */}
       {genres.length > 0 && (
-        <div style={styles.infoSection}>
+        <div className="artist-info-section" style={styles.infoSection}>
           <h2 style={styles.sectionTitle}>相关流派</h2>
           <div style={styles.genreList}>
             {genres.map((g) => (

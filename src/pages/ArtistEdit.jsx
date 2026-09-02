@@ -172,12 +172,12 @@ export default function ArtistEdit({ artist, record, albums, onClose, onSaved, o
   return (
     <div style={styles.overlay}>
       <div style={styles.dialog} className="artist-edit-dialog" onClick={(e) => e.stopPropagation()}>
-        <button type="button" style={styles.matchButton} onClick={() => setShowMatchPicker(true)} title="从 QQ音乐或网易云匹配艺人">
+        <button type="button" className="artist-edit-match-btn" style={styles.matchButton} onClick={() => setShowMatchPicker(true)} title="从 QQ音乐或网易云匹配艺人">
           匹配艺人
         </button>
         {/* 顶部：头像 + 名称 */}
-        <div style={styles.topSection}>
-          <div style={styles.topAvatar}>
+        <div className="artist-edit-header" style={styles.topSection}>
+          <div className="artist-edit-avatar" style={styles.topAvatar}>
             {coverUrl ? (
               <img src={displayUrl(coverUrl)} alt="" style={styles.topAvatarImg} />
             ) : (
@@ -194,11 +194,12 @@ export default function ArtistEdit({ artist, record, albums, onClose, onSaved, o
         </div>
 
         {/* 标签栏 */}
-        <div style={styles.tabBar}>
-          <div style={styles.tabCapsule}>
+        <div className="artist-edit-tabs-wrap" style={styles.tabBar}>
+          <div className="artist-edit-tabs" style={styles.tabCapsule}>
             {tabs.map((tab) => (
               <button
                 key={tab.id}
+                className={activeTab === tab.id ? "is-active" : ""}
                 style={{
                   ...styles.tabBtn,
                   ...(activeTab === tab.id ? styles.tabBtnActive : {}),
@@ -212,7 +213,7 @@ export default function ArtistEdit({ artist, record, albums, onClose, onSaved, o
         </div>
 
         {/* 标签内容 */}
-        <div style={styles.tabContent}>
+        <div className="artist-edit-content" style={styles.tabContent}>
           {activeTab === "cover" && (
             <div style={styles.coverTab}>
               <div style={styles.coverPreview}>
@@ -223,7 +224,7 @@ export default function ArtistEdit({ artist, record, albums, onClose, onSaved, o
                     style={styles.coverPreviewImg}
                   />
                 ) : (
-                  <div style={styles.coverAddArea} onClick={() => coverInputRef.current?.click()}>
+                <div className="artist-edit-cover-add" style={styles.coverAddArea} onClick={() => coverInputRef.current?.click()}>
                     <FaPlus size={28} />
                     <span style={styles.coverAddText}>添加照片</span>
                   </div>
@@ -233,6 +234,7 @@ export default function ArtistEdit({ artist, record, albums, onClose, onSaved, o
                 <div style={styles.bannerPreviewBlock}>
                   <div style={styles.previewLabel}>详情页横幅预览</div>
                   <div
+                    className="artist-edit-banner-preview"
                     style={styles.bannerPreview}
                     onPointerDown={handleCoverPointerDown}
                     onPointerMove={handleCoverPointerMove}
@@ -274,7 +276,7 @@ export default function ArtistEdit({ artist, record, albums, onClose, onSaved, o
 
           {activeTab === "bio" && (
             <div style={styles.bioTab}>
-              <textarea
+              <textarea className="artist-edit-bio"
                 style={styles.bioTextarea}
                 value={bio}
                 onChange={(e) => setBio(e.target.value)}
@@ -323,7 +325,7 @@ export default function ArtistEdit({ artist, record, albums, onClose, onSaved, o
         </div>
 
         {/* 底部按钮 */}
-        <div style={styles.footer}>
+        <div className="artist-edit-footer" style={styles.footer}>
           {isEmpty && (
             <button style={styles.removeBtn} onClick={() => setShowRemoveConfirm(true)}>
               <FaTrash size={12} style={{ marginRight: "5px" }} />
@@ -337,7 +339,7 @@ export default function ArtistEdit({ artist, record, albums, onClose, onSaved, o
         {/* 移除空艺人确认窗 */}
         {showRemoveConfirm && (
           <div style={confirmStyles.overlay} onClick={() => setShowRemoveConfirm(false)}>
-            <div style={confirmStyles.box} onClick={(e) => e.stopPropagation()}>
+            <div className="artist-edit-confirm" style={confirmStyles.box} onClick={(e) => e.stopPropagation()}>
               <h3 style={confirmStyles.title}>移除空艺人</h3>
               <div style={confirmStyles.divider} />
               <p style={confirmStyles.text}>该操作会删除已编辑的艺人数据，此操作不可撤销</p>

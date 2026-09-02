@@ -571,7 +571,7 @@ export default function MusicEdit({ target, onClose, onSave, onMatchError, onBac
         </div>
 
         {/* 底部按钮 */}
-        <div style={styles.footer}>
+        <div className="music-edit-footer" style={styles.footer}>
           <button style={styles.cancelBtn} onClick={onClose}>取消</button>
           <button style={styles.saveBtn} onClick={() => handleSave().catch((err) => setMatchMsg(err?.message || "保存失败，请重试"))}>保存</button>
         </div>

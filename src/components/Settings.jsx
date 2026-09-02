@@ -14,7 +14,7 @@ export default function Settings({ show, onClose, onReset, onSettingsSaved, onLi
   if (!show) return null;
 
   const menuItems = [
-    { id: "appearance", label: "通用设置", icon: <FaSlidersH /> },
+    { id: "appearance", label: "通用", icon: <FaSlidersH /> },
     { id: "edit", label: "编辑", icon: <FaPen /> },
     { id: "match", label: "匹配", icon: <FaLink /> },
     { id: "smart", label: "智能", icon: <FaRobot /> },
@@ -90,7 +90,7 @@ function AppearancePanel({ onSettingsSaved, onLibraryNameChange, onMoreCategorie
 
   return (
     <div style={panelStyles.container} className="settings-panel">
-      <h3 style={panelStyles.title}>通用设置</h3>
+      <h3 style={panelStyles.title}>通用</h3>
       <p style={panelStyles.desc}>选择应用的主题模式</p>
       <div style={panelStyles.options}>
         {options.map((opt) => (
@@ -662,12 +662,13 @@ function MatchPanel({ matchState, onOpenMatchDetail, onMatchStarted, onSettingsS
           为资料库中缺少信息的歌曲补全所选字段，并为艺人补写真。件内已存在的信息不会被覆盖
         </p>
 
-        <div style={matchStyles.matchHeader}>
-          <button style={matchStyles.startBtn} onClick={handleStartMatch} disabled={running}>
+        <div className="settings-match-actions" style={matchStyles.matchHeader}>
+          <button className="settings-match-start" style={matchStyles.startBtn} onClick={handleStartMatch} disabled={running}>
             {running ? "匹配中…" : "开始匹配"}
           </button>
           {running && (
             <button
+              className="settings-match-cancel"
               style={matchStyles.cancelBtn}
               onClick={handleCancelMatch}
               disabled={cancelling}
@@ -679,12 +680,12 @@ function MatchPanel({ matchState, onOpenMatchDetail, onMatchStarted, onSettingsS
         </div>
 
         {progress.total > 0 && (
-          <div style={matchStyles.progressWrap}>
+          <div className="settings-match-progress" style={matchStyles.progressWrap}>
             <div style={matchStyles.countRow}>
               <span style={matchStyles.count}>已完成：{progress.done}/{progress.total}</span>
               <span style={matchStyles.pct}>{pct}%</span>
             </div>
-            <div style={matchStyles.track}>
+            <div className="settings-match-track" style={matchStyles.track}>
               <div style={{ ...matchStyles.fill, width: `${pct}%` }} />
             </div>
             <div style={matchStyles.statsRow}>
@@ -696,9 +697,9 @@ function MatchPanel({ matchState, onOpenMatchDetail, onMatchStarted, onSettingsS
         )}
 
         {hasLog && (
-          <div style={matchStyles.detailRow}>
+          <div className="settings-match-detail-row" style={matchStyles.detailRow}>
             <span style={matchStyles.detailHint}>查看本次匹配的详细结果</span>
-            <button style={matchStyles.detailBtn} onClick={onOpenMatchDetail}>
+            <button className="settings-match-detail-btn" style={matchStyles.detailBtn} onClick={onOpenMatchDetail}>
               查看详情
             </button>
           </div>
@@ -1030,12 +1031,13 @@ function DataPanel({ onReset, onDataJobStarted, onSettingsSaved }) {
   const [importToken, setImportToken] = useState(null);
   const [availableTypes, setAvailableTypes] = useState([]);
   const [importTypes, setImportTypes] = useState([]);
-  const [exportTypes, setExportTypes] = useState(["artists", "albums", "playlists", "settings", "music"]);
+  const [exportTypes, setExportTypes] = useState(["artists", "albums", "playlists", "settings", "music", "videos"]);
+  const [includeVideoFiles, setIncludeVideoFiles] = useState(false);
   const importInputRef = useRef(null);
 
   const typeOptions = [
     ["artists", "艺人信息"], ["albums", "专辑信息"], ["playlists", "播放列表"],
-    ["settings", "设置"], ["music", "音乐文件"],
+    ["settings", "设置"], ["music", "音乐文件"], ["videos", "视频内容"],
   ];
 
   function toggleType(value, setter) {
@@ -1046,7 +1048,7 @@ function DataPanel({ onReset, onDataJobStarted, onSettingsSaved }) {
     if (exportTypes.length === 0) return;
     setError("");
     try {
-      const result = await startDataExport(exportTypes);
+      const result = await startDataExport(exportTypes, includeVideoFiles);
       if (result?.job_id) {
         setExportOpen(false);
         onDataJobStarted?.({ kind: "export", jobId: result.job_id });
@@ -1103,7 +1105,7 @@ function DataPanel({ onReset, onDataJobStarted, onSettingsSaved }) {
           <h3 style={panelStyles.title}>备份和恢复</h3>
         <div style={panelStyles.locationRow} className="settings-card">
           <p style={panelStyles.locationDesc}>导出音乐、封面、歌词、艺人、简介、播放列表及应用设置为 ZIP 备份包</p>
-          <button className="settings-secondary-btn" style={panelStyles.modifyBtn} onClick={() => { setError(""); setExportOpen(true); }}>导出数据</button>
+          <button className="settings-secondary-btn" style={panelStyles.modifyBtn} onClick={() => { setError(""); setIncludeVideoFiles(false); setExportOpen(true); }}>导出数据</button>
         </div>
         <div style={{ ...panelStyles.locationRow, marginTop: "14px" }} className="settings-card">
           <p style={panelStyles.locationDesc}>从 WebMusicPlayer ZIP 备份包恢复数据</p>
@@ -1159,11 +1161,18 @@ function DataPanel({ onReset, onDataJobStarted, onSettingsSaved }) {
             <div style={dataStyles.typeList}>{typeOptions.map(([value, label]) => {
               const checked = exportTypes.includes(value);
               return <label key={value} style={{ ...dataStyles.typeRow, ...(checked ? dataStyles.typeRowActive : {}) }}>
-                <input type="checkbox" checked={checked} onChange={() => toggleType(value, setExportTypes)} style={dataStyles.nativeCheck} />
+                <input type="checkbox" checked={checked} onChange={() => { toggleType(value, setExportTypes); if (value === "videos" && checked) setIncludeVideoFiles(false); }} style={dataStyles.nativeCheck} />
                 <span style={{ ...dataStyles.typeCheck, ...(checked ? dataStyles.typeCheckActive : {}) }}>{checked ? "✓" : ""}</span>
                 <span>{label}</span>
               </label>;
             })}</div>
+            {exportTypes.includes("videos") && <div className="settings-backup-toggle-row" style={dataStyles.backupToggleRow}>
+              <div>
+                <span style={dataStyles.backupToggleText}>保存视频文件</span>
+                <p style={dataStyles.videoBackupHint}>关闭时仅备份本地及在线视频的信息和封面</p>
+              </div>
+              <button type="button" aria-label="保存视频文件" title={includeVideoFiles ? "点击关闭" : "点击开启"} style={{ ...panelStyles.toggleSwitch, ...(includeVideoFiles ? panelStyles.toggleSwitchOn : {}) }} onClick={() => setIncludeVideoFiles((value) => !value)}><span style={{ ...panelStyles.toggleKnob, ...(includeVideoFiles ? panelStyles.toggleKnobOn : {}) }} /></button>
+            </div>}
             {error && <p style={dataStyles.error}>{error}</p>}
             <div style={{ ...resetDialogStyles.actions, marginTop: "24px" }}>
               <button className="settings-primary-btn" style={resetDialogStyles.confirmBtn} disabled={exportTypes.length === 0} onClick={handleExport}>开始导出</button>
@@ -1213,7 +1222,7 @@ function DataPanel({ onReset, onDataJobStarted, onSettingsSaved }) {
                 </label>;
               })}
             </div>
-            {mode === "replace" && <div style={dataStyles.backupToggleRow}>
+            {mode === "replace" && <div className="settings-backup-toggle-row" style={dataStyles.backupToggleRow}>
               <span style={dataStyles.backupToggleText}>导入前自动备份当前数据</span>
               <button
                 type="button"
@@ -1698,6 +1707,7 @@ const dataStyles = {
   modeDesc: { fontSize: "12px", lineHeight: 1.45, color: "#6b7280" },
   backupToggleRow: { display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "12px", padding: "10px 13px", borderRadius: "10px", background: "#f9fafb" },
   backupToggleText: { fontSize: "13px", fontWeight: 500, color: "#374151" },
+  videoBackupHint: { margin: "4px 0 0", fontSize: "11px", lineHeight: 1.45, color: "#9ca3af" },
   sectionLabel: { margin: "18px 0 0", fontSize: "14px", fontWeight: 600, color: "#1f2937" },
   hint: { margin: "10px 0 0", fontSize: "13px", color: "#6b7280" },
   error: { margin: "10px 0 0", color: "#dc2626", fontSize: "13px" },

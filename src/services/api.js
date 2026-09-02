@@ -189,11 +189,11 @@ export async function getResetProgress() {
 }
 
 /** 启动资料库 ZIP 导出任务。 */
-export async function startDataExport(types) {
+export async function startDataExport(types, includeVideoFiles = false) {
   const res = await fetch(`${BASE_URL}/api/data/export`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ types }),
+    body: JSON.stringify({ types, include_video_files: includeVideoFiles }),
   });
   return res.json();
 }
@@ -265,11 +265,11 @@ export async function getSmartProviders() {
 }
 export async function testSmartProvider(payload) {
   const res = await fetch(`${BASE_URL}/api/smart/providers/test`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-  return res.json();
+  return requireJson(res, "智能供应商连接测试失败");
 }
 export async function saveSmartProvider(kind, payload) {
   const res = await fetch(`${BASE_URL}/api/smart/providers/${kind}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-  return res.json();
+  return requireJson(res, "智能供应商保存失败");
 }
 export async function toggleSmartProvider(kind, enabled) {
   const res = await fetch(`${BASE_URL}/api/smart/providers/${kind}/toggle`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled }) });

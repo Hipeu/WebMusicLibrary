@@ -9,6 +9,7 @@ import time
 import uuid
 import zipfile
 from pathlib import Path, PurePosixPath
+from urllib.parse import unquote
 
 from fastapi import APIRouter, BackgroundTasks, Body, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
@@ -26,7 +27,7 @@ _jobs = {}
 _uploads = {}
 _lock = threading.Lock()
 
-DATA_TYPES = {"artists", "albums", "playlists", "settings", "music"}
+DATA_TYPES = {"artists", "albums", "playlists", "settings", "music", "videos"}
 
 
 class JobCancelled(Exception):
@@ -74,8 +75,7 @@ def _selected_data_files(selected):
     paths = []
     mapping = {
         "artists": ("artists.json", "artists_img"),
-        # videos.json / videos/covers 属于资料库元信息，与专辑资料一起备份恢复。
-        "albums": ("picture", "metadata", "Lyrics", "videos"),
+        "albums": ("picture", "metadata", "Lyrics"),
         "playlists": ("playlists.json",),
     }
     for kind, entries in mapping.items():
@@ -97,6 +97,44 @@ def _load_json_dict(path):
             return value if isinstance(value, dict) else {}
     except Exception:
         return {}
+
+
+def _load_json_list(path):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            value = json.load(f)
+            return value if isinstance(value, list) else []
+    except Exception:
+        return []
+
+
+def _normalize_song_ref(value):
+    text = unquote(str(value or "").strip()).replace("\\", "/")
+    marker = "/library/"
+    marker_index = text.lower().find(marker)
+    if marker_index >= 0:
+        text = text[marker_index + len(marker):]
+    return re.sub(r"/{2,}", "/", text.lstrip("/"))
+
+
+def _video_export_payload(library_path, include_all=False):
+    """返回全部视频或仅关联到当前资料库歌曲的视频记录及对应封面。"""
+    videos = _load_json_list(os.path.join(DATA_DIR, "videos", "videos.json"))
+    if not include_all:
+        catalog = _load_json_dict(os.path.join(library_path, ".manifest.json"))
+        song_refs = {_normalize_song_ref(path) for path in catalog}
+        song_refs.update(str(item.get("hash") or "").strip() for item in catalog.values() if isinstance(item, dict))
+        song_refs.discard("")
+        videos = [item for item in videos if isinstance(item, dict) and any(_normalize_song_ref(ref) in song_refs for ref in item.get("song_ids", []))]
+    cover_files = []
+    for item in videos:
+        cover_path = _normalize_song_ref(item.get("cover_path"))
+        if not cover_path.startswith("videos/covers/"):
+            continue
+        path = Path(DATA_DIR, *PurePosixPath(cover_path).parts)
+        if path.is_file():
+            cover_files.append(path)
+    return videos, list(dict.fromkeys(cover_files))
 
 
 def _album_export_payload(library_path):
@@ -121,17 +159,23 @@ def _album_export_payload(library_path):
     return catalog, artist_records, image_files
 
 
-def _write_archive(archive_path, library_path, selected=None, progress=None, cancel=None):
+def _write_archive(archive_path, library_path, selected=None, progress=None, cancel=None, include_video_files=False):
     selected = set(selected or DATA_TYPES) & DATA_TYPES
-    lib_files = _iter_files(library_path) if "music" in selected else []
+    lib_files = [path for path in _iter_files(library_path) if not path.relative_to(library_path).parts or path.relative_to(library_path).parts[0] != "_videos"] if "music" in selected else []
+    video_files = _iter_files(os.path.join(library_path, "_videos")) if "videos" in selected and include_video_files else []
     data_files = _selected_data_files(selected)
     album_catalog, album_artists, album_artist_images = ({}, {}, [])
     if "albums" in selected:
         album_catalog, album_artists, album_artist_images = _album_export_payload(library_path)
     album_artist_export_files = album_artist_images if "artists" not in selected else []
-    extra_count = 1 + (1 if "settings" in selected else 0) + (2 if "albums" in selected else 0)
-    data_files = data_files + album_artist_export_files
-    total = len(lib_files) + len(data_files) + extra_count
+    video_records, video_cover_files = ([], [])
+    if "videos" in selected:
+        video_records, video_cover_files = _video_export_payload(library_path, include_all=True)
+    elif "albums" in selected:
+        video_records, video_cover_files = _video_export_payload(library_path, include_all=False)
+    extra_count = 1 + (1 if "settings" in selected else 0) + (2 if "albums" in selected else 0) + (1 if ("videos" in selected or "albums" in selected) else 0)
+    data_files = data_files + album_artist_export_files + video_cover_files
+    total = len(lib_files) + len(video_files) + len(data_files) + extra_count
     done = 0
     manifest = {
         "format": "WebMusicPlayer-backup",
@@ -140,6 +184,7 @@ def _write_archive(archive_path, library_path, selected=None, progress=None, can
         "types": sorted(selected),
         "library_files": len(lib_files),
         "data_files": len(data_files),
+        "include_video_files": bool("videos" in selected and include_video_files),
     }
     config = _load_config()
     exported_config = {"app_settings": config.get("app_settings", {})}
@@ -153,10 +198,20 @@ def _write_archive(archive_path, library_path, selected=None, progress=None, can
             archive.writestr("data/albums_manifest.json", json.dumps(album_catalog, ensure_ascii=False, indent=2))
             archive.writestr("data/album_artists.json", json.dumps(album_artists, ensure_ascii=False, indent=2))
             done += 2
+        if "videos" in selected or "albums" in selected:
+            archive.writestr("data/videos/videos.json", json.dumps(video_records, ensure_ascii=False, indent=2))
+            done += 1
         for path in lib_files:
             if cancel:
                 cancel()
             archive.write(path, Path("library") / path.relative_to(library_path))
+            done += 1
+            if progress:
+                progress(done, total)
+        for path in video_files:
+            if cancel:
+                cancel()
+            archive.write(path, Path("library/_videos") / path.relative_to(Path(library_path, "_videos")))
             done += 1
             if progress:
                 progress(done, total)
@@ -173,7 +228,7 @@ def _write_archive(archive_path, library_path, selected=None, progress=None, can
     return total
 
 
-def _export_worker(job_id, selected):
+def _export_worker(job_id, selected, include_video_files=False):
     temp_dir = tempfile.mkdtemp(prefix="webmusic-export-")
     archive_path = os.path.join(temp_dir, "WebMusicPlayer-backup.zip")
     try:
@@ -183,6 +238,7 @@ def _export_worker(job_id, selected):
             archive_path, get_library_path(), selected,
             lambda done, all_: _set_job(job_id, done=done, total=all_),
             lambda: _check_cancel(job_id),
+            include_video_files,
         )
         _check_cancel(job_id)
         _set_job(job_id, status="done", done=total, total=total, path=archive_path, cancellable=False, message="导出完成")
@@ -201,7 +257,8 @@ def start_export(payload: dict = Body(...)):
     job_id = uuid.uuid4().hex
     with _lock:
         _jobs[job_id] = {"kind": "export", "status": "queued", "done": 0, "total": 0, "message": "等待导出", "cancellable": True, "cancel_requested": False}
-    threading.Thread(target=_export_worker, args=(job_id, selected), daemon=True).start()
+    include_video_files = bool(payload.get("include_video_files")) and "videos" in selected
+    threading.Thread(target=_export_worker, args=(job_id, selected, include_video_files), daemon=True).start()
     return {"status": "started", "job_id": job_id}
 
 
@@ -319,6 +376,60 @@ def _copy_tree_merge(source, destination):
             shutil.copy2(file_path, target)
 
 
+def _remap_video_record(item, path_map):
+    record = dict(item)
+    record["song_ids"] = [path_map.get(_normalize_song_ref(ref), _normalize_song_ref(ref)) for ref in item.get("song_ids", []) if _normalize_song_ref(ref)]
+    file_path = _normalize_song_ref(item.get("file_path"))
+    if file_path:
+        record["file_path"] = path_map.get(file_path, file_path)
+    return record
+
+
+def _restore_video_metadata(source_data, path_map=None, replace_all=False, imported_wins=True):
+    """按视频 ID 恢复信息；albums 调用时只合并其附带的关联记录。"""
+    source_path = Path(source_data, "videos", "videos.json")
+    imported = [_remap_video_record(item, path_map or {}) for item in _load_json_list(source_path) if isinstance(item, dict) and item.get("id")]
+    target_path = Path(DATA_DIR, "videos", "videos.json")
+    current = [] if replace_all else _load_json_list(target_path)
+    by_id = {item.get("id"): dict(item) for item in current if isinstance(item, dict) and item.get("id")}
+    order = [item.get("id") for item in current if isinstance(item, dict) and item.get("id")]
+    for item in imported:
+        video_id = item["id"]
+        if video_id not in by_id:
+            order.append(video_id)
+        if imported_wins or video_id not in by_id:
+            by_id[video_id] = item
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    target_path.write_text(json.dumps([by_id[video_id] for video_id in order if video_id in by_id], ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _replace_video_files(source_lib, library):
+    target = Path(library, "_videos")
+    shutil.rmtree(target, ignore_errors=True)
+    source = Path(source_lib, "_videos")
+    if source.is_dir():
+        shutil.copytree(source, target, dirs_exist_ok=True)
+
+
+def _replace_music_files_preserving_videos(source_lib, library):
+    """覆盖音乐内容但不触碰独立的视频文件目录。"""
+    Path(library).mkdir(parents=True, exist_ok=True)
+    for entry in Path(library).iterdir():
+        if entry.name == "_videos":
+            continue
+        if entry.is_dir() and not entry.is_symlink():
+            shutil.rmtree(entry, ignore_errors=True)
+        else:
+            try: entry.unlink()
+            except OSError: pass
+    for entry in Path(source_lib).iterdir():
+        if entry.name == "_videos":
+            continue
+        target = Path(library, entry.name)
+        if entry.is_dir(): shutil.copytree(entry, target, dirs_exist_ok=True)
+        else: shutil.copy2(entry, target)
+
+
 def _merge_json_records(source, target, imported_wins=True):
     imported = _load_json_dict(source)
     if not imported:
@@ -417,19 +528,19 @@ def _import_worker(job_id, archive_path, mode, keep_backup, selected):
         source_data.mkdir(parents=True, exist_ok=True)
         library = Path(get_library_path())
         library.mkdir(parents=True, exist_ok=True)
+        include_video_files = bool(manifest.get("include_video_files")) and "videos" in selected
         if mode == "replace":
             if keep_backup:
                 os.makedirs(BACKUP_DIR, exist_ok=True)
                 backup_path = os.path.join(BACKUP_DIR, f"pre-import-{int(time.time())}.zip")
-                _write_archive(backup_path, str(library), DATA_TYPES)
+                _write_archive(backup_path, str(library), DATA_TYPES, include_video_files=True)
             _check_cancel(job_id)
             # 开始替换后锁定取消，避免留下半完成资料库。
             _set_job(job_id, cancellable=False)
             _set_job(job_id, message="正在恢复数据", done=0, total=1)
             current_config = _load_config()
             if "music" in selected:
-                shutil.rmtree(library, ignore_errors=True)
-                shutil.copytree(source_lib, library, dirs_exist_ok=True)
+                _replace_music_files_preserving_videos(source_lib, library)
             if "artists" in selected:
                 for entry in ("artists.json", "artists_img"):
                     target = Path(DATA_DIR, entry)
@@ -439,12 +550,21 @@ def _import_worker(job_id, archive_path, mode, keep_backup, selected):
                     if source.is_dir(): shutil.copytree(source, target, dirs_exist_ok=True)
                     elif source.is_file(): target.parent.mkdir(parents=True, exist_ok=True); shutil.copy2(source, target)
             if "albums" in selected:
-                for entry in ("picture", "metadata", "Lyrics", "videos"):
+                for entry in ("picture", "metadata", "Lyrics"):
                     target = Path(DATA_DIR, entry)
                     shutil.rmtree(target, ignore_errors=True)
                     source = source_data / entry
                     if source.is_dir(): shutil.copytree(source, target, dirs_exist_ok=True)
                 _restore_album_catalog(source_data, library, imported_wins=True)
+            if "videos" in selected:
+                target = Path(DATA_DIR, "videos")
+                shutil.rmtree(target, ignore_errors=True)
+                source = source_data / "videos"
+                if source.is_dir(): shutil.copytree(source, target, dirs_exist_ok=True)
+                if include_video_files: _replace_video_files(source_lib, library)
+            elif "albums" in selected:
+                _copy_tree_merge(source_data / "videos" / "covers", Path(DATA_DIR, "videos", "covers"))
+                _restore_video_metadata(source_data, replace_all=False, imported_wins=True)
             if "playlists" in selected:
                 source = source_data / "playlists.json"; target = Path(DATA_DIR, "playlists.json")
                 if target.exists(): target.unlink()
@@ -467,6 +587,8 @@ def _import_worker(job_id, archive_path, mode, keep_backup, selected):
                 rel = file_path.relative_to(source_lib)
                 if rel.as_posix() == ".manifest.json":
                     continue
+                if rel.parts and rel.parts[0] == "_videos":
+                    continue
                 if "music" not in selected:
                     continue
                 target, duplicate = _copy_with_unique_name(file_path, library / rel)
@@ -479,7 +601,6 @@ def _import_worker(job_id, archive_path, mode, keep_backup, selected):
                 _copy_tree_merge(source_data / "picture", Path(DATA_DIR, "picture"))
                 _copy_tree_merge(source_data / "Lyrics", Path(DATA_DIR, "Lyrics"))
                 _copy_tree_merge(source_data / "metadata", Path(DATA_DIR, "metadata"))
-                _copy_tree_merge(source_data / "videos", Path(DATA_DIR, "videos"))
                 _restore_album_catalog(source_data, library, imported_wins=False)
             if "artists" in selected:
                 _copy_tree_merge(source_data / "artists_img", Path(DATA_DIR, "artists_img"))
@@ -502,6 +623,15 @@ def _import_worker(job_id, archive_path, mode, keep_backup, selected):
                     current_manifest[new_path] = {**entry, "file_path": new_path}
             with open(manifest_path, "w", encoding="utf-8") as f:
                 json.dump(current_manifest, f, ensure_ascii=False, indent=2)
+            video_path_map = {}
+            if include_video_files:
+                for file_path in _iter_files(source_lib / "_videos"):
+                    relative = file_path.relative_to(source_lib)
+                    target, _ = _copy_with_unique_name(file_path, library / relative)
+                    video_path_map[relative.as_posix()] = target.relative_to(library).as_posix()
+            if "videos" in selected or "albums" in selected:
+                _copy_tree_merge(source_data / "videos" / "covers", Path(DATA_DIR, "videos", "covers"))
+                _restore_video_metadata(source_data, {**path_map, **video_path_map}, replace_all=False, imported_wins=False)
             _check_cancel(job_id)
             try:
                 if "playlists" not in selected:

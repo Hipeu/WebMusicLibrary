@@ -124,7 +124,7 @@ export default function PlaylistDetail({
 
   return (
     <div style={styles.container} className="playlist-detail-page">
-      <button style={styles.backBtn} onClick={onBack} title="返回">
+      <button className="detail-back-btn" style={styles.backBtn} onClick={onBack} title="返回">
         <FaArrowLeft size={18} />
       </button>
 
@@ -162,7 +162,7 @@ export default function PlaylistDetail({
         <div style={{ ...styles.infoColumn, ...(description ? styles.infoColumnWithDescription : {}) }}>
           <h1 style={styles.playlistTitle}>{playlist.name}</h1>
           {description && (
-            <button type="button" style={styles.descriptionButton} onClick={() => setShowDescriptionModal(true)} title="查看播放列表详情">
+            <button type="button" className="detail-description-button" style={styles.descriptionButton} onClick={() => setShowDescriptionModal(true)} title="查看播放列表详情">
               <span ref={descriptionRef} style={styles.descriptionText}>{description}</span>
               {descriptionOverflow && <span style={styles.descriptionHint}>更多</span>}
             </button>
