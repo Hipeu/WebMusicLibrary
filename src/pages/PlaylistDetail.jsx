@@ -5,6 +5,7 @@ import { songPlayable } from "../utils/formatCheck";
 import useCoverColor from "../components/CoverColor";
 import AlbumDescriptionModal from "../components/AlbumDescriptionModal";
 import RelatedVideos from "../components/RelatedVideos";
+import ExplicitTitle from "../components/ExplicitTitle";
 
 /* ================================================================
    📋 PlaylistDetail — 播放列表详情页
@@ -164,7 +165,7 @@ export default function PlaylistDetail({
           {description && (
             <button type="button" className="detail-description-button" style={styles.descriptionButton} onClick={() => setShowDescriptionModal(true)} title="查看播放列表详情">
               <span ref={descriptionRef} style={styles.descriptionText}>{description}</span>
-              {descriptionOverflow && <span style={styles.descriptionHint}>更多</span>}
+              {descriptionOverflow && <span className="detail-description-hint" style={styles.descriptionHint}>更多</span>}
             </button>
           )}
           <p style={styles.playlistMeta}>
@@ -241,6 +242,7 @@ export default function PlaylistDetail({
               {searchOpen ? (
                 <input
                   ref={searchInputRef}
+                  className="playlist-detail-search-input"
                   style={styles.searchInput}
                   placeholder="搜索歌曲"
                   value={searchText}
@@ -249,22 +251,22 @@ export default function PlaylistDetail({
                   onKeyDown={(e) => { if (e.key === "Escape") { setSearchText(""); setSearchOpen(false); } }}
                 />
               ) : (
-                <button style={styles.searchBtn} onClick={() => setSearchOpen(true)} title="搜索歌曲">
+                <button className="playlist-detail-toolbar-btn" style={styles.searchBtn} onClick={() => setSearchOpen(true)} title="搜索歌曲">
                   <FaSearch size={14} />
                 </button>
               )}
               <div style={{ position: "relative" }}>
-                <button style={{ ...styles.searchBtn, marginLeft: "8px" }} onClick={() => setFilterOpen((v) => !v)} title="过滤排序">
+                <button className="playlist-detail-toolbar-btn" style={{ ...styles.searchBtn, marginLeft: "8px" }} onClick={() => setFilterOpen((v) => !v)} title="过滤排序">
                   <FaSort size={14} />
                 </button>
                 {filterOpen && (
                   <>
                     <div style={styles.filterOverlay} onClick={() => setFilterOpen(false)} />
-                    <div style={styles.filterMenu}>
-                      <button style={styles.filterItem} onClick={() => handleFilterPick("name")}>按名称（A-Z）{filterArrow("name")}</button>
-                      <button style={styles.filterItem} onClick={() => handleFilterPick("artist")}>按艺人（A-Z）{filterArrow("artist")}</button>
-                      <button style={styles.filterItem} onClick={() => handleFilterPick("year")}>按时间（专辑年份）{filterArrow("year")}</button>
-                      <button style={styles.filterItem} onClick={() => handleFilterPick("added")}>按添加顺序{filterArrow("added")}</button>
+                    <div className="playlist-detail-filter-menu" style={styles.filterMenu}>
+                      <button className="playlist-detail-filter-item" style={styles.filterItem} onClick={() => handleFilterPick("name")}>按名称（A-Z）{filterArrow("name")}</button>
+                      <button className="playlist-detail-filter-item" style={styles.filterItem} onClick={() => handleFilterPick("artist")}>按艺人（A-Z）{filterArrow("artist")}</button>
+                      <button className="playlist-detail-filter-item" style={styles.filterItem} onClick={() => handleFilterPick("year")}>按时间（专辑年份）{filterArrow("year")}</button>
+                      <button className="playlist-detail-filter-item" style={styles.filterItem} onClick={() => handleFilterPick("added")}>按添加顺序{filterArrow("added")}</button>
                     </div>
                   </>
                 )}
@@ -334,7 +336,7 @@ export default function PlaylistDetail({
                         ...(isMissing ? styles.songTitleMissing : {}),
                       }}
                     >
-                      {song.title}
+                      <ExplicitTitle>{song.title}</ExplicitTitle>
                     </span>
                     <span
                       className="detail-song-artist"
@@ -444,7 +446,8 @@ export default function PlaylistDetail({
           <div style={styles.playlistPanel} onClick={(e) => e.stopPropagation()}>
             <h3 style={styles.panelTitle}>添加到播放列表</h3>
             <input
-              style={styles.panelSearch}
+                className="playlist-search-input"
+                style={styles.panelSearch}
               placeholder="搜索播放列表…"
               value={panelSearch}
               onChange={(e) => setPanelSearch(e.target.value)}

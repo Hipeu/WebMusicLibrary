@@ -313,6 +313,9 @@ html[data-theme="dark"] .lyrics-scroll.lyrics-scroll-visible:hover::-webkit-scro
   display: grid;
   gap: 10px;
 }
+.explicit-marker { display: inline-grid; place-items: center; width: 1.05em; height: 1.05em; margin-left: .3em; border-radius: 2px; vertical-align: .06em; background: #9ca3af; color: #111827; font-size: .72em; font-weight: 800; line-height: 1; }
+html[data-theme="dark"] .explicit-marker { background: #d1d5db; color: #111827; }
+.search-grid > * { min-width: 0; }
 .search-grid-4 { grid-template-columns: repeat(4, 1fr); }
 .search-grid-5 { grid-template-columns: repeat(5, 1fr); }
 
@@ -331,6 +334,8 @@ html[data-theme="dark"] .lyrics-scroll.lyrics-scroll-visible:hover::-webkit-scro
 
 .search-result-card {
   width: 200px;
+  max-width: 100%;
+  min-width: 0;
   justify-self: start;
   border-radius: 8px;
   cursor: pointer;
@@ -359,6 +364,10 @@ html[data-theme="dark"] .lyrics-scroll.lyrics-scroll-visible:hover::-webkit-scro
   color: #9ca3af;
   font-size: 28px;
 }
+.search-video-card-cover { aspect-ratio: 16 / 9; height: auto; }
+.search-video-card-missing { opacity: .7; }
+.library-video-card .coverPlaceholder { color: #64748b; }
+.library-video-play-badge { position: absolute; left: 11px; bottom: 9px; width: 33px; height: 33px; border-radius: 50%; display: grid; place-items: center; background: rgba(15,23,42,.72); color: #fff; pointer-events: none; }
 .search-playlist-cover-overlay,
 .search-playlist-cover-title {
   position: absolute;
@@ -377,6 +386,7 @@ html[data-theme="dark"] .lyrics-scroll.lyrics-scroll-visible:hover::-webkit-scro
   text-shadow: 0 1px 3px rgba(0,0,0,.45);
   background: linear-gradient(transparent 48%, rgba(0,0,0,.45));
 }
+.search-playlist-cover-title span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .search-section-header {
   display: flex;
@@ -420,6 +430,7 @@ html[data-theme="dark"] .lyrics-scroll.lyrics-scroll-visible:hover::-webkit-scro
   border-radius: 8px;
   cursor: pointer;
   transition: background 0.15s;
+  min-width: 0;
 }
 .search-song-card:hover {
   background: #f3f4f6;
@@ -474,6 +485,7 @@ html[data-theme="dark"] .lyrics-scroll.lyrics-scroll-visible:hover::-webkit-scro
 /* 专辑卡片（小）文字区 */
 .search-album-info {
   padding: 6px 2px 0;
+  min-width: 0;
 }
 .search-album-title {
   font-size: 18px;
@@ -517,11 +529,13 @@ html[data-theme="dark"] .lyrics-scroll.lyrics-scroll-visible:hover::-webkit-scro
   white-space: nowrap;
   display: block;
   margin-top: 6px;
+  max-width: 100%;
 }
 
 /* 播放列表卡片文字区 */
 .search-pl-info {
   padding: 6px 2px 0;
+  min-width: 0;
 }
 .search-pl-name {
   font-size: 18px;
@@ -537,6 +551,9 @@ html[data-theme="dark"] .lyrics-scroll.lyrics-scroll-visible:hover::-webkit-scro
   color: #9ca3af;
   display: block;
   margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ================================================================
@@ -1712,13 +1729,122 @@ html[data-theme="dark"] .music-edit-dialog [style*="borderTop: 1px solid"] { bor
 html[data-theme="dark"] .music-edit-dialog .music-edit-top-section,
 html[data-theme="dark"] .music-edit-dialog .music-edit-footer { border-color:transparent!important; }
 
+/* Shared dialog controls and dark-only picker surfaces. */
+html[data-theme="dark"] .dialog-close-btn,
+html[data-theme="dark"] .match-detail-close,
+html[data-theme="dark"] .description-detail-close,
+html[data-theme="dark"] .web-video-dialog-close {
+  background:#393956!important;
+  border:1px solid #56567a!important;
+  color:#f1f5f9!important;
+}
+html[data-theme="dark"] .dialog-close-btn:hover,
+html[data-theme="dark"] .match-detail-close:hover,
+html[data-theme="dark"] .description-detail-close:hover,
+html[data-theme="dark"] .web-video-dialog-close:hover { background:#4a4a6b!important; }
+.dialog-close-btn:focus-visible,
+.picker-source-chip:focus-visible,
+.picker-search-btn:focus-visible,
+.picker-use-btn:focus-visible,
+.picker-pager-btn:focus-visible,
+.library-filter-chip:focus-visible {
+  outline:2px solid #fb7185;
+  outline-offset:2px;
+}
+
+html[data-theme="dark"] .match-result-picker-dialog,
+html[data-theme="dark"] .album-match-picker-dialog,
+html[data-theme="dark"] .lyric-import-dialog {
+  background:#282843!important;
+  border:1px solid #414163;
+  color:#e5e7eb;
+}
+html[data-theme="dark"] .picker-dialog-title { color:#f8fafc!important; }
+html[data-theme="dark"] .picker-dialog-subtitle,
+html[data-theme="dark"] .picker-pager-info { color:#cbd5e1!important; }
+html[data-theme="dark"] .picker-source-chip,
+html[data-theme="dark"] .picker-pager-btn,
+html[data-theme="dark"] .picker-use-btn,
+html[data-theme="dark"] .lyric-file-btn {
+  background:#343451!important;
+  border-color:#56567a!important;
+  color:#e5e7eb!important;
+}
+html[data-theme="dark"] .picker-source-chip:hover,
+html[data-theme="dark"] .picker-pager-btn:hover,
+html[data-theme="dark"] .picker-use-btn:hover,
+html[data-theme="dark"] .lyric-file-btn:hover { background:#414163!important; }
+html[data-theme="dark"] .picker-source-chip.is-selected,
+html[data-theme="dark"] .picker-search-btn,
+html[data-theme="dark"] .lyric-import-tab.is-selected {
+  background:#e94560!important;
+  border-color:#e94560!important;
+  color:#fff!important;
+}
+html[data-theme="dark"] .picker-search-btn:disabled,
+html[data-theme="dark"] .picker-pager-btn:disabled,
+html[data-theme="dark"] .picker-use-btn:disabled { opacity:.5; cursor:not-allowed; }
+html[data-theme="dark"] .picker-result-item,
+html[data-theme="dark"] .lyric-result-item { background:#343451!important; border-color:#4b4b70!important; }
+html[data-theme="dark"] .match-result-picker-dialog [style*="color: #1f2937"] { color:#f1f5f9!important; }
+html[data-theme="dark"] .match-result-picker-dialog [style*="color: #6b7280"],
+html[data-theme="dark"] .match-result-picker-dialog [style*="color: #4b5563"],
+html[data-theme="dark"] .lyric-import-dialog [style*="color: #6b7280"],
+html[data-theme="dark"] .lyric-import-dialog [style*="color: #4b5563"] { color:#cbd5e1!important; }
+html[data-theme="dark"] .lyric-import-tabs { background:#202038!important; }
+html[data-theme="dark"] .lyric-import-tab { color:#cbd5e1!important; }
+html[data-theme="dark"] .lyric-preview,
+html[data-theme="dark"] .lyric-import-textarea {
+  background:#202038!important;
+  border-color:#4b4b70!important;
+  color:#e5e7eb!important;
+}
+html[data-theme="dark"] .lyric-import-textarea::placeholder { color:#8f8fac; }
+
+/* Album/song editing controls. The match status keeps its own semantic color. */
+html[data-theme="dark"] .music-edit-tab-capsule { background:#19192e!important; border:1px solid #464669; }
+html[data-theme="dark"] .music-edit-tab { color:#cbd5e1!important; }
+html[data-theme="dark"] .music-edit-tab.is-selected { background:#e94560!important; color:#fff!important; box-shadow:0 4px 12px rgba(233,69,96,.35)!important; }
+html[data-theme="dark"] .music-edit-smart-btn,
+html[data-theme="dark"] .music-edit-match-btn {
+  background:#343451!important;
+  border-color:#fb7185!important;
+  color:#f8fafc!important;
+}
+html[data-theme="dark"] .music-edit-smart-btn:hover,
+html[data-theme="dark"] .music-edit-match-btn:hover { background:#494969!important; }
+html[data-theme="dark"] .music-edit-match-btn:disabled { opacity:.55; }
+html[data-theme="dark"] .music-edit-type-row [style*="color: #6b7280"]:not(.music-edit-match-status),
+html[data-theme="dark"] .music-edit-type-row [style*="color: #374151"]:not(.music-edit-match-status),
+html[data-theme="dark"] .music-edit-type-row [style*="color: #1f2937"]:not(.music-edit-match-status) { color:#f1f5f9!important; }
+html[data-theme="dark"] .music-edit-match-status[style*="22a34a"] { color:#4ade80!important; }
+html[data-theme="dark"] .music-edit-match-status[style*="9ca3af"] { color:#cbd5e1!important; }
+html[data-theme="dark"] .music-edit-type-row > span:not(.music-edit-match-status) { color:#e4e4e7!important; }
+html[data-theme="dark"] .music-edit-match-status.is-matched { color:#4ade80!important; }
+html[data-theme="dark"] .music-edit-match-status.is-unmatched { color:#cbd5e1!important; }
+
+/* Library metadata and filter controls. */
+html[data-theme="dark"] .album-detail-publisher,
+html[data-theme="dark"] .album-detail-song-count,
+html[data-theme="dark"] .song-table-header,
+html[data-theme="dark"] .song-table-header > div,
+html[data-theme="dark"] .song-table-cell,
+html[data-theme="dark"] .song-table-cell span { color:#f1f5f9!important; }
+html[data-theme="dark"] .library-filter-chip {
+  background:#343451!important;
+  border-color:#56567a!important;
+  color:#e5e7eb!important;
+}
+html[data-theme="dark"] .library-filter-chip:hover { background:#414163!important; }
+html[data-theme="dark"] .library-filter-chip.is-selected { background:#e94560!important; border-color:#e94560!important; color:#fff!important; }
+
 /* Dark theme follow-up: descriptions, add menu and metadata browsers. */
 html[data-theme="dark"] .album-detail-page .detail-description-button,
 html[data-theme="dark"] .playlist-detail-page .detail-description-button { color:#f1f5f9!important; }
 html[data-theme="dark"] .album-detail-page .detail-description-button > span:first-child,
 html[data-theme="dark"] .playlist-detail-page .detail-description-button > span:first-child { color:#f1f5f9!important; }
-html[data-theme="dark"] .album-detail-page .detail-description-button > span:last-child,
-html[data-theme="dark"] .playlist-detail-page .detail-description-button > span:last-child { color:#fb7185!important; }
+html[data-theme="dark"] .album-detail-page .detail-description-hint,
+html[data-theme="dark"] .playlist-detail-page .detail-description-hint { color:#fb7185!important; }
 
 html[data-theme="dark"] .description-detail-dialog { background:#282843!important;color:#e5e7eb!important; }
 html[data-theme="dark"] .description-detail-header { background:linear-gradient(135deg,#30304d,#282843)!important; }
@@ -1815,6 +1941,96 @@ html[data-theme="dark"] .app-confirm-dialog .app-confirm-secondary {
 html[data-theme="dark"] .app-confirm-dialog .app-confirm-primary { background:#e94560!important;border-color:#e94560!important;color:#fff!important; }
 
 html[data-theme="dark"] .playlist-cover-style-label { color:#fff!important; }
+
+/* Search and sort controls above playlist songs. */
+html[data-theme="dark"] .playlist-detail-toolbar-btn {
+  background:#343451!important;
+  border-color:#56567a!important;
+  color:#e4e4e7!important;
+}
+html[data-theme="dark"] .playlist-detail-toolbar-btn:hover { background:#424260!important; }
+html[data-theme="dark"] .playlist-detail-search-input {
+  background:#202038!important;
+  border-color:#56567a!important;
+  color:#e4e4e7!important;
+}
+html[data-theme="dark"] .playlist-detail-search-input::placeholder { color:#9494af!important; }
+html[data-theme="dark"] .playlist-detail-filter-menu {
+  background:#282843!important;
+  border-color:#4b4b70!important;
+  box-shadow:0 12px 40px rgba(0,0,0,.38)!important;
+}
+html[data-theme="dark"] .playlist-detail-filter-item { color:#e4e4e7!important; }
+html[data-theme="dark"] .playlist-detail-filter-item:hover,
+html[data-theme="dark"] .playlist-detail-filter-item:focus-visible { background:#3a3a59!important; outline:none; }
+
+/* Album-detail supporting copy uses the same tone as its title. */
+html[data-theme="dark"] .album-detail-page .detail-description-button,
+html[data-theme="dark"] .album-detail-page .detail-description-button > span:first-child,
+html[data-theme="dark"] .album-detail-page .detail-song-title,
+html[data-theme="dark"] .album-detail-page .detail-song-artist,
+html[data-theme="dark"] .album-detail-song-index,
+html[data-theme="dark"] .album-detail-publisher,
+html[data-theme="dark"] .album-detail-song-count { color:#e4e4e7!important; }
+html[data-theme="dark"] .album-detail-page .detail-description-hint { color:#fb7185!important; }
+
+/* Keep secondary library details on the same contrast scale as album titles. */
+html[data-theme="dark"] .album-detail-page .albumGenre,
+html[data-theme="dark"] .album-detail-page .menuTriggerBtn,
+html[data-theme="dark"] .album-menu-btn { color:#e4e4e7!important; }
+html[data-theme="dark"] .album-genre-chip,
+html[data-theme="dark"] .album-detail-menu-trigger {
+  background:#343451!important;
+  border-color:#56567a!important;
+  color:#e4e4e7!important;
+}
+html[data-theme="dark"] .sidebar-playlist-thumb {
+  background:#343451!important;
+  border-color:#56567a!important;
+  color:#e4e4e7!important;
+}
+html[data-theme="dark"] .music-edit-picker-btn,
+html[data-theme="dark"] .music-edit-change-cover-btn,
+html[data-theme="dark"] .music-edit-cancel-btn {
+  background:#343451!important;
+  border-color:#56567a!important;
+  color:#e4e4e7!important;
+}
+html[data-theme="dark"] .music-edit-picker-btn:hover,
+html[data-theme="dark"] .music-edit-change-cover-btn:hover,
+html[data-theme="dark"] .music-edit-cancel-btn:hover { background:#424260!important; }
+html[data-theme="dark"] .music-edit-description-input {
+  background:#202038!important;
+  border-color:#4b4b70!important;
+  color:#e4e4e7!important;
+}
+html[data-theme="dark"] .music-edit-description-input::placeholder { color:#9494af!important; }
+html[data-theme="dark"] .library-sort-select {
+  background:#343451!important;
+  border-color:#56567a!important;
+  color:#e4e4e7!important;
+}
+html[data-theme="dark"] .playlist-search-input {
+  background:#202038!important;
+  border-color:#56567a!important;
+  color:#e4e4e7!important;
+}
+html[data-theme="dark"] .playlist-search-input::placeholder { color:#9494af!important; }
+html[data-theme="dark"] .song-table-cell,
+html[data-theme="dark"] .song-table-cell span { color:#e4e4e7!important; }
+html[data-theme="dark"] .song-table-cell .library-song-link { color:#e94560!important; }
+
+/* Composer, lyricist, genre and video browsers share album-title contrast. */
+html[data-theme="dark"] .metadata-browser-page,
+html[data-theme="dark"] .metadata-browser-page h1,
+html[data-theme="dark"] .metadata-browser-page h2,
+html[data-theme="dark"] .metadata-name-row,
+html[data-theme="dark"] .metadata-album-card,
+html[data-theme="dark"] .metadata-artist-card,
+html[data-theme="dark"] .video-library-page,
+html[data-theme="dark"] .video-detail-page,
+html[data-theme="dark"] .video-card,
+html[data-theme="dark"] .video-card strong { color:#e4e4e7!important; }
 
 /* One consistent back affordance across every dark detail view. */
 html[data-theme="dark"] .detail-back-btn,

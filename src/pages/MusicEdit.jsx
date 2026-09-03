@@ -310,10 +310,10 @@ export default function MusicEdit({ target, onClose, onSave, onMatchError, onBac
             </p>
           </div>
           <div style={styles.headerActions} className="music-edit-header-actions">
-            {smartAvailable && <button style={styles.smartBtn} onClick={handleSmartSuggestion} title="由默认智能供应商补充文字信息">
+            {smartAvailable && <button className="music-edit-smart-btn" style={styles.smartBtn} onClick={handleSmartSuggestion} title="由默认智能供应商补充文字信息">
               <FaRobot size={13} style={{ marginRight: 6 }} />智能建议
             </button>}
-            <button style={styles.matchBtn} onClick={() => (isAlbum ? setShowAlbumPicker(true) : setShowSongPicker(true))} disabled={matching} title="按设置中的字段与源进行匹配">
+            <button className="music-edit-match-btn" style={styles.matchBtn} onClick={() => (isAlbum ? setShowAlbumPicker(true) : setShowSongPicker(true))} disabled={matching} title="按设置中的字段与源进行匹配">
               <FaLink size={13} style={{ marginRight: 6 }} />
               {matching ? "匹配中…" : (didMatch || albumDidMatch) ? "✔已匹配" : (isAlbum ? "匹配专辑" : "匹配")}
             </button>
@@ -322,11 +322,12 @@ export default function MusicEdit({ target, onClose, onSave, onMatchError, onBac
         {matchMsg && <p style={styles.matchMsg}>{matchMsg}</p>}
 
         {/* 标签栏 */}
-        <div style={styles.tabBar}>
-          <div style={styles.tabCapsule}>
+        <div className="music-edit-tab-bar" style={styles.tabBar}>
+          <div className="music-edit-tab-capsule" style={styles.tabCapsule}>
             {tabs.map((tab) => (
               <button
                 key={tab.id}
+                className={`music-edit-tab${activeTab === tab.id ? " is-selected" : ""}`}
                 style={{
                   ...styles.tabBtn,
                   ...(activeTab === tab.id ? styles.tabBtnActive : {}),
@@ -351,7 +352,7 @@ export default function MusicEdit({ target, onClose, onSave, onMatchError, onBac
                 <label style={styles.label}>艺人</label>
                 <div style={styles.inputWithArrow}>
                   <input ref={artistInputRef} style={{ ...styles.input, flex: 1, minWidth: 0 }} value={form.artist || ""} onChange={(e) => handleChange("artist", e.target.value)} />
-                  <button type="button" style={styles.inputArrowBtn} onClick={() => setOpenField(openField === "artist" ? null : "artist")} title="选择艺人"><FaChevronDown size={12} /></button>
+                  <button type="button" className="music-edit-picker-btn" style={styles.inputArrowBtn} onClick={() => setOpenField(openField === "artist" ? null : "artist")} title="选择艺人"><FaChevronDown size={12} /></button>
                 </div>
               </div>
               {isAlbum ? (
@@ -360,7 +361,7 @@ export default function MusicEdit({ target, onClose, onSave, onMatchError, onBac
                     <label style={styles.label}>专辑艺人</label>
                     <div style={styles.inputWithArrow}>
                       <input ref={albumArtistInputRef} style={{ ...styles.input, flex: 1, minWidth: 0 }} value={form.album_artist ?? ""} onChange={(e) => handleChange("album_artist", e.target.value)} />
-                      <button type="button" style={styles.inputArrowBtn} onClick={() => setOpenField(openField === "album_artist" ? null : "album_artist")} title="选择专辑艺人"><FaChevronDown size={12} /></button>
+                      <button type="button" className="music-edit-picker-btn" style={styles.inputArrowBtn} onClick={() => setOpenField(openField === "album_artist" ? null : "album_artist")} title="选择专辑艺人"><FaChevronDown size={12} /></button>
                     </div>
                   </div>
                   <div style={styles.field}>
@@ -371,7 +372,7 @@ export default function MusicEdit({ target, onClose, onSave, onMatchError, onBac
                     <label style={styles.label}>流派</label>
                     <div style={styles.inputWithArrow}>
                       <input ref={genreInputRef} style={{ ...styles.input, flex: 1, minWidth: 0 }} value={form.genre || ""} onChange={(e) => handleChange("genre", e.target.value)} />
-                      <button type="button" style={styles.inputArrowBtn} onClick={() => setOpenField(openField === "genre" ? null : "genre")} title="选择流派"><FaChevronDown size={12} /></button>
+                      <button type="button" className="music-edit-picker-btn" style={styles.inputArrowBtn} onClick={() => setOpenField(openField === "genre" ? null : "genre")} title="选择流派"><FaChevronDown size={12} /></button>
                     </div>
                   </div>
                   <div style={styles.field}>
@@ -389,7 +390,7 @@ export default function MusicEdit({ target, onClose, onSave, onMatchError, onBac
                     <label style={styles.label}>专辑艺人</label>
                     <div style={styles.inputWithArrow}>
                       <input ref={albumArtistInputRef} style={{ ...styles.input, flex: 1, minWidth: 0 }} value={form.album_artist ?? ""} onChange={(e) => handleChange("album_artist", e.target.value)} />
-                      <button type="button" style={styles.inputArrowBtn} onClick={() => setOpenField(openField === "album_artist" ? null : "album_artist")} title="选择专辑艺人"><FaChevronDown size={12} /></button>
+                      <button type="button" className="music-edit-picker-btn" style={styles.inputArrowBtn} onClick={() => setOpenField(openField === "album_artist" ? null : "album_artist")} title="选择专辑艺人"><FaChevronDown size={12} /></button>
                     </div>
                   </div>
                   <div style={styles.field}>
@@ -400,7 +401,7 @@ export default function MusicEdit({ target, onClose, onSave, onMatchError, onBac
                     <label style={styles.label}>流派</label>
                     <div style={styles.inputWithArrow}>
                       <input ref={genreInputRef} style={{ ...styles.input, flex: 1, minWidth: 0 }} value={form.genre || ""} onChange={(e) => handleChange("genre", e.target.value)} />
-                      <button type="button" style={styles.inputArrowBtn} onClick={() => setOpenField(openField === "genre" ? null : "genre")} title="选择流派"><FaChevronDown size={12} /></button>
+                      <button type="button" className="music-edit-picker-btn" style={styles.inputArrowBtn} onClick={() => setOpenField(openField === "genre" ? null : "genre")} title="选择流派"><FaChevronDown size={12} /></button>
                     </div>
                   </div>
                   <div style={styles.fieldRow}>
@@ -451,7 +452,7 @@ export default function MusicEdit({ target, onClose, onSave, onMatchError, onBac
                 )}
               </div>
               {(editCover || data?.coverURL) && (
-                <button style={styles.changeCoverBtn} onClick={() => coverInputRef.current?.click()}>
+                <button className="music-edit-change-cover-btn" style={styles.changeCoverBtn} onClick={() => coverInputRef.current?.click()}>
                   <FaImage size={14} style={{ marginRight: "6px" }} />
                   更换封面
                 </button>
@@ -469,6 +470,7 @@ export default function MusicEdit({ target, onClose, onSave, onMatchError, onBac
           {activeTab === "description" && isAlbum && (
             <div style={styles.descriptionTab}>
               <textarea
+                className="music-edit-description-input"
                 style={styles.descriptionInput}
                 value={form.description || ""}
                 onChange={(e) => handleChange("description", e.target.value)}
@@ -481,7 +483,7 @@ export default function MusicEdit({ target, onClose, onSave, onMatchError, onBac
           {activeTab === "type" && (
             <div style={styles.typeTab}>
               {!isAlbum && (data?.codec || data?.container) && (
-                <div style={styles.typeRow}>
+                <div className="music-edit-type-row" style={styles.typeRow}>
                   <span style={styles.typeIcon}><FaCodeBranch size={13} /></span>
                   <span style={styles.typeLabel}>种类</span>
                   <span style={styles.typeValue}>{data?.codec || data?.container}</span>
@@ -489,13 +491,13 @@ export default function MusicEdit({ target, onClose, onSave, onMatchError, onBac
               )}
               {!isAlbum && data?.duration && (
                 <>
-                  <div style={styles.typeRow}>
+                  <div className="music-edit-type-row" style={styles.typeRow}>
                     <span style={styles.typeIcon}><FaClock size={13} /></span>
                     <span style={styles.typeLabel}>音乐时长</span>
                     <span style={styles.typeValue}>{formatDuration(data.duration)}</span>
                   </div>
                   {data?.bitrate && (
-                    <div style={styles.typeRow}>
+                    <div className="music-edit-type-row" style={styles.typeRow}>
                       <span style={styles.typeIcon}><FaCodeBranch size={13} /></span>
                       <span style={styles.typeLabel}>码率</span>
                       <span style={styles.typeValue}>{`${Math.round(data.bitrate / 1000)} kbps`}</span>
@@ -504,28 +506,28 @@ export default function MusicEdit({ target, onClose, onSave, onMatchError, onBac
                 </>
               )}
               {isAlbum && (
-                <div style={styles.typeRow}>
+                <div className="music-edit-type-row" style={styles.typeRow}>
                   <span style={styles.typeIcon}><FaMusic size={13} /></span>
                   <span style={styles.typeLabel}>歌曲数量</span>
                   <span style={styles.typeValue}>{data?.songs?.length || 0} 首</span>
                 </div>
               )}
-              <div style={styles.typeRow}>
+              <div className="music-edit-type-row" style={styles.typeRow}>
                 <span style={styles.typeIcon}><FaLink size={13} /></span>
                 <span style={styles.typeLabel}>匹配状态</span>
-                <span style={{ ...styles.typeValue, color: songMatched ? "#16a34a" : "#9ca3af" }}>
+                <span className={`music-edit-match-status ${songMatched ? "is-matched" : "is-unmatched"}`} style={{ ...styles.typeValue, color: songMatched ? "#16a34a" : "#9ca3af" }}>
                   {songMatched ? "已匹配" : "未匹配"}
                 </span>
               </div>
               {matchSourceDisplay && (
-                <div style={styles.typeRow}>
+                <div className="music-edit-type-row" style={styles.typeRow}>
                   <span style={styles.typeIcon}><FaCodeBranch size={13} /></span>
                   <span style={styles.typeLabel}>匹配源</span>
                   <span style={styles.typeValue}>{matchSourceDisplay}</span>
                 </div>
               )}
               {data?.importTime && (
-                <div style={styles.typeRow}>
+                <div className="music-edit-type-row" style={styles.typeRow}>
                   <span style={styles.typeIcon}><FaCalendarAlt size={13} /></span>
                   <span style={styles.typeLabel}>添加时间</span>
                   <span style={styles.typeValue}>{formatTimestamp(data.importTime)}</span>
@@ -572,7 +574,7 @@ export default function MusicEdit({ target, onClose, onSave, onMatchError, onBac
 
         {/* 底部按钮 */}
         <div className="music-edit-footer" style={styles.footer}>
-          <button style={styles.cancelBtn} onClick={onClose}>取消</button>
+          <button className="music-edit-cancel-btn" style={styles.cancelBtn} onClick={onClose}>取消</button>
           <button style={styles.saveBtn} onClick={() => handleSave().catch((err) => setMatchMsg(err?.message || "保存失败，请重试"))}>保存</button>
         </div>
 

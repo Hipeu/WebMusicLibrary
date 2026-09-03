@@ -4,7 +4,7 @@ export default function AlbumArtistPicker({ artists, onPick, onClose }) {
   return (
     <div style={styles.overlay} onClick={onClose}>
       <div style={styles.dialog} onClick={(event) => event.stopPropagation()}>
-        <button type="button" style={styles.closeButton} onClick={onClose} title="关闭">
+        <button type="button" className="dialog-close-btn" style={styles.closeButton} onClick={onClose} title="关闭">
           <FaTimes size={16} />
         </button>
         <h3 style={styles.title}>前往</h3>

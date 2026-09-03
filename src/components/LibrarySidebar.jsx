@@ -108,7 +108,7 @@ export default function Sidebar({
           onClick={() => onNavChange("playlists")}
           title="全部播放列表"
         >
-          <span style={{ ...styles.playlistThumb, ...(activeNav === "playlists" ? styles.playlistThumbActive : {}) }}>
+          <span className="sidebar-playlist-thumb" style={{ ...styles.playlistThumb, ...(activeNav === "playlists" ? styles.playlistThumbActive : {}) }}>
             <FaFolder />
           </span>
           <span className="sidebar-label" style={{ ...styles.label, ...(activeNav === "playlists" ? styles.labelActive : {}) }}>
@@ -130,6 +130,7 @@ export default function Sidebar({
               title={pl.name}
             >
             <span
+              className="sidebar-playlist-thumb"
               style={{
                 ...styles.playlistThumb,
                 ...(activeNav === pl.id ? styles.playlistThumbActive : {}),

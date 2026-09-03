@@ -4,6 +4,7 @@ import CoverPlayButton from "../components/CoverPlayButton";
 import { getAssetUrl } from "../services/api";
 import { loadPlayCounts, songPlayKey } from "../utils/playCount";
 import { splitArtists, isLiveAlbum, isPrimaryAlbum } from "../utils/artistSplit";
+import ExplicitTitle from "../components/ExplicitTitle";
 
 function normalizeCoverPosition(position) {
   const clamp = (value) => Math.max(0, Math.min(100, Number.isFinite(value) ? value : 50));
@@ -137,7 +138,7 @@ if (!artist) return null;
                     )}
                   </div>
                   <div style={styles.songCellText}>
-                    <p style={styles.songCellTitle}>{song.title}</p>
+                    <p style={styles.songCellTitle}><ExplicitTitle>{song.title}</ExplicitTitle></p>
                     <p style={styles.songCellAlbum}>{song.album}</p>
                   </div>
                 </div>
@@ -172,7 +173,7 @@ if (!artist) return null;
                     />
                   )}
                 </div>
-                <p style={styles.albumCardTitle}>{album.title}</p>
+                <p style={styles.albumCardTitle}><ExplicitTitle>{album.title}</ExplicitTitle></p>
                 <p style={styles.albumCardYear}>
                   {album.year ? `${album.year}` : "未知年份"}
                 </p>
@@ -306,7 +307,7 @@ if (!artist) return null;
                     )}
                   </div>
                   <div style={styles.songCellText}>
-                    <p style={styles.songCellTitle}>{song.title}</p>
+                    <p style={styles.songCellTitle}><ExplicitTitle>{song.title}</ExplicitTitle></p>
                     <p style={styles.songCellAlbum}>{song.album}</p>
                   </div>
                 </div>
@@ -372,7 +373,7 @@ if (!artist) return null;
                         <div style={styles.playingBadge}>▶</div>
                       )}
                     </div>
-                    <p style={styles.albumCardTitle}>{album.title}</p>
+                    <p style={styles.albumCardTitle}><ExplicitTitle>{album.title}</ExplicitTitle></p>
                     <p style={styles.albumCardYear}>
                       {album.year ? `${album.year}` : "未知年份"}
                     </p>
@@ -401,7 +402,7 @@ if (!artist) return null;
                       )}
                       <CoverPlayButton isActive={album.id === currentAlbumId} isPlaying={isPlaying} onTogglePlay={(e) => { e.stopPropagation(); onPlayAlbum && onPlayAlbum(album.id); }} />
                     </div>
-                    <p style={styles.albumCardTitle}>{album.title}</p>
+                    <p style={styles.albumCardTitle}><ExplicitTitle>{album.title}</ExplicitTitle></p>
                     <p style={styles.albumCardYear}>{album.year ? `${album.year}` : "未知年份"}</p>
                   </div>
                 ))}
@@ -425,7 +426,7 @@ if (!artist) return null;
                       )}
                       <CoverPlayButton isActive={album.id === currentAlbumId} isPlaying={isPlaying} onTogglePlay={(e) => { e.stopPropagation(); onPlayAlbum && onPlayAlbum(album.id); }} />
                     </div>
-                    <p style={styles.albumCardTitle}>{album.title}</p>
+                    <p style={styles.albumCardTitle}><ExplicitTitle>{album.title}</ExplicitTitle></p>
                     <p style={styles.albumCardYear}>{album.year ? `${album.year}` : "未知年份"}</p>
                   </div>
                 ))}

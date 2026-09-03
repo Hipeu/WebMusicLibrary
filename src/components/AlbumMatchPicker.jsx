@@ -111,9 +111,9 @@ export default function AlbumMatchPicker({ album_name, artist_name, onPick, onCl
   }
 
   return (
-    <div style={styles.overlay} onClick={onClose}>
-      <div style={styles.window} onClick={(e) => e.stopPropagation()}>
-        <button style={styles.closeBtn} onClick={onClose} title="关闭">
+    <div className="album-match-picker-overlay" style={styles.overlay} onClick={onClose}>
+      <div className="album-match-picker-dialog" style={styles.window} onClick={(e) => e.stopPropagation()}>
+        <button className="dialog-close-btn" style={styles.closeBtn} onClick={onClose} title="关闭">
           <FaTimes size={16} />
         </button>
         <h3 style={styles.title}>匹配专辑</h3>

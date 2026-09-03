@@ -26,6 +26,7 @@ import MatchDetail from "../components/MatchDetail";
 import MetadataBrowser from "../components/MetadataBrowser";
 import VideoLibrary from "../components/VideoLibrary";
 import VideoDetail from "../components/VideoDetail";
+import ExplicitTitle from "../components/ExplicitTitle";
 import "../styles/music-library.css";
 
 
@@ -290,7 +291,7 @@ const DEFAULT_PLAYLISTS = [
 
 // 主题是当前浏览器偏好；其余设置由后端同步到所有浏览器。
 const APP_SETTING_KEYS = [
-  "artist-keep-empty", "artist-hide-empty", "edit-publisher-copyright",
+  "artist-keep-empty", "artist-hide-empty", "edit-publisher-copyright", "display-explicit-marker",
   "delete-to-trash", "edit-auto-organize-collab", "import-skip-unplayable",
   "library-display-name", "library-show-more-categories",
   "library-category-composer", "library-category-lyricist", "library-category-genre", "library-category-video",
@@ -304,6 +305,26 @@ function collectAppSettings() {
   return Object.fromEntries(APP_SETTING_KEYS
     .map((key) => [key, localStorage.getItem(key)])
     .filter(([, value]) => value !== null));
+}
+
+/* 视频卡片：资料库首页使用与专辑、播放列表相同的网格位置和排序序列。 */
+function LibraryVideoCard({ video, albums, onOpen, order }) {
+  const linkedSong = (albums || []).flatMap((album) => album.songs || []).find((song) => videoMatchesSong(video, song));
+  const cover = video.cover_url || linkedSong?.coverURL || null;
+  const isMissing = video.source === "local" && video.file_exists === false;
+
+  return (
+    <div className={`album-card library-video-card${isMissing ? " video-card-missing" : ""}`} style={{ ...styles.libraryCard, order }} onClick={() => onOpen(video.id)}>
+      <div style={styles.coverWrapper}>
+        <div style={styles.coverPlaceholder}><FaVideo size={28} /></div>
+        {cover && <img src={cover} alt={video.title || "视频"} onError={(e) => { e.currentTarget.style.display = "none"; }} style={{ ...styles.coverImage, position: "absolute", inset: 0 }} />}
+        <div className="library-video-play-badge"><FaPlay size={13} /></div>
+        {isMissing && <div style={styles.albumCoverMissingOverlay} title="视频文件已经丢失" />}
+      </div>
+      <div style={styles.albumTitleRow}><p style={styles.albumTitle}><ExplicitTitle fallback="未命名视频">{video.title}</ExplicitTitle></p></div>
+      <p style={styles.albumArtist}>{video.artist || video.source_label || "视频"}</p>
+    </div>
+  );
 }
 
 function normalizeStoredVolume(value, fallback = 0.3) {
@@ -3471,7 +3492,7 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
   }, [currentAlbumId, isPlaying]);
 
   // ---------- 分类排序（资料库视图） ----------
-  const [librarySortMode, setLibrarySortMode] = useState("recent_add"); // "recent_add" | "recent_play" | "time" | "album" | "playlist"
+  const [librarySortMode, setLibrarySortMode] = useState("recent_add"); // "recent_add" | "recent_play" | "time" | "album" | "video"
 
   // ---------- 全部播放列表排序 ----------
   const [playlistSortMode, setPlaylistSortMode] = useState("recent_create"); // "recent_create" | "create_time" | "a-z"
@@ -3535,14 +3556,21 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
       item: playlist,
       sortTime: Number(playlist.createdAt) || parseInt(String(playlist.id || "").replace("pl_", "")) || 0,
     })),
-  ].filter(({ type }) => librarySortMode !== "album" || type === "album").sort((a, b) => {
+    ...videos.map((video) => ({ type: "video", item: video, sortTime: Number(video.import_time) || 0 })),
+  ].filter(({ type }) => {
+    if (librarySortMode === "album") return type === "album";
+    if (librarySortMode === "video") return type === "video";
+    return true;
+  }).sort((a, b) => {
     if (librarySortMode === "recent_add") return b.sortTime - a.sortTime;
     if (librarySortMode === "time") return (b.item.year || 0) - (a.item.year || 0);
     if (librarySortMode === "album") return (a.item.title || a.item.name || "").localeCompare(b.item.title || b.item.name || "", "zh-CN");
-    if (librarySortMode === "recent_play") return a.type === b.type ? 0 : (a.type === "album" ? -1 : 1);
+    if (librarySortMode === "recent_play") {
+      const typeOrder = { album: 0, playlist: 1, video: 2 };
+      return typeOrder[a.type] - typeOrder[b.type];
+    }
     return 0;
   });
-  const libraryItemOrder = new Map(libraryItems.map(({ type, item }, index) => [`${type}:${item.id}`, index]));
 
         // ---------- 歌曲视图排序 ----------
     const [songFilters, setSongFilters] = useState(new Set(["recent_add"])); // 多选过滤标签
@@ -3863,15 +3891,16 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                       setFilterText={setFilterText}
                       albums={albums}
                       playlists={playlists}
+                      videos={videos}
                       artistRecords={artistRecords}
                       onPlaySong={handlePlaySongFromSearch}
                       onOpenAlbum={handleOpenAlbumDetail}
                       onOpenArtist={handleOpenArtistDetail}
                       onOpenPlaylist={handleOpenPlaylistDetail}
+                      onOpenVideo={handleOpenVideoDetail}
                       onNavChange={handleNavChange}
                       currentSongIndex={currentSongIndex}
                       currentAlbumId={currentAlbumId}
-                      isPlaying={isPlaying}
                       togglePlay={togglePlay}
                     />
                   </main>
@@ -3906,6 +3935,7 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                         return (
                           <button
                             key={tag}
+                            className={`library-filter-chip${isActive ? " is-selected" : ""}`}
                             style={{
                               ...styles.sortBtn,
                               ...(isActive ? styles.sortBtnActive : {}),
@@ -4010,7 +4040,7 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                                 {isAlbumAllMissing(album) && <div style={styles.albumCoverMissingOverlay} />}
                                                             </div>
                               <div style={styles.albumTitleRow}>
-                                <p style={styles.albumTitle}>{album.title}</p>
+                                <p style={styles.albumTitle}><ExplicitTitle>{album.title}</ExplicitTitle></p>
                                 <button
                                   className="album-menu-btn"
                                   style={styles.albumMenuBtnInline}
@@ -4233,6 +4263,7 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                                           return (
                                             <button
                                               key={tag}
+                                              className={`library-filter-chip${isActive ? " is-selected" : ""}`}
                                               style={{
                                                 ...styles.sortBtn,
                                                 ...(isActive ? styles.sortBtnActive : {}),
@@ -4323,7 +4354,7 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                         <>
                         <div style={styles.songTable}>
                           {/* 表头 */}
-                                                    <div style={styles.songTableHeader}>
+                          <div className="song-table-header" style={styles.songTableHeader}>
                             <div style={styles.songColCheck}></div>
                             <div style={styles.songColTitle}>名称</div>
                             <div style={styles.songColArtist}>艺人</div>
@@ -4412,12 +4443,13 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                                                                        ...(isMissing ? styles.songCellTextMissing : {}),
                                                                        minWidth: 0,
                                                                      }}>
-                                                                       {song.title}
+                                                                       <ExplicitTitle>{song.title}</ExplicitTitle>
                                                                      </span>
                                                                   </div>
                                                                 </div>
-                                <div style={styles.songColArtist}>
+                                <div className="song-table-cell" style={styles.songColArtist}>
                                   <span
+                                    className="library-song-link"
                                     style={{
                                       ...styles.songCellText,
                                       ...styles.clickableCellText,
@@ -4428,18 +4460,19 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                                     {song.artist || "未知"}
                                   </span>
                                 </div>
-                                <div style={styles.songColYear}>
+                                <div className="song-table-cell" style={styles.songColYear}>
                                   <span style={styles.songCellText}>{song.albumYear ? `${song.albumYear}年` : "—"}</span>
                                 </div>
-                                                                <div style={styles.songColAlbum}>
+                                                                <div className="song-table-cell" style={styles.songColAlbum}>
                                   <span
+                                    className="library-song-link"
                                     style={{ ...styles.songCellText, ...styles.clickableCellText }}
                                     onClick={(e) => { e.stopPropagation(); handleOpenAlbumDetail(song.albumId); }}
                                   >
                                     {song.albumTitle}
                                   </span>
                                 </div>
-                                <div style={styles.songColDuration}>
+                                <div className="song-table-cell" style={styles.songColDuration}>
                                   <span style={styles.songCellText}>{formatDuration(song.duration)}</span>
                                 </div>
                                                                 <div style={styles.songColMenu}>
@@ -4555,6 +4588,7 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                                       ].map((opt) => (
                                         <button
                                           key={opt.id}
+                                          className={`library-filter-chip${playlistSortMode === opt.id ? " is-selected" : ""}`}
                                           style={{
                                             ...styles.sortBtn,
                                             ...(playlistSortMode === opt.id ? styles.sortBtnActive : {}),
@@ -4601,6 +4635,7 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                                     <div style={styles.sortBar}>
                                       {/* 下拉选框：最近添加 / 最近播放 */}
                                       <select
+                                        className="library-sort-select"
                                         style={styles.sortSelect}
                                         value={librarySortMode === "recent_add" || librarySortMode === "recent_play" ? librarySortMode : "recent_add"}
                                         onChange={(e) => setLibrarySortMode(e.target.value)}
@@ -4608,8 +4643,9 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                                         <option value="recent_add">最近添加</option>
                                         <option value="recent_play">最近播放</option>
                                       </select>
-                                      {/* 按钮：时间 / 专辑 / 播放列表 */}
+                                      {/* 按钮：时间 / 专辑 / 视频 */}
                                       <button
+                                        className={`library-filter-chip${librarySortMode === "time" ? " is-selected" : ""}`}
                                         style={{
                                           ...styles.sortBtn,
                                           ...(librarySortMode === "time" ? styles.sortBtnActive : {}),
@@ -4619,6 +4655,7 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                                         时间
                                       </button>
                                       <button
+                                        className={`library-filter-chip${librarySortMode === "album" ? " is-selected" : ""}`}
                                         style={{
                                           ...styles.sortBtn,
                                           ...(librarySortMode === "album" ? styles.sortBtnActive : {}),
@@ -4627,78 +4664,53 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                                       >
                                         专辑
                                       </button>
+                                      <button
+                                        className={`library-filter-chip${librarySortMode === "video" ? " is-selected" : ""}`}
+                                        style={{
+                                          ...styles.sortBtn,
+                                          ...(librarySortMode === "video" ? styles.sortBtnActive : {}),
+                                        }}
+                                        onClick={() => setLibrarySortMode("video")}
+                                      >
+                                        视频
+                                      </button>
                                     </div>
 
                                     {libraryItems.length === 0 ? (
                                       <div style={styles.emptyState}>
                                         <span style={styles.emptyIcon}>📀</span>
-                                        <p style={styles.emptyText}>还没有导入任何专辑</p>
-                                        <p style={styles.emptyHint}>点击右上角「导入音乐」按钮添加你的音乐文件</p>
+                                        <p style={styles.emptyText}>{librarySortMode === "video" ? "还没有导入任何视频" : "还没有导入任何内容"}</p>
+                                        <p style={styles.emptyHint}>点击右上角「添加」导入音乐文件或视频</p>
                                       </div>
                                     ) : (
                                       <>
                                       <div style={styles.libraryGrid}>
-                                        {/* 专辑卡片 */}
-                                        {librarySortedAlbums.slice(0, visibleCount).map((album) => {
+                                        {libraryItems.slice(0, visibleCount).map(({ type, item }, order) => {
+                                          if (type === "playlist") {
+                                            return <PlaylistCard key={`playlist:${item.id}`} pl={item} order={order} onOpen={handleOpenPlaylistDetail} onMenu={handleOpenPlaylistMenu} />;
+                                          }
+                                          if (type === "video") {
+                                            return <LibraryVideoCard key={`video:${item.id}`} video={item} albums={albums} order={order} onOpen={handleOpenVideoDetail} />;
+                                          }
+                                          const album = item;
                                           const isActive = album.id === currentAlbumId;
                                           return (
-                                            <div
-                                              key={album.id}
-                                              className="album-card"
-                                              style={{
-                                                ...styles.libraryCard,
-                                                order: libraryItemOrder.get(`album:${album.id}`),
-                                                ...(isActive ? styles.albumCardActive : {}),
-                                              }}
-                                              onClick={() => handleOpenAlbumDetail(album.id)}
-                                            >
+                                            <div key={`album:${album.id}`} className="album-card" style={{ ...styles.libraryCard, order, ...(isActive ? styles.albumCardActive : {}) }} onClick={() => handleOpenAlbumDetail(album.id)}>
                                               <div style={styles.coverWrapper}>
-                                                <div style={styles.coverPlaceholder}>
-                                                  <span style={styles.coverPlaceholderIcon}>🎶</span>
-                                                </div>
-                                                {album.coverURL && (
-                                                  <img
-                                                    src={album.coverURL}
-                                                    alt={album.title}
-                                                    onError={(e) => { e.currentTarget.style.display = "none"; }}
-                                                    style={{ ...styles.coverImage, position: "absolute", inset: 0 }}
-                                                  />
-                                                )}
-                                                <CoverPlayButton
-                                                  isActive={album.id === currentAlbumId}
-                                                  isPlaying={isPlaying}
-                                                  onTogglePlay={() => handleQuickPlay(album.id)}
-                                                />
-                                                {album.id === currentAlbumId && (
-                                                  <div style={styles.playingBadge}>▶ 正在播放</div>
-                                                )}
+                                                <div style={styles.coverPlaceholder}><span style={styles.coverPlaceholderIcon}>🎶</span></div>
+                                                {album.coverURL && <img src={album.coverURL} alt={album.title} onError={(e) => { e.currentTarget.style.display = "none"; }} style={{ ...styles.coverImage, position: "absolute", inset: 0 }} />}
+                                                <CoverPlayButton isActive={album.id === currentAlbumId} isPlaying={isPlaying} onTogglePlay={() => handleQuickPlay(album.id)} />
+                                                {album.id === currentAlbumId && <div style={styles.playingBadge}>▶ 正在播放</div>}
                                                 {isAlbumAllMissing(album) && <div style={styles.albumCoverMissingOverlay} />}
                                               </div>
                                               <div style={styles.albumTitleRow}>
-                                                <p style={styles.albumTitle}>{album.title}</p>
-                                                <button
-                                                  className="album-menu-btn"
-                                                  style={styles.albumMenuBtnInline}
-                                                  onClick={(e) => handleOpenAlbumMenu(e, album)}
-                                                  title="更多操作"
-                                                >
-                                                  <span style={styles.albumMenuDotsInline}>···</span>
-                                                </button>
+                                                <p style={styles.albumTitle}><ExplicitTitle>{album.title}</ExplicitTitle></p>
+                                                <button className="album-menu-btn" style={styles.albumMenuBtnInline} onClick={(e) => handleOpenAlbumMenu(e, album)} title="更多操作"><span style={styles.albumMenuDotsInline}>···</span></button>
                                               </div>
                                               <p style={styles.albumArtist}>{album.artist}</p>
                                             </div>
                                           );
                                         })}
-                                                                 {/* 播放列表卡片 */}
-                                                                {librarySortMode !== "album" && playlists.map((pl) => (
-                                          <PlaylistCard
-                                            key={pl.id}
-                                            pl={pl}
-                                            order={libraryItemOrder.get(`playlist:${pl.id}`)}
-                                            onOpen={handleOpenPlaylistDetail}
-                                            onMenu={handleOpenPlaylistMenu}
-                                          />
-                                          ))}
                                         </div>
                                        <div ref={sentinelRef} style={{ height: 1 }} />
                                        </>
@@ -4848,7 +4860,7 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
       {showCreatePlaylist && (
         <div style={styles.overlay} onClick={handleCloseCreatePlaylist}>
           <div style={{ ...styles.confirmDialog, ...styles.playlistDialog }} className="create-dialog" onClick={(e) => { e.stopPropagation(); setShowCoverMenu(false); }}>
-            <div style={styles.playlistDialogHeader}><h3 style={styles.createDialogTitle}>{editingPlaylistId ? "编辑播放列表" : "新建播放列表"}</h3><button style={styles.playlistDialogClose} onClick={handleCloseCreatePlaylist} title="关闭"><FaTimes /></button></div>
+            <div style={styles.playlistDialogHeader}><h3 style={styles.createDialogTitle}>{editingPlaylistId ? "编辑播放列表" : "新建播放列表"}</h3><button className="dialog-close-btn" style={styles.playlistDialogClose} onClick={handleCloseCreatePlaylist} title="关闭"><FaTimes /></button></div>
             <div style={styles.playlistDialogBody}>
               <div style={styles.createCoverSection}>
                 {newPlaylistCover ? <div style={styles.coverMenuWrap}><img src={newPlaylistCover} alt="封面" style={styles.createCover} /><button type="button" style={styles.coverMenuButton} title="封面操作" onClick={(e) => { e.stopPropagation(); setShowCoverMenu((value) => !value); }}><FaEllipsisH /></button>{showCoverMenu && <div style={styles.coverMenu} onClick={(e) => e.stopPropagation()}><button type="button" style={styles.coverMenuItem} onClick={() => { setShowCoverMenu(false); coverInputRef.current?.click(); }}>更换封面</button><button type="button" style={{ ...styles.coverMenuItem, color: "#ef233c" }} onClick={() => { setNewPlaylistCover(null); setNewPlaylistCoverRemoved(true); setShowCoverMenu(false); }}>移除封面</button></div>}</div> : <button type="button" style={styles.createCoverPlaceholder} onClick={() => coverInputRef.current?.click()}><FiPlus size={54} /><span style={styles.createCoverHint}>添加</span></button>}
@@ -4884,6 +4896,7 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
           <div style={styles.playlistPanel} onClick={(e) => e.stopPropagation()}>
             <h3 style={styles.panelTitle}>添加到播放列表</h3>
             <input
+              className="playlist-search-input"
               style={styles.panelSearch}
               placeholder="搜索播放列表…"
               value={panelSearch}
@@ -5146,7 +5159,7 @@ onArtistVisibilityChange={(value) => {
               <h3 style={styles.activityTitle}>活动</h3>
               {/* 关闭按钮在上，「全部已读」在下（右对齐）；无可见消息时隐藏 */}
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "16px" }}>
-                <button style={styles.activityClose} onClick={closeActivity} title="关闭">
+                <button className="dialog-close-btn" style={styles.activityClose} onClick={closeActivity} title="关闭">
                   <FaTimes size={16} />
                 </button>
                 {notifications.some((n) => !n.transient) && (

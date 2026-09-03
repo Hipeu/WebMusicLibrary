@@ -3,6 +3,7 @@ import { FaArrowLeft, FaCompactDisc, FaSearch, FaUser, FaVideo } from "react-ico
 import useCoverColor from "./CoverColor";
 import { getAssetUrl } from "../services/api";
 import { albumBelongsToArtist, splitArtists } from "../utils/artistSplit";
+import ExplicitTitle from "./ExplicitTitle";
 
 const splitValues = (value) => String(value || "").split(/[,，/、&;；]/).map((item) => item.trim()).filter(Boolean);
 const unique = (items) => Array.from(new Set(items));
@@ -11,7 +12,7 @@ const matches = (album, field, value) => splitValues(album[field]).includes(valu
 function AlbumCard({ album, onOpen }) {
   return <button type="button" className="metadata-album-card" style={styles.albumCard} onClick={() => onOpen?.(album.id)}>
     {album.coverURL ? <img src={album.coverURL} alt="" style={styles.albumCover} /> : <div style={styles.albumPlaceholder}><FaCompactDisc /></div>}
-    <span style={styles.albumName}>{album.title}</span><span style={styles.albumArtist}>{album.artist}</span>
+    <span style={styles.albumName}><ExplicitTitle>{album.title}</ExplicitTitle></span><span style={styles.albumArtist}>{album.artist}</span>
   </button>;
 }
 

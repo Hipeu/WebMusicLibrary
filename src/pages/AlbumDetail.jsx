@@ -8,6 +8,7 @@ import AlbumDescriptionModal from "../components/AlbumDescriptionModal";
 import AlbumArtistPicker from "../components/AlbumArtistPicker";
 import { splitArtists, joinArtists } from "../utils/artistSplit";
 import RelatedVideos from "../components/RelatedVideos";
+import ExplicitTitle from "../components/ExplicitTitle";
 
 /* ================================================================
    📀 AlbumDetail — 专辑详情页
@@ -131,7 +132,7 @@ export default function AlbumDetail({
 
         {/* 右：信息区（独立，可自由增删内容） */}
         <div style={{ ...styles.infoColumn, ...(description ? styles.infoColumnWithDescription : {}) }}>
-          <h1 style={styles.albumTitle}>{album.title}</h1>
+          <h1 style={styles.albumTitle}><ExplicitTitle>{album.title}</ExplicitTitle></h1>
           <p
             style={styles.albumArtist}
             onClick={() => { if (isMultiArtist) setShowArtistPicker(true); }}
@@ -175,7 +176,7 @@ export default function AlbumDetail({
           </p>
           <p style={styles.albumYear}>
             {yearText}年
-            {genreText && <><span style={styles.yearGenreSep}>·</span><span style={styles.albumGenre}>{genreText}</span></>}
+            {genreText && <><span style={styles.yearGenreSep}>·</span><span className="album-genre-chip" style={styles.albumGenre}>{genreText}</span></>}
           </p>
           {description && (
             <button className="detail-description-button"
@@ -187,7 +188,7 @@ export default function AlbumDetail({
               <span ref={descriptionRef} style={styles.descriptionText}>
                 {description}
               </span>
-              {descriptionOverflow && <span style={styles.descriptionHint}>更多</span>}
+              {descriptionOverflow && <span className="detail-description-hint" style={styles.descriptionHint}>更多</span>}
             </button>
           )}
                     <div style={styles.actionRow}>
@@ -209,6 +210,7 @@ export default function AlbumDetail({
                       </button>
                       <div style={{ position: "relative" }}>
                         <button
+                          className="album-detail-menu-trigger"
                           style={styles.menuTriggerBtn}
                           onClick={() => setShowAlbumMenu((v) => !v)}
                           title="更多"
@@ -286,7 +288,7 @@ export default function AlbumDetail({
                   className="detail-song-item"
                   onMouseLeave={() => isMenuOpen && setMenuSongIdx(null)}
                 >
-                  <span style={styles.songIndex}>
+                  <span className="album-detail-song-index" style={styles.songIndex}>
                     {isActive && isPlaying ? (
                       <PlayingAnimation />
                     ) : (
@@ -311,7 +313,7 @@ export default function AlbumDetail({
                       ...(isMissing ? styles.songTitleMissing : {}),
                     }}
                   >
-                    {song.title}
+                    <ExplicitTitle>{song.title}</ExplicitTitle>
                   </span>
                   <span
                     className="detail-song-artist"
@@ -407,9 +409,9 @@ export default function AlbumDetail({
             <div style={styles.dividerLine} />
             <div style={styles.songMetaRow}>
               {album.publisher && !isPlaceholderPublisher(album.publisher) && (
-                <span style={styles.songMetaText}>{album.publisher}</span>
+                <span className="album-detail-publisher" style={styles.songMetaText}>{album.publisher}</span>
               )}
-              <span style={styles.songCount}>{album.songs.length} 首</span>
+              <span className="album-detail-song-count" style={styles.songCount}>{album.songs.length} 首</span>
             </div>
             <RelatedVideos videos={videos} songs={album.songs || []} onOpen={onOpenVideo} onMore={onMoreVideos} />
           </div>
@@ -422,6 +424,7 @@ export default function AlbumDetail({
           <div style={styles.playlistPanel} onClick={(e) => e.stopPropagation()}>
             <h3 style={styles.panelTitle}>添加到播放列表</h3>
             <input
+              className="playlist-search-input"
               style={styles.panelSearch}
               placeholder="搜索播放列表…"
               value={panelSearch}

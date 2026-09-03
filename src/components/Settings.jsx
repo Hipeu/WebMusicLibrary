@@ -25,7 +25,7 @@ export default function Settings({ show, onClose, onReset, onSettingsSaved, onLi
   return (
     <div style={styles.overlay} onClick={onClose}>
       <div style={styles.window} className="settings-window" onClick={(e) => e.stopPropagation()}>
-        <button style={styles.closeBtn} onClick={onClose} title="关闭">
+        <button className="dialog-close-btn" style={styles.closeBtn} onClick={onClose} title="关闭">
           <FaTimes size={16} />
         </button>
         {/* 左侧功能栏 */}
@@ -294,6 +294,9 @@ function EditPanel({ onSettingsSaved, onArtistVisibilityChange }) {
   const [publisherCopyright, setPublisherCopyright] = useState(
     () => localStorage.getItem("edit-publisher-copyright") !== "false"
   );
+  const [explicitMarker, setExplicitMarker] = useState(
+    () => localStorage.getItem("display-explicit-marker") !== "false"
+  );
   const [deleteToTrash, setDeleteToTrash] = useState(
     () => localStorage.getItem("delete-to-trash") === "1"
   );
@@ -305,6 +308,13 @@ function EditPanel({ onSettingsSaved, onArtistVisibilityChange }) {
     const next = !publisherCopyright;
     setPublisherCopyright(next);
     localStorage.setItem("edit-publisher-copyright", String(next));
+    onSettingsSaved?.();
+  }
+
+  function handleToggleExplicitMarker() {
+    const next = !explicitMarker;
+    setExplicitMarker(next);
+    localStorage.setItem("display-explicit-marker", String(next));
     onSettingsSaved?.();
   }
 
@@ -347,6 +357,19 @@ function EditPanel({ onSettingsSaved, onArtistVisibilityChange }) {
               ...(publisherCopyright ? panelStyles.toggleKnobOn : {}),
             }}
           />
+        </button>
+      </div>
+      <div style={panelStyles.toggleRow} className="settings-card">
+        <div style={panelStyles.toggleText}>
+          <p style={panelStyles.toggleTitle}>粗俗音乐符号转换</p>
+          <p style={panelStyles.toggleDesc}>将歌曲或专辑名称后的（explicit）自动转换为 E 符号</p>
+        </div>
+        <button
+          style={{ ...panelStyles.toggleSwitch, ...(explicitMarker ? panelStyles.toggleSwitchOn : {}) }}
+          onClick={handleToggleExplicitMarker}
+          title={explicitMarker ? "点击关闭" : "点击开启"}
+        >
+          <div style={{ ...panelStyles.toggleKnob, ...(explicitMarker ? panelStyles.toggleKnobOn : {}) }} />
         </button>
       </div>
       <div style={panelStyles.toggleRow} className="settings-card">

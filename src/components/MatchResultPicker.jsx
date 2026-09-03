@@ -113,42 +113,43 @@ export default function MatchResultPicker({ song_name, artist_name, file_path, o
   }
 
   return (
-    <div style={styles.overlay} onClick={onClose}>
-      <div style={styles.window} onClick={(e) => e.stopPropagation()}>
-        <button style={styles.closeBtn} onClick={onClose} title="关闭">
+    <div className="match-result-picker-overlay" style={styles.overlay} onClick={onClose}>
+      <div className="match-result-picker-dialog" style={styles.window} onClick={(e) => e.stopPropagation()}>
+        <button className="dialog-close-btn" style={styles.closeBtn} onClick={onClose} title="关闭">
           <FaTimes size={16} />
         </button>
-        <h3 style={styles.title}>匹配结果</h3>
-        <p style={styles.subtitle}>
+        <h3 className="picker-dialog-title" style={styles.title}>匹配结果</h3>
+        <p className="picker-dialog-subtitle" style={styles.subtitle}>
           {song_name} · {artist_name}
         </p>
 
         {/* 源选择 + 独立搜索按钮 */}
-        <div style={styles.searchRow}>
+        <div className="picker-search-row" style={styles.searchRow}>
           {[["all", "全部"], ["qq", "QQ音乐"], ["netease", "网易云音乐"], ["itunes", "iTunes"]].map(([k, label]) => (
             <button
               key={k}
+              className={`picker-source-chip${sourceSel === k ? " is-selected" : ""}`}
               style={{ ...styles.srcChip, ...(sourceSel === k ? styles.srcChipActive : {}) }}
               onClick={() => selectSource(k)}
             >
               {label}
             </button>
           ))}
-          <button style={styles.searchBtn} onClick={handleSearch} disabled={loading}>
+          <button className="picker-search-btn" style={styles.searchBtn} onClick={handleSearch} disabled={loading}>
             {loading ? "搜索中…" : "搜索"}
           </button>
         </div>
 
-        {error && <p style={styles.error}>{error}</p>}
+        {error && <p className="picker-error" style={styles.error}>{error}</p>}
 
-        <div style={styles.resultList}>
+        <div className="picker-result-list" style={styles.resultList}>
           {loading ? (
             <p style={styles.emptyHint}>搜索中…</p>
           ) : fetchingMore && pageOutOfCache ? (
             <p style={styles.emptyHint}>正在加载…</p>
           ) : (
             displayed.map((r, i) => (
-              <div key={i} style={styles.resultItem}>
+              <div key={i} className="picker-result-item" style={styles.resultItem}>
                 {/* 封面缩略图（正方形，高度随卡片） */}
                 <div style={styles.coverBox}>
                   {r.cover_url ? (
@@ -176,7 +177,7 @@ export default function MatchResultPicker({ song_name, artist_name, file_path, o
                     <div style={styles.creditsLine}>作词：{r.lyricists.join(", ")}</div>
                   )}
                   <div style={styles.footerRow}>
-                    <button style={styles.useBtn} onClick={() => handlePick(r)}>
+                    <button className="picker-use-btn" style={styles.useBtn} onClick={() => handlePick(r)}>
                       使用此信息
                     </button>
                   </div>
@@ -192,11 +193,11 @@ export default function MatchResultPicker({ song_name, artist_name, file_path, o
         {/* 分页控件 */}
         {totalPages > 1 && (
           <div style={styles.pager}>
-            <button style={styles.pagerBtn} disabled={page <= 1 || loading || fetchingMore} onClick={() => goToPage(page - 1)}>
+            <button className="picker-pager-btn" style={styles.pagerBtn} disabled={page <= 1 || loading || fetchingMore} onClick={() => goToPage(page - 1)}>
               ‹
             </button>
             <span style={styles.pagerInfo}>共 {totalPages} 页结果 · 第 {page} 页</span>
-            <button style={styles.pagerBtn} disabled={page >= totalPages || loading || fetchingMore} onClick={() => goToPage(page + 1)}>
+            <button className="picker-pager-btn" style={styles.pagerBtn} disabled={page >= totalPages || loading || fetchingMore} onClick={() => goToPage(page + 1)}>
               ›
             </button>
           </div>

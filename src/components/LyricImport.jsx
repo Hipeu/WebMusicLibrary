@@ -72,22 +72,22 @@ export default function LyricImport({ song_name, artist_name, onUseLyric, onClos
   }
 
   return (
-    <div style={styles.overlay} onClick={onClose}>
-      <div style={styles.window} onClick={(e) => e.stopPropagation()}>
-        <button style={styles.closeBtn} onClick={onClose} title="关闭">
+    <div className="lyric-import-overlay" style={styles.overlay} onClick={onClose}>
+      <div className="lyric-import-dialog" style={styles.window} onClick={(e) => e.stopPropagation()}>
+        <button className="dialog-close-btn" style={styles.closeBtn} onClick={onClose} title="关闭">
           <FaTimes size={16} />
         </button>
-        <h3 style={styles.title}>导入歌词</h3>
-        <p style={styles.subtitle}>
+        <h3 className="picker-dialog-title" style={styles.title}>导入歌词</h3>
+        <p className="picker-dialog-subtitle" style={styles.subtitle}>
           {song_name} · {artist_name}
         </p>
 
         {/* Tab 切换 */}
-        <div style={styles.tabBar}>
-          <button style={{ ...styles.tabBtn, ...(tab === "online" ? styles.tabBtnActive : {}) }} onClick={() => setTab("online")}>
+        <div className="lyric-import-tabs" style={styles.tabBar}>
+          <button className={`lyric-import-tab${tab === "online" ? " is-selected" : ""}`} style={{ ...styles.tabBtn, ...(tab === "online" ? styles.tabBtnActive : {}) }} onClick={() => setTab("online")}>
             <FaCloudDownloadAlt size={13} style={{ marginRight: 6 }} /> 在线匹配
           </button>
-          <button style={{ ...styles.tabBtn, ...(tab === "manual" ? styles.tabBtnActive : {}) }} onClick={() => setTab("manual")}>
+          <button className={`lyric-import-tab${tab === "manual" ? " is-selected" : ""}`} style={{ ...styles.tabBtn, ...(tab === "manual" ? styles.tabBtnActive : {}) }} onClick={() => setTab("manual")}>
             <FaPaste size={13} style={{ marginRight: 6 }} /> 手动导入
           </button>
         </div>
@@ -95,30 +95,32 @@ export default function LyricImport({ song_name, artist_name, onUseLyric, onClos
         {tab === "online" ? (
           <div style={styles.body}>
             {/* 源选择 + 独立搜索按钮 */}
-            <div style={styles.searchRow}>
+            <div className="picker-search-row" style={styles.searchRow}>
               {[["all", "全部"], ["qq", "QQ音乐"], ["netease", "网易云音乐"]].map(([k, label]) => (
                 <button
                   key={k}
+                  className={`picker-source-chip${sourceSel === k ? " is-selected" : ""}`}
                   style={{ ...styles.srcChip, ...(sourceSel === k ? styles.srcChipActive : {}) }}
                   onClick={() => selectSource(k)}
                 >
                   {label}
                 </button>
               ))}
-              <button style={styles.searchBtn} onClick={() => handleOnlineSearch(1)} disabled={loading}>
+              <button className="picker-search-btn" style={styles.searchBtn} onClick={() => handleOnlineSearch(1)} disabled={loading}>
                 {loading ? "搜索中…" : "搜索"}
               </button>
             </div>
             {error && <p style={styles.error}>{error}</p>}
-            <div style={styles.resultList}>
+            <div className="picker-result-list" style={styles.resultList}>
               {results.map((r, i) => (
-                <div key={i} style={styles.resultItem}>
+                <div key={i} className="lyric-result-item" style={styles.resultItem}>
                   <div style={styles.resultHead}>
                     <span style={styles.sourceBadge}>{r.source_label || r.source}</span>
                     <span style={styles.resultMeta}>{r.song_name} · {r.artist}{r.album ? ` · ${r.album}` : ""}</span>
                   </div>
-                  <pre style={styles.lyricPreview}>{(r.lyric || "").slice(0, 400)}</pre>
+                  <pre className="lyric-preview" style={styles.lyricPreview}>{(r.lyric || "").slice(0, 400)}</pre>
                   <button
+                    className="picker-use-btn"
                     style={styles.useBtn}
                     onClick={() => { onUseLyric?.(r.lyric); onClose(); }}
                   >
@@ -133,11 +135,11 @@ export default function LyricImport({ song_name, artist_name, onUseLyric, onClos
             {/* 分页控件 */}
             {totalPages > 1 && (
               <div style={styles.pager}>
-                <button style={styles.pagerBtn} disabled={page <= 1 || loading} onClick={() => handleOnlineSearch(page - 1)}>
+                <button className="picker-pager-btn" style={styles.pagerBtn} disabled={page <= 1 || loading} onClick={() => handleOnlineSearch(page - 1)}>
                   ‹
                 </button>
                 <span style={styles.pagerInfo}>共 {totalPages} 页结果 · 第 {page} 页</span>
-                <button style={styles.pagerBtn} disabled={page >= totalPages || loading} onClick={() => handleOnlineSearch(page + 1)}>
+                <button className="picker-pager-btn" style={styles.pagerBtn} disabled={page >= totalPages || loading} onClick={() => handleOnlineSearch(page + 1)}>
                   ›
                 </button>
               </div>
@@ -146,7 +148,7 @@ export default function LyricImport({ song_name, artist_name, onUseLyric, onClos
         ) : (
           <div style={styles.body}>
             <div style={styles.toolbar}>
-              <button style={styles.fileBtn} onClick={() => fileRef.current?.click()}>
+              <button className="lyric-file-btn" style={styles.fileBtn} onClick={() => fileRef.current?.click()}>
                 <FaFileImport size={13} style={{ marginRight: 6 }} /> 导入文件（.lrc / .txt）
               </button>
               <input
@@ -158,6 +160,7 @@ export default function LyricImport({ song_name, artist_name, onUseLyric, onClos
               />
             </div>
             <textarea
+              className="lyric-import-textarea"
               style={styles.textarea}
               value={pasteText}
               onChange={(e) => setPasteText(e.target.value)}
@@ -166,6 +169,7 @@ export default function LyricImport({ song_name, artist_name, onUseLyric, onClos
             />
             <div style={styles.footer}>
               <button
+                className="picker-use-btn"
                 style={styles.useBtn}
                 disabled={!pasteText.trim()}
                 onClick={() => { onUseLyric?.(pasteText); onClose(); }}

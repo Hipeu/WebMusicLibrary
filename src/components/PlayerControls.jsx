@@ -4,6 +4,7 @@
    从 MusicPlayer 中独立出来的模块
    ================================================================ */
 import { FaRedo, FaRandom, FaStepBackward, FaStepForward, FaPlay, FaPause, FaVolumeMute, FaVolumeDown, FaVolumeUp } from "react-icons/fa";
+import ExplicitTitle from "./ExplicitTitle";
 
 export default function PlayerControls({
   currentSong,
@@ -68,7 +69,7 @@ export default function PlayerControls({
           <div style={styles.nowPlayingInfo}>
             {currentSong ? (
               <>
-                <p style={styles.nowPlayingTitle}>{currentSong.title}</p>
+                <p style={styles.nowPlayingTitle}><ExplicitTitle>{currentSong.title}</ExplicitTitle></p>
                 <p style={styles.nowPlayingArtist}>{currentSong.artist}</p>
               </>
             ) : (

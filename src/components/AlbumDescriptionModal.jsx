@@ -1,5 +1,6 @@
 import { FaPause, FaPlay, FaTimes } from "react-icons/fa";
 import { isPlaceholderPublisher } from "../utils/formatCheck";
+import ExplicitTitle from "./ExplicitTitle";
 
 export default function AlbumDescriptionModal({ album, playlist, isPlaying, themeColor, onPlayAlbum, onPlayPlaylist, onClose }) {
   const item = playlist || album;
@@ -29,7 +30,7 @@ export default function AlbumDescriptionModal({ album, playlist, isPlaying, them
             )}
           </div>
           <div style={styles.headerInfo}>
-            <h2 style={styles.title}>{item.title || item.name}</h2>
+            <h2 style={styles.title}><ExplicitTitle>{item.title || item.name}</ExplicitTitle></h2>
             <p style={styles.artist}>{isPlaylist ? `${item.songs?.length || 0} 首歌曲` : (item.artist || "未知艺人")}</p>
             {!isPlaylist && <p style={styles.meta}>
               {item.year ? `${item.year}年` : "未知年份"}

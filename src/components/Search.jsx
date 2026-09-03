@@ -1,9 +1,11 @@
 import { useState, useMemo } from "react";
-import { FaMusic, FaCompactDisc, FaUser, FaListUl, FaArrowLeft, FaExclamationCircle } from "react-icons/fa";
+import { FaMusic, FaCompactDisc, FaUser, FaListUl, FaArrowLeft, FaExclamationCircle, FaFilm } from "react-icons/fa";
 import { songPlayable } from "../utils/formatCheck";
 import { getAssetUrl } from "../services/api";
 import { splitArtists, collectAllArtists, albumBelongsToArtist } from "../utils/artistSplit";
+import { videoMatchesSong } from "../utils/videoAssociations";
 import useCoverColor from "./CoverColor";
+import ExplicitTitle from "./ExplicitTitle";
 
 /* ================================================================
    🔍 Search — 侧边栏搜索输入框
@@ -87,6 +89,24 @@ function SearchPlaylistCard({ item, onClick }) {
   </div>;
 }
 
+function getVideoCover(video, albums) {
+  if (video?.cover_url) return video.cover_url;
+  const linkedSong = (albums || []).flatMap((album) => album.songs || []).find((song) => videoMatchesSong(video, song));
+  return linkedSong?.coverURL || null;
+}
+
+function SearchVideoCard({ item, albums, onClick }) {
+  const cover = getVideoCover(item, albums);
+  const isMissing = item.source === "local" && item.file_exists === false;
+  return <div className={`search-result-card search-video-card${isMissing ? " search-video-card-missing" : ""}`} onClick={onClick}>
+    {cover ? <img src={cover} alt="" className="search-result-card-cover search-video-card-cover" /> : <div className="search-result-card-placeholder search-video-card-cover"><FaFilm /></div>}
+    <div className="search-album-info">
+      <span className="search-album-title">{item.title || "未命名视频"}</span>
+      <span className="search-album-artist">{item.artist || item.source_label || "视频"}{isMissing ? " · 文件缺失" : ""}</span>
+    </div>
+  </div>;
+}
+
 /* ================================================================
    🔍 SearchResults — 搜索结果页
    ================================================================ */
@@ -94,15 +114,16 @@ export function SearchResults({
   filterText,
   albums,
   playlists,
+  videos,
   artistRecords,
   onPlaySong,
   onOpenAlbum,
   onOpenArtist,
   onOpenPlaylist,
+  onOpenVideo,
   onNavChange,
   currentSongIndex,
   currentAlbumId,
-  isPlaying,
   togglePlay,
 }) {
   const [detailCategory, setDetailCategory] = useState(null);
@@ -111,7 +132,7 @@ export function SearchResults({
 
   // ---------- 计算所有匹配结果 ----------
   const allResults = useMemo(() => {
-    if (!hasQuery) return { songs: [], albums: [], artists: [], playlists: [] };
+    if (!hasQuery) return { songs: [], albums: [], artists: [], playlists: [], videos: [] };
 
     const allSongs = (albums || []).flatMap((album) =>
       (album.songs || []).map((song, idx) => ({
@@ -193,8 +214,20 @@ export function SearchResults({
       .map((pl) => ({ ...pl, ...plScores[pl.id], songCount: (pl.songs || []).length }))
       .sort((a, b) => b.score - a.score);
 
-    return { songs: scoredSongs, albums: scoredAlbums, artists: scoredArtists, playlists: scoredPlaylists };
-  }, [query, albums, playlists, artistRecords, hasQuery]);
+    const scoredVideos = (videos || [])
+      .map((video) => {
+        const videoText = [video.title, video.artist, video.producer, video.cast, video.source_label, video.source, video.website_url].filter(Boolean).join(" ");
+        const directScore = computeTextScore(videoText, query, 20, 10);
+        const linkedSongScore = allSongs
+          .filter((song) => videoMatchesSong(video, song))
+          .reduce((total, song) => total + computeSongScore(song, query), 0);
+        return { ...video, score: directScore + linkedSongScore };
+      })
+      .filter((video) => video.score > 0)
+      .sort((a, b) => b.score - a.score);
+
+    return { songs: scoredSongs, albums: scoredAlbums, artists: scoredArtists, playlists: scoredPlaylists, videos: scoredVideos };
+  }, [query, albums, playlists, videos, artistRecords, hasQuery]);
 
   // ---------- 空状态 ----------
   if (!hasQuery) {
@@ -209,7 +242,8 @@ export function SearchResults({
     allResults.songs.length > 0 ||
     allResults.albums.length > 0 ||
     allResults.artists.length > 0 ||
-    allResults.playlists.length > 0;
+    allResults.playlists.length > 0 ||
+    allResults.videos.length > 0;
 
   if (!hasAnyResult) {
     return (
@@ -227,17 +261,16 @@ export function SearchResults({
         category={detailCategory}
         results={allResults}
         albums={albums}
-        playlists={playlists}
         artistRecords={artistRecords}
         onBack={() => setDetailCategory(null)}
         onPlaySong={onPlaySong}
         onOpenAlbum={onOpenAlbum}
         onOpenArtist={onOpenArtist}
         onOpenPlaylist={onOpenPlaylist}
+        onOpenVideo={onOpenVideo}
         onNavChange={onNavChange}
         currentSongIndex={currentSongIndex}
         currentAlbumId={currentAlbumId}
-        isPlaying={isPlaying}
         togglePlay={togglePlay}
       />
     );
@@ -277,7 +310,7 @@ export function SearchResults({
                       {!songPlayable(item) && (
                         <FaExclamationCircle size={12} title="该格式无法播放" style={{ color: "#f59e0b", marginRight: "5px", flexShrink: 0 }} />
                       )}
-                      {item.title}
+                      <ExplicitTitle>{item.title}</ExplicitTitle>
                     </span>
                     <span className="search-song-card-meta">{item.artist}{item.albumYear ? ` · ${item.albumYear}` : ""}</span>
                   </div>
@@ -310,7 +343,7 @@ export function SearchResults({
                   <div className="search-result-card-placeholder"><FaCompactDisc /></div>
                 )}
                 <div className="search-album-info">
-                  <span className="search-album-title">{item.title}</span>
+                  <span className="search-album-title"><ExplicitTitle>{item.title}</ExplicitTitle></span>
                   <span className="search-album-artist">{item.artist}</span>
                 </div>
               </div>
@@ -365,6 +398,19 @@ export function SearchResults({
           </div>
         </div>
       )}
+
+      {/* 视频 */}
+      {allResults.videos.length > 0 && (
+        <div style={pageStyles.section}>
+          <div className="search-section-header">
+            <h2>视频</h2>
+            {allResults.videos.length > 5 && <span className="search-show-all" onClick={() => setDetailCategory("videos")}> &gt;</span>}
+          </div>
+          <div className="search-grid search-grid-5">
+            {allResults.videos.slice(0, 5).map((item) => <SearchVideoCard key={`video-${item.id}`} item={item} albums={albums} onClick={() => onOpenVideo(item.id)} />)}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -376,23 +422,22 @@ function SearchCategoryDetail({
   category,
   results,
   albums,
-  playlists,
   artistRecords,
   onBack,
   onPlaySong,
   onOpenAlbum,
   onOpenArtist,
   onOpenPlaylist,
+  onOpenVideo,
   onNavChange,
   currentSongIndex,
   currentAlbumId,
-  isPlaying,
   togglePlay,
 }) {
-  const titles = { songs: "歌曲", albums: "专辑", artists: "艺人", playlists: "播放列表" };
+  const titles = { songs: "歌曲", albums: "专辑", artists: "艺人", playlists: "播放列表", videos: "视频" };
   const items = results[category];
 
-  function renderItem(item, idx) {
+  function renderItem(item) {
     if (category === "songs") {
       const isActive = currentAlbumId === item.albumId && currentSongIndex === item.songIndex;
       return (
@@ -414,7 +459,7 @@ function SearchCategoryDetail({
               {!songPlayable(item) && (
                 <FaExclamationCircle size={12} title="该格式无法播放" style={{ color: "#f59e0b", marginRight: "5px", flexShrink: 0 }} />
               )}
-              {item.title}
+              <ExplicitTitle>{item.title}</ExplicitTitle>
             </span>
             <span className="search-song-card-meta">{item.artist}{item.albumYear ? ` · ${item.albumYear}` : ""}</span>
           </div>
@@ -434,7 +479,7 @@ function SearchCategoryDetail({
             <div className="search-result-card-placeholder"><FaCompactDisc /></div>
           )}
           <div className="search-album-info">
-            <span className="search-album-title">{item.title}</span>
+            <span className="search-album-title"><ExplicitTitle>{item.title}</ExplicitTitle></span>
             <span className="search-album-artist">{item.artist}</span>
           </div>
         </div>
@@ -462,6 +507,9 @@ function SearchCategoryDetail({
           onClick={() => { onNavChange("library"); onOpenPlaylist(item.id); }}
         />
       );
+    }
+    if (category === "videos") {
+      return <SearchVideoCard key={`video-${item.id}`} item={item} albums={albums} onClick={() => onOpenVideo(item.id)} />;
     }
     return null;
   }

@@ -40,7 +40,7 @@ export default function ArtistMatchPicker({ artistName, onPick, onClose }) {
   return (
     <div className="artist-match-overlay" style={styles.overlay} onClick={onClose}>
       <div className="artist-match-dialog" style={styles.dialog} onClick={(event) => event.stopPropagation()}>
-        <button type="button" className="artist-match-close" style={styles.closeButton} onClick={onClose} title="关闭">
+        <button type="button" className="artist-match-close dialog-close-btn" style={styles.closeButton} onClick={onClose} title="关闭">
           <FaTimes size={16} />
         </button>
         <h3 style={styles.title}>匹配艺人</h3>

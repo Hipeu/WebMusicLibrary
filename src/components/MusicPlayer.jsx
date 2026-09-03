@@ -7,6 +7,7 @@ import { songPlayable, isPlaceholderPublisher } from "../utils/formatCheck";
 import { incrementPlayCount } from "../utils/playCount";
 import PlayerControls from "./PlayerControls";
 import useCoverColor from "./CoverColor";
+import ExplicitTitle from "./ExplicitTitle";
 
 const lyricsCache = new Map();
 const lyricsRequests = new Map();
@@ -737,7 +738,7 @@ export default function MusicPlayer({
                                   <div style={styles.detailRight}>
                                     {/* 歌曲信息 */}
                                     <div style={styles.songInfoAside}>
-                                      <p style={styles.detailNowPlayingName}>{currentSong.title}</p>
+                                      <p style={styles.detailNowPlayingName}><ExplicitTitle>{currentSong.title}</ExplicitTitle></p>
                                       <div style={styles.artistLinkRow}>
                                         {currentArtistAvatar && <img src={currentArtistAvatar} alt="" style={styles.artistAvatar} onError={(e) => { e.currentTarget.style.display = "none"; }} />}
                                         <p
@@ -852,7 +853,7 @@ export default function MusicPlayer({
                                                     {!songPlayable(song) && (
                                                       <FaExclamationCircle size={12} title="该格式无法播放" style={{ color: "#f59e0b", marginRight: "5px", flexShrink: 0 }} />
                                                     )}
-                                                    {song.title}
+                                                    <ExplicitTitle>{song.title}</ExplicitTitle>
                                                     {isQueueSong && <span style={{ ...styles.detailQueueTag, ...(themeColor ? { color: themeColor } : {}) }}> 待播</span>}
                                                   </p>
                                                   <p style={styles.detailSongArtist}>{song.artist}</p>
@@ -1011,6 +1012,7 @@ export default function MusicPlayer({
           <div style={styles.playlistPanel} onClick={(e) => e.stopPropagation()}>
             <h3 style={styles.playlistPanelTitle}>添加到播放列表</h3>
             <input
+              className="playlist-search-input"
               style={styles.playlistPanelSearch}
               placeholder="搜索播放列表…"
               value={playlistSearch}
