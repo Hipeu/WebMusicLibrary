@@ -61,7 +61,7 @@ export default function Sidebar({
   return (
     <div style={styles.sidebar} className="app-sidebar">
       {/* ===== 顶部导航 ===== */}
-      <div style={styles.section}>
+      <div style={{ ...styles.section, ...styles.navigationSection }} className="sidebar-navigation-section">
         {navItems.map((item) => (
           <div
             key={item.id}
@@ -95,7 +95,7 @@ export default function Sidebar({
       </div>
 
       {/* ===== 播放列表 ===== */}
-      <div style={styles.section}>
+      <div style={{ ...styles.section, ...styles.playlistSection }} className="sidebar-playlists-section">
         <div className="sidebar-section-title" style={styles.sectionTitle}>播放列表</div>
 
         {/* 全部播放列表 */}
@@ -200,7 +200,7 @@ export default function Sidebar({
           >
             <span style={{ ...styles.playlistThumb, ...(activeNav === pl.id ? styles.playlistThumbActive : {}) }}>
               {playlistIcon(pl.id)}
-              {pl.coverURL && <img src={pl.coverURL} alt="" onError={(e) => { e.currentTarget.style.display = "none"; }} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", display: "block" }} />}
+              {(pl.coverURL || pl.songs?.[0]?.coverURL) && <img src={pl.coverURL || pl.songs[0].coverURL} alt="" onError={(e) => { e.currentTarget.style.display = "none"; }} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", display: "block" }} />}
             </span>
             {editingPlaylist === pl.id ? (
               <input className="sidebar-edit-input" style={styles.editInput} value={editName} onChange={(e) => setEditName(e.target.value)} onBlur={() => handleRenameConfirm(pl.id)} onKeyDown={(e) => { if (e.key === "Enter") handleRenameConfirm(pl.id); if (e.key === "Escape") setEditingPlaylist(null); }} autoFocus onClick={(e) => e.stopPropagation()} />
@@ -224,9 +224,10 @@ const styles = {
     width: "220px",
     flexShrink: 0,
     height: "100%",
+    boxSizing: "border-box",
     background: "#f9fafb",
     borderRight: "1px solid #e5e7eb",
-    padding: "20px 12px",
+    padding: "20px 12px 120px",
     display: "flex",
     flexDirection: "column",
     gap: "20px",
@@ -239,6 +240,16 @@ const styles = {
     display: "flex",
     flexDirection: "column",
     gap: "2px",
+  },
+  navigationSection: {
+    flexShrink: 0,
+  },
+  playlistSection: {
+    flex: 1,
+    minHeight: 0,
+    overflowY: "auto",
+    overflowX: "hidden",
+    paddingRight: "5px",
   },
 
   sectionTitle: {

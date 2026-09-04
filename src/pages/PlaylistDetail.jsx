@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { FaPlay, FaPause, FaArrowLeft, FaEdit, FaEllipsisH, FaHeart, FaPlus, FaStepForward, FaClock, FaCompactDisc, FaUser, FaTrash, FaInfoCircle, FaTimes, FaMusic, FaExclamationCircle, FaSearch, FaSort } from "react-icons/fa";
+import { FaPlay, FaPause, FaArrowLeft, FaEdit, FaEllipsisH, FaHeart, FaPlus, FaStepForward, FaClock, FaCompactDisc, FaUser, FaTrash, FaInfoCircle, FaTimes, FaMusic, FaExclamationCircle, FaSearch, FaSort, FaListUl } from "react-icons/fa";
 import PlayingAnimation from "../components/PlayingAnimation";
 import { songPlayable } from "../utils/formatCheck";
 import useCoverColor from "../components/CoverColor";
 import AlbumDescriptionModal from "../components/AlbumDescriptionModal";
 import RelatedVideos from "../components/RelatedVideos";
 import ExplicitTitle from "../components/ExplicitTitle";
+import { getPlaylistCover, getRecentPlaylists } from "../utils/playlistStore";
 
 /* ================================================================
    📋 PlaylistDetail — 播放列表详情页
@@ -443,8 +444,8 @@ export default function PlaylistDetail({
       {/* ===== 添加到播放列表浮窗 ===== */}
       {panelSong && (
         <div style={styles.panelOverlay} onClick={() => setPanelSong(null)}>
-          <div style={styles.playlistPanel} onClick={(e) => e.stopPropagation()}>
-            <h3 style={styles.panelTitle}>添加到播放列表</h3>
+          <div className="playlist-picker-panel" style={styles.playlistPanel} onClick={(e) => e.stopPropagation()}>
+            <h3 className="playlist-picker-title" style={styles.panelTitle}>添加到播放列表</h3>
             <input
                 className="playlist-search-input"
                 style={styles.panelSearch}
@@ -453,23 +454,15 @@ export default function PlaylistDetail({
               onChange={(e) => setPanelSearch(e.target.value)}
               autoFocus
             />
-            <div style={styles.panelList}>
+            <div className="playlist-picker-list" style={styles.panelList}>
               {(() => {
-                const userPlaylists = (playlists || []).filter((p) => p.id !== "recent");
-                const searched = panelSearch
-                  ? userPlaylists.filter((p) => p.name.toLowerCase().includes(panelSearch.toLowerCase()))
-                  : userPlaylists;
-                const sorted = [...searched].sort((a, b) => {
-                  const aHas = a.songs.some((s) => s.url === panelSong.url) ? 1 : 0;
-                  const bHas = b.songs.some((s) => s.url === panelSong.url) ? 1 : 0;
-                  if (aHas !== bHas) return bHas - aHas;
-                  return b.id.localeCompare(a.id);
-                });
-                return sorted.map((pl) => {
+                return getRecentPlaylists(playlists, panelSearch, 10).map((pl) => {
                   const isAlready = pl.songs.some((s) => s.url === panelSong.url);
+                  const cover = getPlaylistCover(pl);
                   return (
                     <button
                       key={pl.id}
+                      className="playlist-picker-item"
                       style={styles.panelItem}
                       onClick={() => {
                         if (setPlaylists) {
@@ -484,10 +477,10 @@ export default function PlaylistDetail({
                         setPanelSong(null);
                       }}
                     >
-                      <span style={styles.panelItemIcon}>{pl.id === "liked" ? <FaHeart size={16} /> : "📋"}</span>
+                      <span className="playlist-picker-cover" style={styles.panelItemIcon}>{cover ? <img src={cover} alt="" /> : pl.id === "liked" ? <FaHeart size={16} /> : <FaListUl size={16} />}</span>
                       <span style={styles.panelItemName}>{pl.name}</span>
-                      {isAlready && <span style={styles.panelItemTag}>已添加</span>}
-                      <span style={styles.panelItemCount}>{pl.songs.length} 首</span>
+                      {isAlready && <span className="playlist-picker-tag" style={styles.panelItemTag}>已添加</span>}
+                      <span className="playlist-picker-count" style={styles.panelItemCount}>{pl.songs.length} 首</span>
                     </button>
                   );
                 });

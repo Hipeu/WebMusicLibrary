@@ -8,6 +8,7 @@ import { incrementPlayCount } from "../utils/playCount";
 import PlayerControls from "./PlayerControls";
 import useCoverColor from "./CoverColor";
 import ExplicitTitle from "./ExplicitTitle";
+import { getPlaylistCover, getRecentPlaylists } from "../utils/playlistStore";
 
 const lyricsCache = new Map();
 const lyricsRequests = new Map();
@@ -1009,8 +1010,8 @@ export default function MusicPlayer({
       {/* ===== 添加到播放列表浮窗 ===== */}
       {showPlaylistPanel && (
         <div style={styles.playlistPanelOverlay} onClick={() => setShowPlaylistPanel(false)}>
-          <div style={styles.playlistPanel} onClick={(e) => e.stopPropagation()}>
-            <h3 style={styles.playlistPanelTitle}>添加到播放列表</h3>
+          <div className="playlist-picker-panel" style={styles.playlistPanel} onClick={(e) => e.stopPropagation()}>
+            <h3 className="playlist-picker-title" style={styles.playlistPanelTitle}>添加到播放列表</h3>
             <input
               className="playlist-search-input"
               style={styles.playlistPanelSearch}
@@ -1019,30 +1020,22 @@ export default function MusicPlayer({
               onChange={(e) => setPlaylistSearch(e.target.value)}
               autoFocus
             />
-            <div style={styles.playlistPanelList}>
+            <div className="playlist-picker-list" style={styles.playlistPanelList}>
               {(() => {
-                const userPlaylists = playlists.filter((p) => p.id !== "recent");
-                const searched = playlistSearch
-                  ? userPlaylists.filter((p) => p.name.toLowerCase().includes(playlistSearch.toLowerCase()))
-                  : userPlaylists;
-                const sorted = [...searched].sort((a, b) => {
-                  const aHas = a.songs.some((s) => s.url === currentSong?.url) ? 1 : 0;
-                  const bHas = b.songs.some((s) => s.url === currentSong?.url) ? 1 : 0;
-                  if (aHas !== bHas) return bHas - aHas;
-                  return b.id.localeCompare(a.id);
-                });
-                return sorted.map((pl) => {
+                return getRecentPlaylists(playlists, playlistSearch, 10).map((pl) => {
                   const isAlready = pl.songs.some((s) => s.url === currentSong?.url);
+                  const cover = getPlaylistCover(pl);
                   return (
                     <button
                       key={pl.id}
+                      className="playlist-picker-item"
                       style={styles.playlistPanelItem}
                       onClick={() => handleAddToSpecificPlaylist(pl.id)}
                     >
-                    <span style={styles.playlistPanelItemIcon}>{pl.id === "liked" ? <FaHeart size={16} /> : "📋"}</span>
+                    <span className="playlist-picker-cover" style={styles.playlistPanelItemIcon}>{cover ? <img src={cover} alt="" /> : pl.id === "liked" ? <FaHeart size={16} /> : <FaList size={16} />}</span>
                     <span style={styles.playlistPanelItemName}>{pl.name}</span>
-                      {isAlready && <span style={styles.playlistPanelItemTag}>已添加</span>}
-                      <span style={styles.playlistPanelItemCount}>{pl.songs.length} 首</span>
+                      {isAlready && <span className="playlist-picker-tag" style={styles.playlistPanelItemTag}>已添加</span>}
+                      <span className="playlist-picker-count" style={styles.playlistPanelItemCount}>{pl.songs.length} 首</span>
                     </button>
                   );
                 });

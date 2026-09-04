@@ -36,6 +36,25 @@ export function normalizePlaylists(playlists) {
     }));
 }
 
+/** 播放列表展示封面：优先自定义封面，其次使用列表中的第一张歌曲封面。 */
+export function getPlaylistCover(playlist) {
+  return playlist?.coverURL || playlist?.songs?.find((song) => song?.coverURL)?.coverURL || null;
+}
+
+/** 按新建时间倒序返回播放列表，用于“添加到播放列表”选择器。 */
+export function getRecentPlaylists(playlists, query = "", limit = 10) {
+  const keyword = String(query).trim().toLocaleLowerCase();
+  return (playlists || [])
+    .filter((playlist) => playlist?.id !== "recent")
+    .filter((playlist) => !keyword || String(playlist.name || "").toLocaleLowerCase().includes(keyword))
+    .sort((a, b) => {
+      const createdAt = (playlist) => Number(playlist?.createdAt)
+        || (String(playlist?.id || "").startsWith("pl_") ? Number(String(playlist.id).slice(3)) || 0 : 0);
+      return createdAt(b) - createdAt(a);
+    })
+    .slice(0, limit);
+}
+
 /** 读取本地缓存（损坏/空返回 null，由调用方决定回退） */
 export function loadPlaylistCache() {
   try {

@@ -50,7 +50,7 @@ if (!userInfo.cookie) {
   );
 }
 
-if (!isTestEnv) {
+if (!isTestEnv && process.env.MUSIC_API_CHECK_UPDATES !== '0') {
   const versionCheckProcess = exec('npm info qq-music-api version', (err, stdout) => {
     if (!err) {
       const version = stdout.trim();

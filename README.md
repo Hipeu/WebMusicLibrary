@@ -1,5 +1,16 @@
 # React + Vite
 
+## Development
+
+Install the backend dependencies once with `npm run setup:backend`, then run all
+development services with `npm start`. The launcher starts Vite, FastAPI, the QQ
+Music API, and the Netease Cloud Music API directly and shuts down the complete
+managed process trees when it exits.
+
+Set `PYTHON` to a custom Python executable when `python` is not available on the
+system path. The individual `dev`, `backend`, `qqapi`, and `ncmapi` scripts remain
+available for debugging one service at a time.
+
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
 Currently, two official plugins are available:

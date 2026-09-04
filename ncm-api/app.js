@@ -12,7 +12,10 @@ async function start() {
   const generateConfig = require('./generateConfig')
   await generateConfig()
   require('./server').serveNcmApi({
-    checkVersion: true,
+    checkVersion: process.env.MUSIC_API_CHECK_UPDATES !== '0',
   })
 }
-start()
+start().catch((error) => {
+  console.error('[ncm-api] failed to start:', error)
+  process.exitCode = 1
+})

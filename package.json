@@ -8,10 +8,11 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "backend": "cd backend && (pip install -r requirements.txt -q || true) && python -m uvicorn main:app --reload --port 8000",
+    "setup:backend": "cd backend && python -m pip install -r requirements.txt",
+    "backend": "cd backend && python -m uvicorn main:app --reload --port 8000",
     "qqapi": "cd qq-music-api-next && npm start",
     "ncmapi": "cd ncm-api && node app.js",
-    "start": "concurrently --kill-others-on-fail --handle-input \"npm run dev\" \"npm run backend\" \"npm run qqapi\" \"npm run ncmapi\""
+    "start": "node scripts/start-dev.mjs"
   },
   "dependencies": {
     "@lottiefiles/dotlottie-react": "^0.19.9",

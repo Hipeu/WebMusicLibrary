@@ -1,11 +1,11 @@
 import { startTransition, useState, useRef, useEffect, useCallback } from "react";
 import { FiPlus } from "react-icons/fi";
-import { FaEllipsisH, FaCompactDisc, FaUser, FaHeart, FaStepForward, FaClock, FaPlus, FaArrowUp, FaTrash, FaMusic, FaInfoCircle, FaCog, FaPlay, FaExclamationCircle, FaCheckCircle, FaTimes, FaBell, FaStar, FaVideo, FaObjectGroup } from "react-icons/fa";
+import { FaEllipsisH, FaCompactDisc, FaUser, FaHeart, FaStepForward, FaClock, FaPlus, FaArrowUp, FaTrash, FaMusic, FaInfoCircle, FaCog, FaPlay, FaExclamationCircle, FaCheckCircle, FaTimes, FaBell, FaStar, FaVideo, FaObjectGroup, FaListUl } from "react-icons/fa";
 import { readMetadata } from "../utils/MetadataReader";
 import { splitArtists, joinArtists, albumBelongsToArtist, collectAllArtists, isPrimaryAlbum } from "../utils/artistSplit";
 import { uploadMusic, restoreMissingMusic, getMusicList, getAssetUrl, deleteMusic, deleteAlbum, checkMusicFiles, updateMusicMetadata, updateAlbumDescription, matchSong, getLyrics, getPlaylists, savePlaylists, resetAll, getResetProgress, openMusicFile, getArtists, saveArtist, deleteArtist, getMatchAllProgress, cancelMatchAll, getSettings, saveAppSettings, getDataJob, getDataExportDownloadUrl, cancelDataJob, startSmartJob, getSmartJob, cancelSmartJob, getSmartProviders, getVideos, uploadVideo, addWebVideo, updateVideo, updateVideoCover, deleteVideo, openVideoFile } from "../services/api";
 import { saveSongToIndex, removeSongFromIndex, loadMusicIndex } from "../utils/musicIndex";
-import { normalizePlaylists, loadPlaylistCache, savePlaylistCache } from "../utils/playlistStore";
+import { normalizePlaylists, loadPlaylistCache, savePlaylistCache, getPlaylistCover, getRecentPlaylists } from "../utils/playlistStore";
 import { isUnplayableCodec, songPlayable, isPlaceholderPublisher } from "../utils/formatCheck";
 import { clearPlayCounts } from "../utils/playCount";
 import { normalizeSongRef, primarySongRef, refMatchesSong, videoMatchesSong } from "../utils/videoAssociations";
@@ -308,20 +308,30 @@ function collectAppSettings() {
 }
 
 /* 视频卡片：资料库首页使用与专辑、播放列表相同的网格位置和排序序列。 */
-function LibraryVideoCard({ video, albums, onOpen, order }) {
+function LibraryVideoCard({ video, albums, onOpen, onEdit, onDelete, onOpenArtist, order }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
   const linkedSong = (albums || []).flatMap((album) => album.songs || []).find((song) => videoMatchesSong(video, song));
   const cover = video.cover_url || linkedSong?.coverURL || null;
   const isMissing = video.source === "local" && video.file_exists === false;
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    const close = (event) => {
+      if (!menuRef.current?.contains(event.target)) setMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, [menuOpen]);
 
   return (
-    <div className={`album-card library-video-card${isMissing ? " video-card-missing" : ""}`} style={{ ...styles.libraryCard, order }} onClick={() => onOpen(video.id)}>
+    <div className={`album-card library-video-card${isMissing ? " video-card-missing" : ""}${menuOpen ? " has-open-menu" : ""}`} style={{ ...styles.libraryCard, overflow: "visible", order, zIndex: menuOpen ? 30 : undefined }} onClick={() => onOpen(video.id)}>
       <div style={styles.coverWrapper}>
         <div style={styles.coverPlaceholder}><FaVideo size={28} /></div>
         {cover && <img src={cover} alt={video.title || "视频"} onError={(e) => { e.currentTarget.style.display = "none"; }} style={{ ...styles.coverImage, position: "absolute", inset: 0 }} />}
         <div className="library-video-play-badge"><FaPlay size={13} /></div>
         {isMissing && <div style={styles.albumCoverMissingOverlay} title="视频文件已经丢失" />}
       </div>
-      <div style={styles.albumTitleRow}><p style={styles.albumTitle}><ExplicitTitle fallback="未命名视频">{video.title}</ExplicitTitle></p></div>
+      <div style={styles.albumTitleRow}><p style={styles.albumTitle}><ExplicitTitle fallback="未命名视频">{video.title}</ExplicitTitle></p><div className="video-card-actions" ref={menuRef}><button type="button" className="video-card-more" aria-label="视频操作" onClick={(event) => { event.stopPropagation(); setMenuOpen((open) => !open); }}><FaEllipsisH /></button>{menuOpen && <div className="video-card-menu" onClick={(event) => event.stopPropagation()}><button type="button" onClick={() => { setMenuOpen(false); onEdit?.(video.id); }}><FaInfoCircle />更多信息</button>{video.artist && <button type="button" onClick={() => { setMenuOpen(false); onOpenArtist?.(splitArtists(video.artist)[0] || video.artist); }}><FaUser />艺人</button>}<button type="button" className="danger" onClick={() => { setMenuOpen(false); onDelete?.(video.id); }}><FaTrash />删除</button></div>}</div></div>
       <p style={styles.albumArtist}>{video.artist || video.source_label || "视频"}</p>
     </div>
   );
@@ -1850,6 +1860,9 @@ export default function MusicLibrary() {
         // ---------- 点击艺人卡片 / 专辑详情页艺人链接 — 打开艺人详情页 ----------
     function handleOpenArtistDetail(artistName) {
       pushNavOrigin();
+      setDetailVideoId(null); // 视频详情优先级高于艺人详情，跳转前必须关闭
+      setEditVideoOnOpenId(null);
+      setRelatedVideoScope(null);
       setDetailAlbumId(null); // 关闭专辑详情页（如果是从专辑详情页跳转来的）
       setDetailPlaylistId(null); // 关闭播放列表详情页
       setDetailArtistName(artistName);
@@ -3686,7 +3699,7 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                 <header style={styles.topBar} className="app-topbar">
                   {/* 左侧：LOGO / 标题 */}
                   <div style={styles.logoArea}>
-                    <span style={styles.logoIcon}>🎵</span>
+                    <img src="/vinyl-record-icon.png" alt="音乐资料库" style={styles.logoIcon} />
                     <h1 style={styles.logoTitle}>{libraryTitle}</h1>
                   </div>
 
@@ -3752,6 +3765,7 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                     songs={albums.flatMap((album) => album.songs || [])}
                     albums={albums}
                     playlists={playlists}
+                    artistRecords={artistRecords}
                     onBack={relatedVideoScope ? () => setDetailVideoId(null) : handleCloseVideoDetail}
                     onSave={handleSaveVideo}
                     onDelete={handleDeleteVideo}
@@ -3766,6 +3780,7 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                       setRelatedVideoScope(null);
                       handleOpenPlaylistDetail(playlistId);
                     }}
+                    onOpenArtist={handleOpenArtistDetail}
                   />
                 ) : relatedVideoScope ? (
                   <VideoLibrary
@@ -3775,6 +3790,7 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                     onOpen={(id) => { setEditVideoOnOpenId(null); setDetailVideoId(id); }}
                     onEdit={(id) => { setEditVideoOnOpenId(id); setDetailVideoId(id); }}
                     onDelete={handleDeleteVideo}
+                    onOpenArtist={handleOpenArtistDetail}
                     onBack={() => setRelatedVideoScope(null)}
                   />
                 ) : detailAlbumId ? (
@@ -3905,7 +3921,7 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                     />
                   </main>
                 ) : activeNav === "videos" ? (
-                  <VideoLibrary videos={videos} albums={albums} onOpen={handleOpenVideoDetail} onEdit={handleOpenVideoEditor} onDelete={handleDeleteVideo} />
+                  <VideoLibrary videos={videos} albums={albums} onOpen={handleOpenVideoDetail} onEdit={handleOpenVideoEditor} onDelete={handleDeleteVideo} onOpenArtist={handleOpenArtistDetail} />
                 ) : ["composer", "lyricist", "genres"].includes(activeNav) ? (
                   <MetadataBrowser
                     type={activeNav === "genres" ? "genre" : activeNav}
@@ -4690,7 +4706,7 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                                             return <PlaylistCard key={`playlist:${item.id}`} pl={item} order={order} onOpen={handleOpenPlaylistDetail} onMenu={handleOpenPlaylistMenu} />;
                                           }
                                           if (type === "video") {
-                                            return <LibraryVideoCard key={`video:${item.id}`} video={item} albums={albums} order={order} onOpen={handleOpenVideoDetail} />;
+                                            return <LibraryVideoCard key={`video:${item.id}`} video={item} albums={albums} order={order} onOpen={handleOpenVideoDetail} onEdit={handleOpenVideoEditor} onDelete={handleDeleteVideo} onOpenArtist={handleOpenArtistDetail} />;
                                           }
                                           const album = item;
                                           const isActive = album.id === currentAlbumId;
@@ -4776,6 +4792,7 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
         <>
           <div style={styles.contextOverlay} onClick={handleClosePlaylistMenu} />
           <div
+            className="context-menu playlist-context-menu"
             style={{
               ...styles.contextMenu,
               left: playlistMenu.x,
@@ -4800,7 +4817,7 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
               <FaClock size={14} style={{ marginRight: "10px" }} />
               <span>稍后播放</span>
             </div>
-            <div style={styles.contextMenuDivider} />
+            {playlistMenu.playlist.id !== "liked" && playlistMenu.playlist.id !== "recent" && <div style={styles.contextMenuDivider} />}
             {playlistMenu.playlist.id !== "liked" && playlistMenu.playlist.id !== "recent" && (
               <>
                 <div className="context-menu-item" style={styles.contextMenuItem} onClick={() => handlePlaylistMenuAction("edit", playlistMenu.playlist)}>
@@ -4820,17 +4837,17 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
       {/* ===== 播放列表删除确认浮窗（全局渲染） ===== */}
       {deletePlaylistConfirm && (
         <div style={styles.overlay} onClick={handleCancelDeletePlaylist}>
-          <div style={styles.confirmDialog} onClick={(e) => e.stopPropagation()}>
+          <div className="app-confirm-dialog" style={styles.confirmDialog} onClick={(e) => e.stopPropagation()}>
             <h3 style={styles.confirmTitle}>确认删除</h3>
-            <div style={styles.confirmDivider} />
+            <div className="app-confirm-divider" style={styles.confirmDivider} />
             <p style={styles.confirmText}>
               确定要删除播放列表「{playlists.find(p => p.id === deletePlaylistConfirm)?.name}」吗？此操作不可撤销。
             </p>
             <div style={styles.confirmActions}>
-              <button style={styles.confirmDeleteBtn} onClick={handleConfirmDeletePlaylist}>
+              <button className="app-confirm-primary" style={styles.confirmDeleteBtn} onClick={handleConfirmDeletePlaylist}>
                 确认删除
               </button>
-              <button style={styles.confirmCancelBtn} onClick={handleCancelDeletePlaylist}>
+              <button className="app-confirm-secondary" style={styles.confirmCancelBtn} onClick={handleCancelDeletePlaylist}>
                 取消
               </button>
             </div>
@@ -4893,8 +4910,8 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
       {/* ===== 添加到播放列表浮窗 ===== */}
       {panelTarget && (
         <div style={styles.overlay} onClick={() => setPanelTarget(null)}>
-          <div style={styles.playlistPanel} onClick={(e) => e.stopPropagation()}>
-            <h3 style={styles.panelTitle}>添加到播放列表</h3>
+          <div className="playlist-picker-panel" style={styles.playlistPanel} onClick={(e) => e.stopPropagation()}>
+            <h3 className="playlist-picker-title" style={styles.panelTitle}>添加到播放列表</h3>
             <input
               className="playlist-search-input"
               style={styles.panelSearch}
@@ -4903,23 +4920,20 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
               onChange={(e) => setPanelSearch(e.target.value)}
               autoFocus
             />
-            <div style={styles.panelList}>
+            <div className="playlist-picker-list" style={styles.panelList}>
               {(() => {
                 const items = panelTarget.type === "album"
                   ? (panelTarget.data.songs || []).map((s) => ({ ...s, albumId: panelTarget.data.id }))
                   : [panelTarget.data];
-                const userPls = playlists.filter((p) => p.id !== "recent");
-                const searched = panelSearch
-                  ? userPls.filter((p) => p.name.toLowerCase().includes(panelSearch.toLowerCase()))
-                  : userPls;
-                const sorted = [...searched].sort((a, b) => b.id.localeCompare(a.id));
-                return sorted.map((pl) => {
+                return getRecentPlaylists(playlists, panelSearch, 10).map((pl) => {
                   const existingUrls = new Set(pl.songs.map((s) => s.url));
                   const newItems = items.filter((s) => !existingUrls.has(s.url));
                   const allExist = newItems.length === 0;
+                  const cover = getPlaylistCover(pl);
                   return (
                     <button
                       key={pl.id}
+                      className="playlist-picker-item"
                       style={styles.panelItem}
                       onClick={() => {
                         if (newItems.length > 0) {
@@ -4932,10 +4946,10 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
                         setPanelTarget(null);
                       }}
                     >
-                      <span style={styles.panelItemIcon}>{pl.id === "liked" ? <FaHeart size={16} /> : "📋"}</span>
+                      <span className="playlist-picker-cover" style={styles.panelItemIcon}>{cover ? <img src={cover} alt="" /> : pl.id === "liked" ? <FaHeart size={16} /> : <FaListUl size={16} />}</span>
                       <span style={styles.panelItemName}>{pl.name}</span>
-                      {allExist && <span style={styles.panelItemTag}>已添加</span>}
-                      <span style={styles.panelItemCount}>{pl.songs.length} 首</span>
+                      {allExist && <span className="playlist-picker-tag" style={styles.panelItemTag}>已添加</span>}
+                      <span className="playlist-picker-count" style={styles.panelItemCount}>{pl.songs.length} 首</span>
                     </button>
                   );
                 });
@@ -5466,13 +5480,13 @@ onArtistVisibilityChange={(value) => {
 
       {deleteVideoConfirm && (
         <div style={styles.overlay} onClick={() => setDeleteVideoConfirm(null)}>
-          <div style={styles.confirmDialog} onClick={(event) => event.stopPropagation()}>
+          <div className="app-confirm-dialog" style={styles.confirmDialog} onClick={(event) => event.stopPropagation()}>
             <h3 style={styles.confirmTitle}>确认删除</h3>
-            <div style={styles.confirmDivider} />
+            <div className="app-confirm-divider" style={styles.confirmDivider} />
             <p style={styles.confirmText}>确定要删除视频「{deleteVideoConfirm.title || "未命名视频"}」吗？此操作不可撤销。</p>
             <div style={styles.confirmActions}>
-              <button style={styles.confirmDeleteBtn} onClick={handleConfirmDeleteVideo}>确认删除</button>
-              <button style={styles.confirmCancelBtn} onClick={() => setDeleteVideoConfirm(null)}>取消</button>
+              <button className="app-confirm-primary" style={styles.confirmDeleteBtn} onClick={handleConfirmDeleteVideo}>确认删除</button>
+              <button className="app-confirm-secondary" style={styles.confirmCancelBtn} onClick={() => setDeleteVideoConfirm(null)}>取消</button>
             </div>
           </div>
         </div>
@@ -5550,7 +5564,7 @@ const styles = {
     flexShrink: 0, zIndex: 10, flexWrap: "wrap",
   },
   logoArea: { display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 },
-  logoIcon: { fontSize: "24px" },
+  logoIcon: { width: "40px", height: "40px", display: "block", flexShrink: 0 },
   logoTitle: {
         fontSize: "18px", fontWeight: 700, color: "#1f2937",
     letterSpacing: "0.5px", margin: 0,
