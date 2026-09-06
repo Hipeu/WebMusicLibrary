@@ -1841,6 +1841,7 @@ html[data-theme="dark"] .picker-pager-btn:disabled,
 html[data-theme="dark"] .picker-use-btn:disabled { opacity:.5; cursor:not-allowed; }
 html[data-theme="dark"] .picker-result-item,
 html[data-theme="dark"] .lyric-result-item { background:#343451!important; border-color:#4b4b70!important; }
+html[data-theme="dark"] .picker-result-cover { background:#202038!important; }
 html[data-theme="dark"] .match-result-picker-dialog [style*="color: #1f2937"] { color:#f1f5f9!important; }
 html[data-theme="dark"] .match-result-picker-dialog [style*="color: #6b7280"],
 html[data-theme="dark"] .match-result-picker-dialog [style*="color: #4b5563"],
@@ -1855,6 +1856,19 @@ html[data-theme="dark"] .lyric-import-textarea {
   color:#e5e7eb!important;
 }
 html[data-theme="dark"] .lyric-import-textarea::placeholder { color:#8f8fac; }
+
+@media (max-width: 620px) {
+  .picker-result-item { gap:12px!important; padding:10px!important; min-height:96px!important; }
+  .picker-result-cover { width:96px!important; height:96px!important; }
+  .picker-result-footer { margin-top:6px!important; }
+}
+
+@media (max-width: 440px) {
+  .picker-result-item { align-items:flex-start!important; flex-wrap:wrap!important; }
+  .picker-result-cover { width:84px!important; height:84px!important; }
+  .picker-result-main { min-width:calc(100% - 96px)!important; }
+  .picker-result-footer { flex-basis:100%!important; }
+}
 
 /* Album/song editing controls. The match status keeps its own semantic color. */
 html[data-theme="dark"] .music-edit-tab-capsule { background:#19192e!important; border:1px solid #464669; }

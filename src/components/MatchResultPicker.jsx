@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { FaTimes } from "react-icons/fa";
+import { FaMusic, FaTimes } from "react-icons/fa";
 import { matchSongCandidates, matchSongCandidateDetails, fetchCoverProxy } from "../services/api";
 
 /* ================================================================
@@ -151,13 +151,14 @@ export default function MatchResultPicker({ song_name, artist_name, file_path, o
             displayed.map((r, i) => (
               <div key={i} className="picker-result-item" style={styles.resultItem}>
                 {/* 封面缩略图（正方形，高度随卡片） */}
-                <div style={styles.coverBox}>
+                <div className="picker-result-cover" style={styles.coverBox}>
+                  <FaMusic aria-hidden="true" style={styles.coverPlaceholderIcon} />
                   {r.cover_url ? (
-                    <img src={r.cover_url} alt="" style={styles.coverImg} onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                    <img src={r.cover_url} alt={`${r.album || r.song_name || "匹配结果"}封面`} style={styles.coverImg} onError={(e) => { e.currentTarget.style.display = "none"; }} />
                   ) : null}
                 </div>
                 {/* 右侧信息 */}
-                <div style={styles.cardMain}>
+                <div className="picker-result-main" style={styles.cardMain}>
                   <div style={styles.titleRow}>
                     <span style={styles.resultTitle}>{r.song_name}</span>
                     {searchMode === "all" && (
@@ -176,7 +177,7 @@ export default function MatchResultPicker({ song_name, artist_name, file_path, o
                   {r.lyricists?.length > 0 && (
                     <div style={styles.creditsLine}>作词：{r.lyricists.join(", ")}</div>
                   )}
-                  <div style={styles.footerRow}>
+                  <div className="picker-result-footer" style={styles.footerRow}>
                     <button className="picker-use-btn" style={styles.useBtn} onClick={() => handlePick(r)}>
                       使用此信息
                     </button>
@@ -307,18 +308,18 @@ const styles = {
   resultItem: {
     display: "flex",
     alignItems: "stretch",
-    gap: "12px",
+    gap: "16px",
     border: "1px solid #e5e7eb",
     borderRadius: "10px",
-    padding: "10px 14px 10px 8px",
+    padding: "12px 16px 12px 12px",
     background: "#fafafa",
+    minHeight: "128px",
   },
   coverBox: {
     position: "relative",
-    width: "auto",
-    height: "auto",
-    aspectRatio: "1 / 1",
-    alignSelf: "stretch",
+    width: "128px",
+    height: "128px",
+    alignSelf: "center",
     borderRadius: "8px",
     overflow: "hidden",
     flexShrink: 0,
@@ -332,8 +333,13 @@ const styles = {
     inset: 0,
     width: "100%",
     height: "100%",
-    objectFit: "contain",
+    objectFit: "cover",
     display: "block",
+  },
+  coverPlaceholderIcon: {
+    width: "28px",
+    height: "28px",
+    color: "#9ca3af",
   },
   cardMain: {
     flex: 1,
@@ -391,7 +397,9 @@ const styles = {
   footerRow: {
     display: "flex",
     justifyContent: "flex-end",
-    marginTop: "6px",
+    alignItems: "flex-end",
+    flex: 1,
+    marginTop: "8px",
   },
   useBtn: {
     padding: "6px 18px",

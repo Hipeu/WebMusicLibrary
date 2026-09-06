@@ -579,6 +579,7 @@ class MusicMatcher:
                 "artist": ar[0].get("name") if ar else None,
                 "album": al.get("name"),
                 "album_artist": ar[0].get("name") if ar else None,
+                "ncm_album_id": al.get("id"),
                 "year": year,
                 "cover_url": cover,
                 "ncm_id": it.get("id"),
@@ -861,8 +862,9 @@ class MusicMatcher:
                 detail_jobs.append(("ncm_lyric", self.ncm_lyric(session, ncm_id)))
             if _f("composer") or _f("lyricist") or _f("arranger") or _f("producer"):
                 detail_jobs.append(("ncm_creators", self.ncm_song_creators(session, ncm_id)))
-            if _f("description"):
-                detail_jobs.append(("ncm_desc", self.ncm_album_description(session, ncm_id)))
+            ncm_album_id = ncm_item.get("ncm_album_id")
+            if _f("description") and ncm_album_id:
+                detail_jobs.append(("ncm_desc", self.ncm_album_description(session, ncm_album_id)))
 
         detail_results = await asyncio.gather(
             *(job for _, job in detail_jobs), return_exceptions=True
