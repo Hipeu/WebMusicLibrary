@@ -4,6 +4,7 @@ import { songPlayable } from "../utils/formatCheck";
 import { getAssetUrl } from "../services/api";
 import { splitArtists, collectAllArtists, albumBelongsToArtist } from "../utils/artistSplit";
 import { videoMatchesSong } from "../utils/videoAssociations";
+import { getPlaylistCoverInfo } from "../utils/playlistStore";
 import useCoverColor from "./CoverColor";
 import ExplicitTitle from "./ExplicitTitle";
 
@@ -60,10 +61,6 @@ function computeSongScore(song, q) {
   return score;
 }
 
-function getPlaylistCover(playlist) {
-  return playlist?.coverURL || playlist?.songs?.[0]?.coverURL || null;
-}
-
 function getArtistCover(artistName, albums, artistRecords) {
   const recordCover = artistRecords?.[artistName]?.cover_url;
   if (recordCover) return getAssetUrl(recordCover);
@@ -71,9 +68,9 @@ function getArtistCover(artistName, albums, artistRecords) {
 }
 
 function SearchPlaylistCard({ item, onClick }) {
-  const cover = getPlaylistCover(item);
+  const { url: cover, revision: coverRevision } = getPlaylistCoverInfo(item);
   const styled = item.id === "liked" || item.id === "recent" || !!item.coverStyle;
-  const palette = useCoverColor(styled && cover ? cover : null);
+  const palette = useCoverColor(styled && cover ? cover : null, coverRevision);
   const swatch = palette?.Vibrant || palette?.Muted || palette?.DarkVibrant || palette?.LightVibrant;
 
   return <div className="search-result-card" onClick={onClick}>

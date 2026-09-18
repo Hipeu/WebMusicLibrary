@@ -36,9 +36,20 @@ export function normalizePlaylists(playlists) {
     }));
 }
 
-/** 播放列表展示封面：优先自定义封面，其次使用列表中的第一张歌曲封面。 */
+/** 播放列表展示封面：优先自定义封面，其次使用第一首有封面的歌曲。 */
+export function getPlaylistCoverInfo(playlist) {
+  if (playlist?.coverURL) {
+    return { url: playlist.coverURL, revision: null };
+  }
+  const song = playlist?.songs?.find((item) => item?.coverURL);
+  return {
+    url: song?.coverURL || null,
+    revision: song?.modification_time || song?.hash || song?.coverURL || null,
+  };
+}
+
 export function getPlaylistCover(playlist) {
-  return playlist?.coverURL || playlist?.songs?.find((song) => song?.coverURL)?.coverURL || null;
+  return getPlaylistCoverInfo(playlist).url;
 }
 
 /** 按新建时间倒序返回播放列表，用于“添加到播放列表”选择器。 */

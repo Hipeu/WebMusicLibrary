@@ -117,7 +117,7 @@ export default function MusicEdit({ target, onClose, onSave, onMatchError, onBac
     if (!target || isAlbum) return;
     const timer = setTimeout(() => setLinkedVideoIds((videos || []).filter((video) => videoMatchesSong(video, data)).map((video) => video.id)), 0);
     return () => clearTimeout(timer);
-  }, [target, isAlbum, data?.file_path, data?.hash, videos]);
+  }, [target, isAlbum, data, videos]);
 
   if (!target) return null;
 
@@ -135,7 +135,7 @@ export default function MusicEdit({ target, onClose, onSave, onMatchError, onBac
     };
   }
 
-  async function handleMatch(selectedAlbum = null) {
+  async function handleMatch(selectedAlbum = null, albumCoverFile = null) {
     if (matching) return;
     setMatching(true);
     setMatchMsg("");
@@ -146,6 +146,7 @@ export default function MusicEdit({ target, onClose, onSave, onMatchError, onBac
         onBackgroundAlbumMatch?.(data, {
           config,
           selectedAlbum,
+          coverFile: albumCoverFile,
         });
         onClose?.();
       } else {
@@ -239,7 +240,7 @@ export default function MusicEdit({ target, onClose, onSave, onMatchError, onBac
     }
     setAlbumDidMatch(true);
     setMatchMsg("已选择专辑版本，正在匹配专辑内歌曲…");
-     handleMatch(c);
+    handleMatch(c, coverFile);
   }
 
   function handleChange(field, value) {

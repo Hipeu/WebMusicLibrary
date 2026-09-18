@@ -5,7 +5,7 @@ import { readMetadata } from "../utils/MetadataReader";
 import { splitArtists, joinArtists, albumBelongsToArtist, collectAllArtists, isPrimaryAlbum } from "../utils/artistSplit";
 import { uploadMusic, restoreMissingMusic, getMusicList, getAssetUrl, deleteMusic, deleteAlbum, checkMusicFiles, updateMusicMetadata, updateAlbumDescription, matchSong, getLyrics, getPlaylists, savePlaylists, resetAll, getResetProgress, openMusicFile, getArtists, saveArtist, deleteArtist, getMatchAllProgress, cancelMatchAll, getSettings, saveAppSettings, getDataJob, getDataExportDownloadUrl, cancelDataJob, startSmartJob, getSmartJob, cancelSmartJob, getSmartProviders, getVideos, uploadVideo, addWebVideo, updateVideo, updateVideoCover, deleteVideo, openVideoFile } from "../services/api";
 import { saveSongToIndex, removeSongFromIndex, loadMusicIndex } from "../utils/musicIndex";
-import { normalizePlaylists, loadPlaylistCache, savePlaylistCache, getPlaylistCover, getRecentPlaylists } from "../utils/playlistStore";
+import { normalizePlaylists, loadPlaylistCache, savePlaylistCache, getPlaylistCover, getPlaylistCoverInfo, getRecentPlaylists } from "../utils/playlistStore";
 import { isUnplayableCodec, songPlayable, isPlaceholderPublisher } from "../utils/formatCheck";
 import { clearPlayCounts } from "../utils/playCount";
 import { normalizeSongRef, primarySongRef, refMatchesSong, videoMatchesSong } from "../utils/videoAssociations";
@@ -47,9 +47,9 @@ function isMusicFile(name) {
 
 /* 播放列表卡片：应用首歌封面 + 取色覆盖 + 右下角标题（不含光晕） */
 function PlaylistCard({ pl, onOpen, onMenu, order }) {
-  const cover = pl.coverURL || pl.songs?.[0]?.coverURL || null;
+  const { url: cover, revision: coverRevision } = getPlaylistCoverInfo(pl);
   const styleEnabled = pl.id === "liked" || pl.id === "recent" || !!pl.coverStyle;
-  const palette = useCoverColor(styleEnabled && cover ? cover : null);
+  const palette = useCoverColor(styleEnabled && cover ? cover : null, coverRevision);
   const themeSwatch = palette?.Vibrant || palette?.Muted || palette?.DarkVibrant || palette?.LightVibrant || null;
   const themeColor = themeSwatch ? themeSwatch.hex : null;
   return (
@@ -2822,7 +2822,7 @@ export default function MusicLibrary() {
 
     // ---------- 后台专辑匹配（用户可关闭编辑器自由浏览） ----------
     // 只跟随编辑弹窗发起时选择的源（config.sources），前后端一致
-    async function runBackgroundAlbumMatch(album, { config, selectedAlbum } = {}) {
+    async function runBackgroundAlbumMatch(album, { config, selectedAlbum, coverFile } = {}) {
       const songs = album?.songs || [];
       if (songs.length === 0) return;
       const cfg = config || {
@@ -2877,6 +2877,7 @@ export default function MusicLibrary() {
                 ...payload,
                 matched: "1",
                 match_source: res.source,
+                ...(coverFile ? { cover: coverFile } : {}),
               });
               if (saveRes?.status === "ok") okCount++;
               else skipCount++;
@@ -3482,7 +3483,15 @@ const isSingleSong = album ? (album.songs || []).length === 1 : false;
           let changed = false;
           const songs = (pl.songs || []).map((s) => {
             const live = s.file_path ? lookup.get(s.file_path) : null;
-            if (live && (s.url !== live.url || s.title !== live.title)) {
+            if (live && (
+              s.url !== live.url
+              || s.title !== live.title
+              || s.artist !== live.artist
+              || s.album !== live.album
+              || s.coverURL !== live.coverURL
+              || s.modification_time !== live.modification_time
+              || s.hash !== live.hash
+            )) {
               changed = true;
               return live;
             }

@@ -47,13 +47,11 @@ export default function AlbumDetail({
   const [showArtistPicker, setShowArtistPicker] = useState(false);
   const descriptionRef = useRef(null);
 
-  const palette = useCoverColor(album?.coverURL || null);
-
-  if (!album) return null;
-
-  const yearText = album.year ? `${album.year}` : "未知年份";
-  const genreText = album.genre || null;
-  const description = typeof album.description === "string" ? album.description.trim() : "";
+  const coverSong = album?.songs?.find((song) => song?.coverURL === album?.coverURL)
+    || album?.songs?.find((song) => song?.coverURL);
+  const coverRevision = coverSong?.modification_time || coverSong?.hash || album?.coverURL || null;
+  const palette = useCoverColor(album?.coverURL || null, coverRevision);
+  const description = typeof album?.description === "string" ? album.description.trim() : "";
 
   useEffect(() => {
     const element = descriptionRef.current;
@@ -66,6 +64,11 @@ export default function AlbumDetail({
     window.addEventListener("resize", measure);
     return () => window.removeEventListener("resize", measure);
   }, [description]);
+
+  if (!album) return null;
+
+  const yearText = album.year ? `${album.year}` : "未知年份";
+  const genreText = album.genre || null;
 
   // 艺人头像：仅当匹配到艺人封面时显示
   const artistAvatarUrl = artistRecords?.[album.artist]?.cover_url

@@ -1,4 +1,4 @@
-import { startTransition, useState, useRef, useEffect } from "react";
+import { startTransition, useState, useRef, useEffect, useMemo } from "react";
 import { FaChevronDown, FaList, FaMusic, FaHeart, FaRegHeart, FaEllipsisH, FaInfoCircle, FaPlus, FaCompactDisc, FaUser, FaRedo, FaRandom, FaExclamationCircle } from "react-icons/fa";
 import Lyrics from "./Lyrics";
 import { parseLRC } from "../utils/LyricsParser";
@@ -81,8 +81,12 @@ export default function MusicPlayer({
   // 当前专辑 & 当前歌曲
   const currentAlbum = albums.find((a) => a.id === currentAlbumId) || null;
   const currentPlaylist = currentPlaylistId ? playlists.find((p) => p.id === currentPlaylistId) : null;
-  const sourceSongs = currentAlbum?.songs || currentPlaylist?.songs || [];
-  const allSongs = [...sourceSongs, ...playQueue];
+  const sourceSongs = useMemo(
+    () => currentAlbum?.songs || currentPlaylist?.songs || [],
+    [currentAlbum?.songs, currentPlaylist?.songs]
+  );
+  const allSongs = useMemo(() => [...sourceSongs, ...playQueue], [sourceSongs, playQueue]);
+  const songCount = allSongs.length;
   const currentSong = currentAlbum?.songs?.[currentSongIndex]
     || currentPlaylist?.songs?.[currentSongIndex]
     || playQueue[currentSongIndex - sourceSongs.length] || null;
@@ -123,6 +127,11 @@ export default function MusicPlayer({
   const isFavorited = !!currentSong && !!playlists?.find((p) => p.id === "liked")?.songs?.some((s) => s.url === currentSong.url);
 
   const [shuffledOrder, setShuffledOrder] = useState([]);
+  const currentSongIndexRef = useRef(currentSongIndex);
+
+  useEffect(() => {
+    currentSongIndexRef.current = currentSongIndex;
+  }, [currentSongIndex]);
 
   const displaySongs = playMode === "shuffle" && shuffledOrder.length > 0
     ? shuffledOrder.map((i) => allSongs[i])
@@ -376,11 +385,14 @@ export default function MusicPlayer({
         })
       );
     }
-}, [currentAlbumId, currentPlaylistId, currentSongIndex, currentSong?.url]);
+}, [currentAlbumId, currentPlaylistId, currentSongIndex, currentSong, isPlaying, audioRef, editRestoreRef, setIsPlaying, setPlaylists]);
 
   // ===== Media Session（Chrome 系统媒体控制部件） =====
-  const mediaHandlersRef = useRef({ togglePlay, prevTrack, nextTrack, isPlaying });
-  mediaHandlersRef.current = { togglePlay, prevTrack, nextTrack, isPlaying };
+  const mediaHandlersRef = useRef(null);
+
+  useEffect(() => {
+    mediaHandlersRef.current = { togglePlay, prevTrack, nextTrack, isPlaying };
+  });
 
   // 更新系统媒体元数据（标题/艺人/专辑/封面）
   useEffect(() => {
@@ -429,16 +441,16 @@ export default function MusicPlayer({
       })
       .catch(() => { if (active) applyMetadata(coverUrl); });
     return () => { active = false; };
-  }, [currentSong?.url, currentSong?.coverURL, displayAlbum?.coverURL, displayAlbum?.title, currentSong?.title, currentSong?.artist, currentSong?.album]);
+  }, [currentSong, currentSong?.url, currentSong?.coverURL, displayAlbum?.coverURL, displayAlbum?.title, displayAlbum?.artist, currentSong?.title, currentSong?.artist, currentSong?.album]);
 
   // 注册系统媒体控制操作（挂载一次，通过 ref 取最新 handler）
   useEffect(() => {
     if (!("mediaSession" in navigator)) return;
     const ms = navigator.mediaSession;
-    ms.setActionHandler("play", () => { if (!mediaHandlersRef.current.isPlaying) mediaHandlersRef.current.togglePlay(); });
-    ms.setActionHandler("pause", () => { if (mediaHandlersRef.current.isPlaying) mediaHandlersRef.current.togglePlay(); });
-    ms.setActionHandler("previoustrack", () => mediaHandlersRef.current.prevTrack());
-    ms.setActionHandler("nexttrack", () => mediaHandlersRef.current.nextTrack());
+    ms.setActionHandler("play", () => { if (mediaHandlersRef.current && !mediaHandlersRef.current.isPlaying) mediaHandlersRef.current.togglePlay(); });
+    ms.setActionHandler("pause", () => { if (mediaHandlersRef.current?.isPlaying) mediaHandlersRef.current.togglePlay(); });
+    ms.setActionHandler("previoustrack", () => mediaHandlersRef.current?.prevTrack());
+    ms.setActionHandler("nexttrack", () => mediaHandlersRef.current?.nextTrack());
     ms.setActionHandler("seekto", (details) => {
       if (audioRef.current && details.seekTime != null) audioRef.current.currentTime = details.seekTime;
     });
@@ -449,7 +461,7 @@ export default function MusicPlayer({
       ms.setActionHandler("nexttrack", null);
       ms.setActionHandler("seekto", null);
     };
-  }, []);
+  }, [audioRef]);
 
   // 同步系统播放状态
   useEffect(() => {
@@ -499,19 +511,20 @@ export default function MusicPlayer({
 
   // 切换播放模式或歌曲源时重置随机顺序
   useEffect(() => {
-    if (playMode !== "shuffle" || allSongs.length === 0) return;
-    const indices = Array.from({ length: allSongs.length }, (_, i) => i);
+    if (playMode !== "shuffle" || songCount === 0) return;
+    const indices = Array.from({ length: songCount }, (_, i) => i);
     for (let i = indices.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [indices[i], indices[j]] = [indices[j], indices[i]];
     }
-    const curIdx = indices.indexOf(currentSongIndex);
+    const activeSongIndex = currentSongIndexRef.current;
+    const curIdx = indices.indexOf(activeSongIndex);
     if (curIdx > 0) {
       indices.splice(curIdx, 1);
-      indices.unshift(currentSongIndex);
+      indices.unshift(activeSongIndex);
     }
     startTransition(() => setShuffledOrder(indices));
-  }, [playMode, currentAlbumId, currentPlaylistId, sourceSongs.length]);
+  }, [playMode, currentAlbumId, currentPlaylistId, sourceSongs.length, songCount]);
 
   // 自动跳过不可播放的歌曲（连续播放时遇到 ALAC 等格式自动切到下一首可播放的）
   useEffect(() => {
@@ -526,7 +539,7 @@ export default function MusicPlayer({
     }
     setIsPlaying(false);
     setCurrentTime(0);
-  }, [currentSongIndex, currentSong?.url]);
+  }, [currentSong, currentSongIndex, allSongs, setCurrentSongIndex, setIsPlaying, setCurrentTime]);
 
     // 点击菜单外关闭
   useEffect(() => {

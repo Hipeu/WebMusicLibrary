@@ -6,7 +6,7 @@ import useCoverColor from "../components/CoverColor";
 import AlbumDescriptionModal from "../components/AlbumDescriptionModal";
 import RelatedVideos from "../components/RelatedVideos";
 import ExplicitTitle from "../components/ExplicitTitle";
-import { getPlaylistCover, getRecentPlaylists } from "../utils/playlistStore";
+import { getPlaylistCover, getPlaylistCoverInfo, getRecentPlaylists } from "../utils/playlistStore";
 
 /* ================================================================
    📋 PlaylistDetail — 播放列表详情页
@@ -57,12 +57,11 @@ export default function PlaylistDetail({
   // ---------- 获取播放列表的歌曲 ----------
   const songs = playlist?.songs || [];
 
-  // 封面：优先 playlist.coverURL，否则用第一首歌封面
-  const firstSongCover = songs[0]?.coverURL || null;
-  const coverSrc = playlist?.coverURL || firstSongCover || null;
+  // 封面：优先自定义封面，否则使用第一首有封面的歌曲。
+  const { url: coverSrc, revision: coverRevision } = getPlaylistCoverInfo(playlist);
   // liked/recent 始终启用封面样式；其他播放列表由 coverStyle 开关控制
   const coverStyleEnabled = playlist?.id === "liked" || playlist?.id === "recent" || !!playlist?.coverStyle;
-  const palette = useCoverColor(coverSrc || null);
+  const palette = useCoverColor(coverSrc || null, coverRevision);
   const themeSwatch = palette?.Vibrant || palette?.Muted || palette?.DarkVibrant || palette?.LightVibrant || null;
   const themeColor = themeSwatch ? themeSwatch.hex : null;
   const coverGlowStyle = themeColor ? { background: themeColor, filter: "blur(60px)" } : {};
